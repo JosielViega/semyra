@@ -1,0 +1,23 @@
+:root {
+    color-scheme: light;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #172033;
+    background: #f4f7fb;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; line-height: 1.6; }
+.site-header { display: flex; gap: 1rem; padding: 1rem max(1rem, calc((100% - 960px) / 2)); background: #172033; }
+.site-header a { color: #fff; text-decoration: none; }
+.container { width: min(960px, calc(100% - 2rem)); margin: 3rem auto; }
+.hero { margin-bottom: 2rem; }
+.eyebrow { color: #4763d3; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.card { padding: 1.5rem; border: 1px solid #dce3ef; border-radius: .75rem; background: #fff; box-shadow: 0 .5rem 1.5rem rgb(23 32 51 / 8%); }
+form { display: grid; gap: .75rem; max-width: 34rem; }
+input, button { font: inherit; padding: .7rem .8rem; border-radius: .4rem; }
+input { border: 1px solid #aab5c8; }
+button { width: fit-content; border: 0; color: #fff; background: #4763d3; cursor: pointer; }
+.flash { padding: .8rem 1rem; border-radius: .4rem; }
+.flash-success { color: #14532d; background: #dcfce7; }
+.flash-error { color: #7f1d1d; background: #fee2e2; }
+code { overflow-wrap: anywhere; }

@@ -1,0 +1,15 @@
+# Merge these application rules into the server's existing .htaccess.
+# Never replace cPanel/HostGator rules automatically.
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+<FilesMatch "^\.(env|git)">
+    Require all denied
+</FilesMatch>
