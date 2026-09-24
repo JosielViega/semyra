@@ -1,30 +1,41 @@
-# Modelo PHP
+# Semyra
 
-Starter reutilizável para aplicações web tradicionais em PHP. Ele oferece uma base pequena, organizada e segura sem framework, ORM, Node.js ou Docker obrigatório. O código privilegia responsabilidades explícitas e é adequado a Apache, MySQL/MariaDB e hospedagem compartilhada.
+**Assista junto.**
+
+Semyra será uma plataforma para amigos criarem salas virtuais e assistirem conteúdos juntos, mesmo à distância. O primeiro MVP usará uma Live existente do YouTube incorporada a uma sala compartilhável. O desenvolvimento é incremental: nesta etapa, o projeto possui a base estrutural e a identidade inicial, mas ainda não cria salas, não incorpora o YouTube Player e não gerencia participantes.
+
+## Estado atual
+
+- base estrutural PHP pronta;
+- identidade inicial do Semyra aplicada;
+- infraestrutura de rotas, controllers, views, PDO, validação, sessões, CSRF, logs, migrations, testes e CI disponível;
+- `GET /health` disponível como health check simples;
+- criação de salas ainda não implementada;
+- YouTube Player ainda não implementado;
+- participantes ainda não implementados.
 
 ## Stack
 
-- PHP 8.2 ou superior, PDO MySQL e Composer 2
-- MySQL 8+ ou MariaDB compatível
-- Apache com `mod_rewrite` e `.htaccess`
-- HTML5, CSS3 e JavaScript puro
+- PHP 8.2 ou superior, PDO MySQL e Composer 2;
+- MySQL 8+ ou MariaDB compatível;
+- Apache com `mod_rewrite` e `.htaccess`;
+- HTML5, CSS3 e JavaScript puro;
+- PHPUnit para testes.
 
-## Composer
-
-Composer é obrigatório desde o primeiro dia. Há um único `vendor/` na raiz, ignorado pelo Git, e o namespace `App\` usa PSR-4 em `app/`. As dependências são `vlucas/phpdotenv` em produção e PHPUnit em desenvolvimento.
+O projeto não usa framework PHP, ORM, framework JavaScript ou etapa de build frontend.
 
 ## Instalação
 
 ```bash
-git clone https://github.com/JosielViega/modeloPHP.git
-cd modeloPHP
+git clone https://github.com/JosielViega/semyra.git
+cd semyra
 composer install
 composer setup
 ```
 
-`composer setup` cria `.env` a partir do exemplo somente quando ele não existe, escolhe uma porta local livre e não reservada por outro projeto, grava a reserva local e atualiza o autoload. Um `.env` existente é preservado; quando necessário, somente `APP_PORT` e uma `APP_URL` local podem ser ajustados.
+`composer setup` cria `.env` a partir de `.env.example` somente quando ele não existe, escolhe uma porta local livre e não reservada por outro projeto, grava a reserva local e atualiza o autoload. Um `.env` existente é preservado; quando necessário, somente `APP_PORT` e uma `APP_URL` local podem ser ajustados.
 
-Também é possível criar o arquivo local de ambiente manualmente:
+Também é possível criar o ambiente manualmente:
 
 ```powershell
 copy .env.example .env
@@ -36,63 +47,55 @@ No Linux/macOS:
 cp .env.example .env
 ```
 
-Preencha as configurações locais. Regenere o autoload quando criar classes:
+Preencha as configurações locais. O `.env` nunca deve ser versionado. Ao criar classes, regenere o autoload:
 
 ```bash
 composer dump-autoload
 ```
 
-O `.env` contém valores locais e nunca deve ser versionado.
-
 ## Porta local
 
-Cada projeto recebe uma porta própria. O setup combina duas proteções: a porta não pode estar reservada para outro projeto desligado nem ocupada por um listener ativo. As reservas ficam somente na máquina local em `~/.modeloPHP/ports.json` (no Windows, dentro do perfil do usuário).
+Cada projeto recebe uma porta própria. O setup exige que a porta não esteja reservada para outro projeto nem ocupada por um listener. As reservas continuam no registro técnico compartilhado entre projetos derivados da mesma base: `~/.modeloPHP/ports.json` (no Windows, dentro do perfil do usuário).
 
 ```env
 APP_URL=http://localhost:8010
 APP_PORT=8010
 ```
 
-`composer serve` valida a faixa, confere divergências com o registro e testa o listener antes de iniciar. Se estiver ocupada, o comando termina sem encerrar o processo existente. Consulte [desenvolvimento local](docs/LOCAL_DEVELOPMENT.md).
+`composer serve` valida a faixa, confere divergências com o registro e testa o listener. Se a porta estiver ocupada, o comando termina sem encerrar o processo existente. Consulte [desenvolvimento local](docs/LOCAL_DEVELOPMENT.md).
 
-## Iniciar a aplicação
+## Executar a aplicação
 
 ```bash
 composer serve
 ```
 
-Acesse o endereço mostrado pelo comando. O servidor embutido é apenas uma conveniência local; Apache é o ambiente esperado em produção.
+Acesse o endereço informado pelo comando. O servidor embutido é uma conveniência local; Apache é o ambiente esperado em produção.
 
-## Comandos de qualidade
+## Comandos do projeto
 
 ```bash
 composer test
 composer lint
 composer check
+composer migrate
 composer port:status
 composer port:release
-```
-
-`port:status` mostra somente a reserva e configuração do projeto atual. `port:release` libera somente sua reserva, sem alterar `.env` ou processos.
-
-`composer check` executa `composer validate --strict`, valida a sintaxe dos arquivos PHP próprios e roda os testes. Para migrations SQL:
-
-```bash
-composer migrate
-```
-
-Para gerar uma pasta local pronta para atualização manual em hospedagem compartilhada:
-
-```bash
 composer deploy:hostgator
 ```
 
-O mirror gerado fica em `deploy/hostgator/mirror/`, fora do Git. Consulte [deploy para HostGator/cPanel](deploy/hostgator/README.md).
+- `test` executa a suíte PHPUnit;
+- `lint` valida a sintaxe dos arquivos PHP próprios;
+- `check` executa `composer validate --strict`, lint e testes;
+- `migrate` cria a tabela de controle e executa migrations SQL pendentes;
+- `port:status` exibe a reserva e a configuração do projeto atual;
+- `port:release` libera apenas a reserva deste projeto, sem alterar `.env` ou processos;
+- `deploy:hostgator` valida o projeto e gera `deploy/hostgator/mirror/`, fora do Git.
 
 ## Estrutura
 
 ```text
-app/                 Núcleo, controllers e código do domínio
+app/                 Núcleo, controllers e futuro código de domínio
 bootstrap/app.php    Composição e inicialização da aplicação
 config/              Configuração derivada do ambiente
 database/            Migrations SQL e seeds opcionais
@@ -102,59 +105,52 @@ resources/views/     Layouts, componentes e páginas PHP
 routes/web.php       Rotas HTTP explícitas
 storage/             Cache e logs locais
 tests/               Testes unitários sem banco externo
-bin/                 Comandos pequenos do projeto
+bin/                 Comandos operacionais do projeto
 deploy/hostgator/     Manifesto e documentação do mirror de produção
 ```
 
-## Estudar o projeto
+Para compreender a base técnica e revisar seus fluxos, consulte o [plano de estudo e revisão](docs/PLANO_DE_ESTUDO_E_REVISAO.md), herdado da estrutura inicial.
 
-Para compreender a arquitetura, seguir os fluxos reais e revisar segurança, testes, operação local e deploy, use o [Plano de estudo e revisão](docs/PLANO_DE_ESTUDO_E_REVISAO.md).
+## Rotas atuais
 
-## Rotas
+- `GET /` — página inicial do Semyra e prévia visual, não funcional, da futura criação de sala;
+- `GET /health` — retorna `{"status":"ok"}` sem detalhes internos;
+- demais caminhos — página 404 com status correto.
 
-As rotas ficam em `routes/web.php`:
+As rotas ficam em `routes/web.php`. O Router também está preparado para rotas parametrizadas e para PUT, PATCH e DELETE por `_method` em um POST, embora o Semyra ainda não utilize esses fluxos.
 
-```php
-$router->get('/users/{id}', [$userController, 'show']);
-$router->post('/users', [$userController, 'store']);
-```
+## Controllers, views e domínio
 
-GET e POST são demonstrados. PUT, PATCH e DELETE estão preparados por `_method` em um POST. A rota inexistente responde com página e status 404.
-
-## Controllers e views
-
-Controllers recebem a requisição, validam entradas, chamam serviços ou repositories quando necessários e escolhem uma `Response`. HTML extenso fica em `resources/views`; valores dinâmicos são impressos com `e()`.
+Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Response`. HTML extenso fica em `resources/views`; valores dinâmicos devem ser impressos com `e()`:
 
 ```php
 <h1><?= e($title) ?></h1>
 ```
 
-O fluxo inicial demonstra `Router → HomeController → View → Layout`. O POST em `/example` demonstra Request, Validator, CSRF, flash e redirect HTTP sem salvar dados.
+Repositories devem concentrar consultas SQL explícitas de um assunto do domínio. Services só devem existir quando houver regra de negócio ou integração que justifique a camada. Models podem ser objetos simples; não há ORM.
 
-## Repositories e services
-
-Crie um repository por assunto do domínio e mantenha SQL nele, por exemplo `UserRepository::findById()`. Não crie acesso genérico a tabelas arbitrárias. Services são opcionais e só devem existir quando coordenarem regra de negócio ou integração real. Models podem ser objetos simples; este projeto não inclui ORM.
+Nenhuma classe, migration ou tabela de negócio de salas, participantes, usuários ou vídeos existe nesta etapa.
 
 ## Banco e migrations
 
 `App\Core\Database` cria PDO sob demanda com exceptions, fetch associativo, prepared statements nativos e `utf8mb4`. As credenciais vêm exclusivamente do ambiente.
 
-Adicione SQL versionado a `database/migrations/` com nomes ordenáveis. `composer migrate` cria a tabela de controle e executa cada arquivo ainda não registrado uma única vez. Não há migration de negócio no template. Faça backup e teste alterações de schema antes de produção.
+Adicione migrations SQL versionadas a `database/migrations/` com nomes ordenáveis. `composer migrate` executa cada arquivo ainda não registrado uma única vez. Faça backup e teste alterações de schema antes de produção.
 
 ## Segurança
 
 - secrets somente no `.env`, nunca no Git;
-- prepared statements e proibição de concatenar input em SQL;
+- prepared statements, sem concatenar input em SQL;
 - escape HTML com `e()`;
-- CSRF baseado em token de sessão e `hash_equals()`;
+- CSRF em toda ação que muda estado;
 - cookies HttpOnly, SameSite=Lax, modo estrito e Secure configurável;
 - mensagens genéricas em produção e detalhes nos logs;
 - uploads ignorados e execução de PHP bloqueada em `public/uploads`;
-- redirects HTTP, validação no backend e ações mutáveis fora de GET.
+- validação no backend e ações mutáveis fora de GET.
 
 Leia a política completa em [docs/SECURITY.md](docs/SECURITY.md).
 
-## Produção
+## Produção e HostGator
 
 Use pelo menos:
 
@@ -164,21 +160,15 @@ APP_DEBUG=false
 SESSION_SECURE=true
 ```
 
-Instale dependências com `composer install --no-dev --classmap-authoritative`, conceda escrita apenas a `storage/` e diretórios de upload necessários, configure HTTPS e aponte o Document Root para `public/`.
+Instale dependências com `composer install --no-dev --classmap-authoritative`, conceda escrita apenas a `storage/` e aos diretórios de upload necessários, configure HTTPS e aponte o Document Root para `public/`.
 
-## Apache, cPanel e hospedagem compartilhada
+Quando a hospedagem não permitir alterar o Document Root, mantenha o projeto fora de `public_html`, copie apenas o conteúdo público para a área servida e ajuste o front controller para a localização privada real. Não exponha `.env`, `vendor` ou código interno.
 
-No cenário ideal, configure o domínio/subdomínio para a pasta `public/`. Mantenha `app`, `bootstrap`, `config`, `database`, `storage`, `tests` e `vendor` fora do diretório servido.
+`composer deploy:hostgator` gera um mirror com dependências de produção. Ele não inclui `.env`, `.htaccess`, configurações PHP do servidor, uploads, logs ou cache; também não envia arquivos, remove conteúdo remoto ou executa migrations. Consulte o [guia de deploy HostGator/cPanel](deploy/hostgator/README.md).
 
-Quando o provedor não permitir alterar o Document Root, mantenha o projeto fora de `public_html`, copie apenas o conteúdo de `public/` para `public_html` e ajuste os caminhos do front controller para a localização privada real. Não copie `.env`, `vendor` ou código interno para uma área publicamente acessível. Confirme com o provedor o caminho absoluto, suporte a PHP 8.2+, Composer, `mod_rewrite` e regras `.htaccess`; não adicione handlers PHP específicos do cPanel ao template.
+## Documentação técnica
 
-O comando `composer deploy:hostgator` gera um mirror de atualização com `vendor` de produção. Ele nunca inclui `.env`, `.htaccess`, configurações PHP do servidor, uploads, logs ou cache, e nunca envia ou apaga arquivos remotos. As regras Apache de exemplo devem ser mescladas manualmente na primeira instalação. Migrations também permanecem uma etapa separada.
-
-## Rotas incluídas
-
-- `GET /` — página inicial e formulário demonstrativo
-- `POST /example` — pipeline protegido, sem persistência
-- `GET /health` — `{"status":"ok"}` sem detalhes internos
-- demais caminhos — página 404 com status correto
-
-Veja também [arquitetura](docs/ARCHITECTURE.md), [segurança](docs/SECURITY.md) e [desenvolvimento local](docs/LOCAL_DEVELOPMENT.md).
+- [Arquitetura](docs/ARCHITECTURE.md)
+- [Desenvolvimento local](docs/LOCAL_DEVELOPMENT.md)
+- [Segurança](docs/SECURITY.md)
+- [Deploy HostGator/cPanel](deploy/hostgator/README.md)

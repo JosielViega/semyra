@@ -3,28 +3,22 @@
 declare(strict_types=1);
 
 /** @var string $appName */
-/** @var string $csrfField */
-/** @var array $flashes */
 ?>
 <section class="hero">
-    <p class="eyebrow">Reusable PHP starter</p>
+    <p class="eyebrow">Assista junto.</p>
     <h1><?= e($appName) ?></h1>
-    <p>A small foundation with routing, controllers, views, PDO, validation, sessions, CSRF, logs, migrations, tests, and CI.</p>
+    <p class="hero-copy">Crie uma sala e assista com seus amigos, mesmo à distância.</p>
 </section>
 
-<?php foreach ($flashes as $type => $messages): ?>
-    <?php foreach ($messages as $message): ?>
-        <p class="flash flash-<?= e($type) ?>" role="status"><?= e($message) ?></p>
-    <?php endforeach; ?>
-<?php endforeach; ?>
-
-<section class="card">
-    <h2>Protected POST example</h2>
-    <p>This disposable example demonstrates Request → validation → CSRF → flash → HTTP redirect. It stores no business data.</p>
-    <form action="/example" method="post">
-        <?= $csrfField ?>
-        <label for="message">Short message</label>
-        <input id="message" name="message" type="text" minlength="2" maxlength="120" required>
-        <button type="submit">Submit example</button>
-    </form>
+<section class="room-preview" aria-labelledby="room-preview-title">
+    <div>
+        <p class="eyebrow">Em breve</p>
+        <h2 id="room-preview-title">Sua próxima sessão começa aqui</h2>
+        <p>A criação de salas será habilitada na próxima etapa.</p>
+    </div>
+    <div class="room-preview-controls" aria-label="Prévia da criação de sala">
+        <label for="youtube-url">URL da Live do YouTube</label>
+        <input id="youtube-url" type="url" placeholder="https://www.youtube.com/watch?v=..." disabled>
+        <button type="button" disabled>Criar sala</button>
+    </div>
 </section>

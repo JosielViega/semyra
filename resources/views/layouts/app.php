@@ -6,18 +6,18 @@ declare(strict_types=1);
 /** @var string $title */
 ?>
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= e($title ?? 'Modelo PHP') ?></title>
+    <title><?= e($title ?? 'Semyra') ?></title>
     <link rel="stylesheet" href="/assets/css/app.css">
     <script src="/assets/js/app.js" defer></script>
 </head>
 <body>
     <header class="site-header">
-        <a href="/">Modelo PHP</a>
-        <a href="/health">Health</a>
+        <a class="brand" href="/">Semyra</a>
+        <a class="health-link" href="/health">Status</a>
     </header>
     <main class="container">
         <?= $content ?>

@@ -65,7 +65,7 @@ Os exemplos em `server-config-examples/` ficam fora do mirror e não se chamam `
 9. Execute migrations separadamente e de forma consciente, com backup disponível.
 10. Teste home, health check, erros, sessão e escrita em log.
 
-Não há caminho absoluto de conta embutido no template.
+Não há caminho absoluto de conta embutido no projeto.
 
 ## Atualizações futuras
 

@@ -1,6 +1,6 @@
 {
-    "name": "josielviega/modelo-php",
-    "description": "Starter PHP moderno, simples e seguro para aplicações web tradicionais.",
+    "name": "josielviega/semyra",
+    "description": "Semyra — plataforma para assistir conteúdos com amigos à distância.",
     "type": "project",
     "license": "MIT",
     "require": {
