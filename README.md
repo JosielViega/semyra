@@ -2,20 +2,22 @@
 
 **Assista junto.**
 
-Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e assistirem conteúdos juntos, mesmo à distância. O primeiro MVP usa a URL de um vídeo ou Live existente do YouTube para criar uma sala compartilhável. O desenvolvimento é incremental: nesta etapa, a sala é criada e persistida, mas o conteúdo ainda não é reproduzido.
+Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e assistirem conteúdos juntos, mesmo à distância. O primeiro MVP usa a URL de um vídeo ou Live existente do YouTube para criar uma sala compartilhável e reproduzir o conteúdo na própria página da sala.
 
 ## Estado atual
 
 - criação de sala por URL de vídeo ou Live do YouTube;
 - validação local da estrutura da URL e extração do video ID;
 - geração segura de código público e persistência da sala no MySQL/MariaDB;
-- página básica acessível por `GET /room/{code}`;
+- página acessível por `GET /room/{code}` com YouTube Player responsivo;
+- reprodução pela YouTube IFrame Player API, iniciada somente por interação do usuário;
+- controles nativos do YouTube e tratamento visual de erros básicos de incorporação;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
-- YouTube Player ainda não implementado;
-- verificação online da existência ou do estado da Live ainda não implementada;
-- participantes ainda não implementados.
+- verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
+- participantes ainda não implementados;
 - convite/cópia de link, sincronização, chat e autenticação ainda não implementados.
+- controle remoto do player ainda não implementado.
 
 ## Stack
 
@@ -118,7 +120,7 @@ Para compreender a base técnica e revisar seus fluxos, consulte o [plano de est
 
 - `GET /` — formulário para criar uma sala com uma URL suportada do YouTube;
 - `POST /rooms` — valida a URL, gera o código e persiste a nova sala;
-- `GET /room/{code}` — exibe a página básica de uma sala existente;
+- `GET /room/{code}` — exibe uma sala existente e carrega seu conteúdo no YouTube Player;
 - `GET /health` — retorna `{"status":"ok"}` sem detalhes internos;
 - demais caminhos — página 404 com status correto.
 
@@ -132,9 +134,9 @@ Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Respon
 <h1><?= e($title) ?></h1>
 ```
 
-`RoomController` coordena a criação e consulta de salas. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado do domínio. Não há ORM.
+`RoomController` coordena a criação e consulta de salas. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado do domínio. Na sala, `room-player.js` recebe somente o `youtube_video_id` escapado pela view e cria o player pela IFrame Player API. Não há ORM.
 
-Não existem participantes, usuários, autenticação, reprodução ou sincronização nesta etapa.
+Não existem participantes, usuários, autenticação, convite/cópia, sincronização, controle remoto ou chat nesta etapa. O player não inicia automaticamente e utiliza os controles nativos do YouTube.
 
 ## Banco e migrations
 

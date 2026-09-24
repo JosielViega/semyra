@@ -94,8 +94,14 @@ RoomController
     ↓
 RoomRepository
     ↓
-View
+room.php
+    ↓
+room-player.js
+    ↓
+YouTube IFrame Player API
 ```
+
+O frontend recebe somente o `youtube_video_id` persistido, por meio de um atributo HTML escapado. O JavaScript específico da sala carrega a API externamente e cria o player; a URL original e o ID interno do banco não são expostos para essa integração.
 
 ## Ferramentas de infraestrutura
 
