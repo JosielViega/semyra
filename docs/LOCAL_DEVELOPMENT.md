@@ -100,3 +100,47 @@ composer port:release
 ## Vários projetos
 
 Execute `composer setup` em cada cópia. Um projeto já registrado preserva sua porta enquanto ela não possui listener; se estiver ocupada, o setup seleciona e registra outra de forma conservadora. Apache permanece a referência para produção: o registro e `APP_PORT` não participam de decisões do deploy HostGator.
+
+## MySQL local com Docker Compose
+
+O Docker é usado apenas para o MySQL 8.4 local. PHP, Composer e o servidor de desenvolvimento continuam rodando diretamente no host. A produção HostGator não depende de Docker.
+
+Crie um `.env.docker` local, que é ignorado pelo Git, sem reutilizar credenciais de produção:
+
+```env
+SEMYRA_DB_PORT=3306
+SEMYRA_DB_DATABASE=semyra
+SEMYRA_DB_USERNAME=semyra_app
+SEMYRA_DB_PASSWORD=<senha-local-forte>
+SEMYRA_DB_ROOT_PASSWORD=<outra-senha-local-forte>
+```
+
+Configure o `.env` do PHP com a mesma porta, database, usuário e senha da aplicação:
+
+```env
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=semyra
+DB_USERNAME=semyra_app
+DB_PASSWORD=<mesma-senha-local-da-aplicacao>
+DB_CHARSET=utf8mb4
+```
+
+Se a porta 3306 já estiver ocupada, escolha outra porta livre em `SEMYRA_DB_PORT` e `DB_PORT`. A porta interna do container permanece 3306. Não encerre processos existentes para liberar a porta.
+
+Comandos básicos:
+
+```bash
+docker compose --env-file .env.docker up -d mysql
+docker compose --env-file .env.docker ps
+docker compose --env-file .env.docker stop mysql
+docker compose --env-file .env.docker start mysql
+docker compose --env-file .env.docker down
+```
+
+`down` remove o container e a network, mas preserva o volume nomeado. Não use `down -v` se quiser manter os dados. Depois que o health check indicar que o MySQL está saudável, execute:
+
+```bash
+composer migrate
+composer serve
+```

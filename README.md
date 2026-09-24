@@ -58,6 +58,19 @@ Preencha as configurações locais. O `.env` nunca deve ser versionado. Ao criar
 composer dump-autoload
 ```
 
+### MySQL local com Docker
+
+O Docker Compose é usado somente para executar o MySQL 8.4 no desenvolvimento local. PHP e Composer continuam sendo executados diretamente no host, e a produção HostGator não utiliza Docker.
+
+Crie o arquivo local ignorado `.env.docker` com as variáveis descritas em [desenvolvimento local](docs/LOCAL_DEVELOPMENT.md), configure as mesmas credenciais de aplicação no `.env` do PHP e execute:
+
+```bash
+docker compose --env-file .env.docker up -d mysql
+docker compose --env-file .env.docker ps
+```
+
+Depois que o banco estiver saudável, execute `composer migrate`. Os comandos para parar, reiniciar e remover o container sem apagar o volume também estão no guia de desenvolvimento local.
+
 ## Porta local
 
 Cada projeto recebe uma porta própria. O setup exige que a porta não esteja reservada para outro projeto nem ocupada por um listener. As reservas continuam no registro técnico compartilhado entre projetos derivados da mesma base: `~/.modeloPHP/ports.json` (no Windows, dentro do perfil do usuário).

@@ -1,0 +1,29 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: semyra-mysql
+    restart: unless-stopped
+
+    ports:
+      - "${SEMYRA_DB_PORT:-3306}:3306"
+
+    environment:
+      MYSQL_DATABASE: ${SEMYRA_DB_DATABASE:-semyra}
+      MYSQL_USER: ${SEMYRA_DB_USERNAME:-semyra_app}
+      MYSQL_PASSWORD: ${SEMYRA_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${SEMYRA_DB_ROOT_PASSWORD}
+
+    volumes:
+      - semyra_mysql_data:/var/lib/mysql
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  semyra_mysql_data:
