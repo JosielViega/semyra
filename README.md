@@ -12,11 +12,12 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - página acessível por `GET /room/{code}` com YouTube Player responsivo;
 - reprodução pela YouTube IFrame Player API, iniciada somente por interação do usuário;
 - controles nativos do YouTube e tratamento visual de erros básicos de incorporação;
+- compartilhamento da sala pela própria URL pública, com cópia automática quando a Clipboard API está disponível e seleção manual como fallback;
+- Web Share API como melhoria progressiva em navegadores compatíveis;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
-- participantes ainda não implementados;
-- convite/cópia de link, sincronização, chat e autenticação ainda não implementados.
+- participantes, presença, sincronização, chat e autenticação ainda não implementados;
 - controle remoto do player ainda não implementado.
 
 ## Stack
@@ -147,9 +148,9 @@ Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Respon
 <h1><?= e($title) ?></h1>
 ```
 
-`RoomController` coordena a criação e consulta de salas. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado do domínio. Na sala, `room-player.js` recebe somente o `youtube_video_id` escapado pela view e cria o player pela IFrame Player API. Não há ORM.
+`RoomController` coordena a criação e consulta de salas. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado do domínio. Na sala, `room-player.js` recebe somente o `youtube_video_id` escapado pela view e cria o player pela IFrame Player API. `room-share.js` deriva a URL pública da página atual, oferece cópia pelo Clipboard com fallback manual e revela o compartilhamento nativo apenas quando a Web Share API existe. Não há ORM.
 
-Não existem participantes, usuários, autenticação, convite/cópia, sincronização, controle remoto ou chat nesta etapa. O player não inicia automaticamente e utiliza os controles nativos do YouTube.
+Não existem participantes, presença, usuários, autenticação, sincronização, controle remoto ou chat nesta etapa. O player não inicia automaticamente e utiliza os controles nativos do YouTube.
 
 ## Banco e migrations
 

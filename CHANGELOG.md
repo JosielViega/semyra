@@ -16,6 +16,9 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 - Página inicial funcional para criar salas e página básica para consultar uma sala.
 - Reprodução de vídeo ou Live dentro da sala usando a YouTube IFrame Player API.
 - Player responsivo com controles nativos e tratamento básico de erros de incorporação.
+- Compartilhamento de salas pela própria URL pública.
+- Cópia do link com Clipboard API e fallback por seleção manual.
+- Compartilhamento nativo progressivo através da Web Share API.
 
 ### Removed
 

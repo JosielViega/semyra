@@ -103,6 +103,18 @@ YouTube IFrame Player API
 
 O frontend recebe somente o `youtube_video_id` persistido, por meio de um atributo HTML escapado. O JavaScript específico da sala carrega a API externamente e cria o player; a URL original e o ID interno do banco não são expostos para essa integração.
 
+O compartilhamento permanece exclusivamente no frontend e reutiliza a rota pública existente:
+
+```text
+room.php
+    ↓
+room-share.js
+    ↓
+Clipboard API / Web Share API
+```
+
+`room-share.js` recebe somente o código público escapado para compor o título de compartilhamento. A URL é derivada de `window.location` como `/room/{code}`, sem query string ou fragment, e não é armazenada nem enviada a um endpoint próprio. A Clipboard API é opcional, com seleção manual do campo como fallback; a Web Share API é uma melhoria progressiva.
+
 ## Ferramentas de infraestrutura
 
 Os scripts em `bin/`, herdados da base técnica inicial, não fazem parte do fluxo HTTP nem das regras de negócio. `composer setup` prepara uma cópia local conservadoramente. `composer deploy:hostgator` gera, a partir de uma allowlist versionada, um espelho descartável de produção. O espelho nunca se torna uma segunda fonte de código.

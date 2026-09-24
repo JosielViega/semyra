@@ -40,9 +40,19 @@ button:hover { background: #5445c7; }
 .youtube-player-shell iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .youtube-player-status { margin: .75rem 0 0; color: #596176; font-size: .925rem; }
 .youtube-player-status-error { color: #991b1b; }
+.room-share { margin-top: 2rem; padding: clamp(1.25rem, 4vw, 1.75rem); border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); box-shadow: 0 .5rem 1.5rem rgb(23 32 51 / 8%); }
+.room-share h2 { margin: 0 0 .35rem; line-height: 1.2; }
+.room-share p { margin: 0 0 1rem; color: #596176; }
+.room-share label { display: block; margin-bottom: .4rem; font-weight: 700; }
+.room-share-url { overflow: hidden; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.room-share-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .9rem; }
+.room-share-actions button { flex: 1 1 10rem; }
+.room-share .room-share-status { min-height: 1.5em; margin: .75rem 0 0; font-size: .925rem; }
 code { overflow-wrap: anywhere; }
 
 @media (max-width: 700px) {
     .container { margin-top: 2.5rem; }
     .room-preview { grid-template-columns: 1fr; gap: 1.25rem; }
+    .room-share-actions { display: grid; }
+    .room-share-actions button { width: 100%; }
 }
