@@ -25,10 +25,20 @@ body { min-height: 100vh; margin: 0; line-height: 1.6; }
 .room-preview-controls { display: grid; align-content: center; gap: .75rem; }
 .room-preview-controls label { font-weight: 700; }
 input, button { min-height: 3rem; padding: .7rem .9rem; border-radius: .55rem; font: inherit; }
-input { width: 100%; border: 1px solid #aab5c8; color: #687087; background: #f7f8fc; }
+input { width: 100%; border: 1px solid #aab5c8; color: #172033; background: #fff; }
 button { border: 0; color: #fff; font-weight: 700; background: var(--brand); }
-input:disabled, button:disabled { cursor: not-allowed; opacity: .65; }
+button { cursor: pointer; }
+button:hover { background: #5445c7; }
+.flash { margin: 0 0 1.5rem; padding: .8rem 1rem; border-radius: .55rem; }
+.flash-error { color: #7f1d1d; border: 1px solid #fecaca; background: #fee2e2; }
 .card { padding: 1.5rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface); box-shadow: 0 .5rem 1.5rem rgb(23 32 51 / 8%); }
+.room-page { max-width: 46rem; }
+.room-page h1 { margin: .25rem 0 2.5rem; font-size: clamp(2.75rem, 8vw, 4.5rem); line-height: 1; letter-spacing: -.05em; }
+.room-code-label { margin: 0 0 .35rem; color: #596176; font-weight: 700; }
+.room-code { margin: 0 0 2rem; color: var(--brand); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: clamp(2rem, 8vw, 3.5rem); font-weight: 800; letter-spacing: .12em; }
+.player-placeholder { padding: clamp(1.5rem, 4vw, 2.5rem); border: 1px dashed #aab5c8; border-radius: 1rem; background: var(--surface); }
+.player-placeholder h2 { margin-top: 0; }
+.player-placeholder p { margin-bottom: 0; color: #596176; }
 code { overflow-wrap: anywhere; }
 
 @media (max-width: 700px) {

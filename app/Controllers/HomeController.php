@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Core\Csrf;
 use App\Core\Response;
+use App\Core\Session;
 use App\Core\View;
 
 final class HomeController
 {
     public function __construct(
         private readonly View $view,
+        private readonly Session $session,
+        private readonly Csrf $csrf,
         private readonly array $appConfig,
     ) {
     }
@@ -20,6 +24,8 @@ final class HomeController
         return Response::html($this->view->render('pages/home', [
             'title' => 'Semyra — Assista junto.',
             'appName' => $this->appConfig['name'],
+            'csrfField' => $this->csrf->field(),
+            'flashes' => $this->session->consumeFlash(),
         ]));
     }
 }

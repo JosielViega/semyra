@@ -2,17 +2,20 @@
 
 **Assista junto.**
 
-Semyra será uma plataforma para amigos criarem salas virtuais e assistirem conteúdos juntos, mesmo à distância. O primeiro MVP usará uma Live existente do YouTube incorporada a uma sala compartilhável. O desenvolvimento é incremental: nesta etapa, o projeto possui a base estrutural e a identidade inicial, mas ainda não cria salas, não incorpora o YouTube Player e não gerencia participantes.
+Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e assistirem conteúdos juntos, mesmo à distância. O primeiro MVP usa a URL de um vídeo ou Live existente do YouTube para criar uma sala compartilhável. O desenvolvimento é incremental: nesta etapa, a sala é criada e persistida, mas o conteúdo ainda não é reproduzido.
 
 ## Estado atual
 
-- base estrutural PHP pronta;
-- identidade inicial do Semyra aplicada;
-- infraestrutura de rotas, controllers, views, PDO, validação, sessões, CSRF, logs, migrations, testes e CI disponível;
+- criação de sala por URL de vídeo ou Live do YouTube;
+- validação local da estrutura da URL e extração do video ID;
+- geração segura de código público e persistência da sala no MySQL/MariaDB;
+- página básica acessível por `GET /room/{code}`;
+- infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
-- criação de salas ainda não implementada;
 - YouTube Player ainda não implementado;
+- verificação online da existência ou do estado da Live ainda não implementada;
 - participantes ainda não implementados.
+- convite/cópia de link, sincronização, chat e autenticação ainda não implementados.
 
 ## Stack
 
@@ -113,7 +116,9 @@ Para compreender a base técnica e revisar seus fluxos, consulte o [plano de est
 
 ## Rotas atuais
 
-- `GET /` — página inicial do Semyra e prévia visual, não funcional, da futura criação de sala;
+- `GET /` — formulário para criar uma sala com uma URL suportada do YouTube;
+- `POST /rooms` — valida a URL, gera o código e persiste a nova sala;
+- `GET /room/{code}` — exibe a página básica de uma sala existente;
 - `GET /health` — retorna `{"status":"ok"}` sem detalhes internos;
 - demais caminhos — página 404 com status correto.
 
@@ -127,15 +132,24 @@ Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Respon
 <h1><?= e($title) ?></h1>
 ```
 
-Repositories devem concentrar consultas SQL explícitas de um assunto do domínio. Services só devem existir quando houver regra de negócio ou integração que justifique a camada. Models podem ser objetos simples; não há ORM.
+`RoomController` coordena a criação e consulta de salas. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado do domínio. Não há ORM.
 
-Nenhuma classe, migration ou tabela de negócio de salas, participantes, usuários ou vídeos existe nesta etapa.
+Não existem participantes, usuários, autenticação, reprodução ou sincronização nesta etapa.
 
 ## Banco e migrations
 
 `App\Core\Database` cria PDO sob demanda com exceptions, fetch associativo, prepared statements nativos e `utf8mb4`. As credenciais vêm exclusivamente do ambiente.
 
-Adicione migrations SQL versionadas a `database/migrations/` com nomes ordenáveis. `composer migrate` executa cada arquivo ainda não registrado uma única vez. Faça backup e teste alterações de schema antes de produção.
+As migrations SQL versionadas ficam em `database/migrations/`. `composer migrate` executa cada arquivo ainda não registrado uma única vez. Faça backup e teste alterações de schema antes de produção.
+
+A tabela `rooms` contém somente:
+
+- `id`: chave primária incremental;
+- `code`: código público ASCII de 8 caracteres, com índice `UNIQUE`;
+- `youtube_video_id`: identificador ASCII de 11 caracteres;
+- `created_at`: data de criação definida pelo banco.
+
+A URL completa não é armazenada. O parser não consulta o YouTube e não confirma se o vídeo existe, está ao vivo, é público ou permite incorporação.
 
 ## Segurança
 

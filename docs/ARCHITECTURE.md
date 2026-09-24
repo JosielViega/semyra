@@ -65,6 +65,38 @@ HTML
 
 Dependências são montadas explicitamente em `bootstrap/app.php` ou `routes/web.php`. Se o projeto crescer muito, um container pode ser avaliado, mas não é necessário no estado atual do Semyra.
 
+## Fluxo de salas
+
+A criação da primeira entidade de domínio segue:
+
+```text
+POST /rooms
+    ↓
+RoomController
+    ↓
+YouTubeUrlParser
+    ↓
+RoomCodeGenerator
+    ↓
+RoomRepository
+    ↓
+PDO / MySQL
+```
+
+O parser valida somente a estrutura da URL e o video ID, sem acessar o YouTube. O gerador cria códigos públicos aleatórios e o repository tenta inserir cada código; colisões da constraint `UNIQUE` permitem até cinco novas tentativas no controller.
+
+A consulta segue:
+
+```text
+GET /room/{code}
+    ↓
+RoomController
+    ↓
+RoomRepository
+    ↓
+View
+```
+
 ## Ferramentas de infraestrutura
 
 Os scripts em `bin/`, herdados da base técnica inicial, não fazem parte do fluxo HTTP nem das regras de negócio. `composer setup` prepara uma cópia local conservadoramente. `composer deploy:hostgator` gera, a partir de uma allowlist versionada, um espelho descartável de produção. O espelho nunca se torna uma segunda fonte de código.

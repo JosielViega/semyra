@@ -8,5 +8,5 @@ declare(strict_types=1);
 <section class="card">
     <h1><?= e($heading) ?></h1>
     <p><?= e($message) ?></p>
-    <a href="/">Return home</a>
+    <a href="/">Voltar ao início</a>
 </section>
