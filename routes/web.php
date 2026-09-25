@@ -12,6 +12,7 @@ use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
+use App\Services\RoomPlaybackTelemetry;
 use App\Services\YouTubeUrlParser;
 
 $home = new HomeController(
@@ -23,6 +24,7 @@ $home = new HomeController(
 $roomRepository = new RoomRepository($app['database']);
 $participantRepository = new RoomParticipantRepository($app['database']);
 $participantSession = new RoomParticipantSession($app['session']);
+$playbackTelemetry = new RoomPlaybackTelemetry();
 $rooms = new RoomController(
     $app['request'],
     $app['view'],
@@ -43,6 +45,7 @@ $roomParticipants = new RoomParticipantController(
     $roomRepository,
     $participantRepository,
     $participantSession,
+    $playbackTelemetry,
 );
 $health = new HealthController();
 $router = $app['router'];

@@ -22,6 +22,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 - Entrada anônima por apelido em cada sala e sessão do navegador.
 - Presença de participantes por polling, com atualização a cada 10 segundos e expiração após 45 segundos.
 - Persistência segura de participantes usando apenas o hash SHA-256 da chave anônima.
+- Telemetria observacional de estado, posição e duração do YouTube Player.
+- Medição aproximada de drift entre participantes em reprodução, sem qualquer correção automática.
 
 ### Removed
 

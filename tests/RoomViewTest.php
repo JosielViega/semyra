@@ -28,9 +28,11 @@ final class RoomViewTest extends TestCase
         self::assertStringNotContainsString('data-video-id=', $html);
         self::assertStringNotContainsString('data-room-share', $html);
         self::assertStringNotContainsString('data-room-presence', $html);
+        self::assertStringNotContainsString('data-room-telemetry', $html);
         self::assertStringNotContainsString('/assets/js/room-player.js', $html);
         self::assertStringNotContainsString('/assets/js/room-share.js', $html);
         self::assertStringNotContainsString('/assets/js/room-presence.js', $html);
+        self::assertStringNotContainsString('/assets/js/room-telemetry.js', $html);
     }
 
     public function testJoinedParticipantSeesPlayerSharingPresenceAndScripts(): void
@@ -53,11 +55,19 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-room-presence', $html);
         self::assertStringContainsString('data-presence-url="/room/7MKP3WQH/presence"', $html);
         self::assertStringContainsString('data-csrf-token="csrf-token"', $html);
+        self::assertStringContainsString('data-room-telemetry', $html);
+        self::assertStringContainsString('Reprodução observada', $html);
+        self::assertStringContainsString('Nenhuma sincronização automática é aplicada nesta etapa.', $html);
         self::assertStringContainsString('<span>Josiel</span><strong> (você)</strong>', $html);
         self::assertStringContainsString('<span>Pedro</span>', $html);
         self::assertStringContainsString('<script src="/assets/js/room-player.js" defer></script>', $html);
         self::assertStringContainsString('<script src="/assets/js/room-share.js" defer></script>', $html);
+        self::assertStringContainsString('<script src="/assets/js/room-telemetry.js" defer></script>', $html);
         self::assertStringContainsString('<script src="/assets/js/room-presence.js" defer></script>', $html);
+        self::assertLessThan(
+            strpos($html, '/assets/js/room-presence.js'),
+            strpos($html, '/assets/js/room-telemetry.js'),
+        );
         self::assertStringNotContainsString('action="/room/7MKP3WQH/join"', $html);
     }
 

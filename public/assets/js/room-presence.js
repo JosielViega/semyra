@@ -14,6 +14,7 @@
     let requestInProgress = false;
     let stopped = false;
     let intervalId = null;
+    let latestTelemetry = null;
 
     if (!endpoint || !csrfToken || !participantList || !participantCount || !statusElement) {
         return;
@@ -46,6 +47,15 @@
         participantCount.textContent = String(participants.length);
     };
 
+    document.addEventListener('semyra:player-telemetry', (event) => {
+        const telemetry = event.detail;
+        if (Number.isInteger(telemetry?.state)
+            && Number.isSafeInteger(telemetry?.positionMs)
+            && Number.isSafeInteger(telemetry?.durationMs)) {
+            latestTelemetry = telemetry;
+        }
+    });
+
     const refreshPresence = async () => {
         if (requestInProgress || stopped) {
             return;
@@ -54,7 +64,15 @@
         requestInProgress = true;
 
         try {
+            latestTelemetry = null;
+            document.dispatchEvent(new CustomEvent('semyra:player-telemetry-request'));
             const body = new URLSearchParams({ _token: csrfToken });
+            if (latestTelemetry !== null) {
+                body.set('player_state', String(latestTelemetry.state));
+                body.set('player_position_ms', String(latestTelemetry.positionMs));
+                body.set('player_duration_ms', String(latestTelemetry.durationMs));
+            }
+
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
@@ -74,11 +92,19 @@
                 return;
             }
 
+            if (response.status === 422 && payload.error === 'invalid_telemetry') {
+                updateStatus('Não foi possível registrar os dados do player agora. Tentaremos novamente.', true);
+                return;
+            }
+
             if (!response.ok || !Array.isArray(payload.participants)) {
                 throw new Error('Invalid presence response.');
             }
 
             renderParticipants(payload.participants);
+            document.dispatchEvent(new CustomEvent('semyra:presence-updated', {
+                detail: { participants: payload.participants },
+            }));
             updateStatus('Participantes atualizados.');
         } catch {
             updateStatus('Não foi possível atualizar a lista agora. Tentaremos novamente.', true);
@@ -88,7 +114,7 @@
     };
 
     refreshPresence();
-    intervalId = window.setInterval(refreshPresence, 10000);
+    intervalId = window.setInterval(refreshPresence, 5000);
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {

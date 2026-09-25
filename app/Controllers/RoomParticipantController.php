@@ -11,6 +11,7 @@ use App\Core\Session;
 use App\Core\View;
 use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
+use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomParticipantSession;
 use App\Validation\Validator;
 
@@ -25,6 +26,7 @@ final class RoomParticipantController
         private readonly RoomRepository $rooms,
         private readonly RoomParticipantRepository $participants,
         private readonly RoomParticipantSession $participantSession,
+        private readonly RoomPlaybackTelemetry $playbackTelemetry,
     ) {
     }
 
@@ -76,14 +78,25 @@ final class RoomParticipantController
         }
 
         $participantKeyHash = hash('sha256', $identity['participant_key']);
+        try {
+            $playback = $this->playbackTelemetry->normalizePayload([
+                'player_state' => $this->request->input('player_state'),
+                'player_position_ms' => $this->request->input('player_position_ms'),
+                'player_duration_ms' => $this->request->input('player_duration_ms'),
+            ]);
+        } catch (\InvalidArgumentException) {
+            return Response::json(['error' => 'invalid_telemetry'], 422);
+        }
+
         $this->participants->touch(
             (int) $room['id'],
             $participantKeyHash,
             $identity['display_name'],
+            $playback,
         );
 
         return Response::json([
-            'participants' => $this->presentParticipants(
+            'participants' => $this->playbackTelemetry->presentParticipants(
                 $this->participants->activeForRoom((int) $room['id']),
                 $participantKeyHash,
             ),
@@ -109,18 +122,4 @@ final class RoomParticipantController
         ]), 404);
     }
 
-    /**
-     * @param list<array{participant_key_hash: string, display_name: string}> $participants
-     * @return list<array{name: string, is_you: bool}>
-     */
-    private function presentParticipants(array $participants, string $currentParticipantKeyHash): array
-    {
-        return array_map(
-            static fn (array $participant): array => [
-                'name' => $participant['display_name'],
-                'is_you' => hash_equals($currentParticipantKeyHash, $participant['participant_key_hash']),
-            ],
-            $participants,
-        );
-    }
 }

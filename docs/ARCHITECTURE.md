@@ -145,6 +145,42 @@ JSON { name, is_you }
 
 A resposta pública não contém IDs, hashes, tokens de sessão ou timestamps. Falhas de rede preservam a última lista renderizada, e uma resposta `join_required` encerra novas atualizações. Não há endpoint de saída, `sendBeacon`, WebSocket ou sincronização do player.
 
+## Telemetria observacional do player
+
+A leitura do player, o transporte e a apresentação permanecem separados:
+
+```text
+room-presence.js
+    ↓ semyra:player-telemetry-request
+room-player.js
+    ↓ getPlayerState / getCurrentTime / getDuration
+room-presence.js
+    ↓ POST /room/{code}/presence
+RoomParticipantController
+    ↓
+RoomPlaybackTelemetry
+    ↓
+RoomParticipantRepository
+    ↓
+MySQL
+```
+
+A resposta percorre o fluxo independente de apresentação:
+
+```text
+JSON
+    ↓
+room-presence.js
+    ↓ semyra:presence-updated
+room-telemetry.js
+```
+
+`room-player.js` é o único componente com uma referência ao `YT.Player`, mantida dentro da própria IIFE. Ele responde por `CustomEvent` com estado, posição e duração em milissegundos inteiros. `room-presence.js` envia esse snapshot opcional junto ao heartbeat de cinco segundos; se o player não estiver pronto, a presença continua sem telemetria. `room-telemetry.js` apenas renderiza o resultado e nunca acessa o player ou faz requisições.
+
+O banco mantém somente o último snapshot na linha de cada participante e calcula sua idade com o relógio do MySQL. Telemetria é recente por 12 segundos, separadamente da janela de presença de 45 segundos. Para dois participantes no estado `playing`, posições recentes são projetadas pela idade do snapshot e o drift é `posição estimada do outro - posição estimada de você`: positivo significa que o outro está à frente, negativo significa que está atrás. Duração é somente diagnóstica, inclusive em Lives.
+
+Este fluxo é exclusivamente de observação. Não existem comandos de play, pause, seek, alteração de velocidade, eleição de host, correção de drift ou histórico de amostras.
+
 ## Ferramentas de infraestrutura
 
 Os scripts em `bin/`, herdados da base técnica inicial, não fazem parte do fluxo HTTP nem das regras de negócio. `composer setup` prepara uma cópia local conservadoramente. `composer deploy:hostgator` gera, a partir de uma allowlist versionada, um espelho descartável de produção. O espelho nunca se torna uma segunda fonte de código.

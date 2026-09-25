@@ -53,6 +53,19 @@ declare(strict_types=1);
             <p id="room-presence-status" class="room-presence-status" role="status" aria-live="polite"></p>
         </section>
 
+        <section class="room-telemetry" data-room-telemetry aria-labelledby="room-telemetry-title">
+            <h2 id="room-telemetry-title">Reprodução observada</h2>
+            <p>O Semyra está apenas medindo os players. Nenhuma sincronização automática é aplicada nesta etapa.</p>
+            <ul id="room-telemetry-list" class="room-telemetry-list">
+                <?php foreach ($participants as $participant): ?>
+                    <li>
+                        <strong><?= e($participant['name']) ?><?php if ($participant['is_you']): ?> (você)<?php endif; ?></strong>
+                        <span>Aguardando dados do player</span>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </section>
+
         <section class="room-share" data-room-share data-room-code="<?= e($room['code']) ?>">
             <h2>Convide alguém</h2>
             <p>Envie o link desta sala para assistir junto.</p>
@@ -71,5 +84,6 @@ declare(strict_types=1);
 <?php if ($identity !== null): ?>
     <script src="/assets/js/room-player.js" defer></script>
     <script src="/assets/js/room-share.js" defer></script>
+    <script src="/assets/js/room-telemetry.js" defer></script>
     <script src="/assets/js/room-presence.js" defer></script>
 <?php endif; ?>

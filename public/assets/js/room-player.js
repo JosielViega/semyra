@@ -10,7 +10,11 @@
     const videoId = playerElement.dataset.videoId ?? '';
     const videoIdPattern = /^[A-Za-z0-9_-]{11}$/;
     const apiUrl = 'https://www.youtube.com/iframe_api';
+    const allowedStates = new Set([-1, 0, 1, 2, 3, 5]);
+    const maxTimeMs = 315576000000;
     let playerCreated = false;
+    let player = null;
+    let playerReady = false;
 
     const updateStatus = (message, isError = false) => {
         if (!statusElement) {
@@ -39,6 +43,41 @@
         }
     };
 
+    const emitTelemetry = () => {
+        if (!playerReady || player === null) {
+            return;
+        }
+
+        try {
+            const state = player.getPlayerState();
+            const positionMs = Math.round(player.getCurrentTime() * 1000);
+            const durationMs = Math.round(player.getDuration() * 1000);
+
+            if (!Number.isInteger(state)
+                || !allowedStates.has(state)
+                || !Number.isSafeInteger(positionMs)
+                || positionMs < 0
+                || positionMs > maxTimeMs
+                || !Number.isSafeInteger(durationMs)
+                || durationMs < 0
+                || durationMs > maxTimeMs) {
+                return;
+            }
+
+            document.dispatchEvent(new CustomEvent('semyra:player-telemetry', {
+                detail: {
+                    state,
+                    positionMs,
+                    durationMs,
+                },
+            }));
+        } catch {
+            // Presence remains available when the embedded player cannot be read.
+        }
+    };
+
+    document.addEventListener('semyra:player-telemetry-request', emitTelemetry);
+
     const createPlayer = () => {
         if (playerCreated || !window.YT || typeof window.YT.Player !== 'function') {
             return;
@@ -47,7 +86,7 @@
         playerCreated = true;
 
         try {
-            new window.YT.Player(playerElement, {
+            player = new window.YT.Player(playerElement, {
                 width: '100%',
                 height: '100%',
                 videoId,
@@ -58,8 +97,14 @@
                     origin: window.location.origin,
                 },
                 events: {
-                    onReady: () => {
+                    onReady: (event) => {
+                        player = event.target;
+                        playerReady = true;
                         updateStatus('Player pronto. Use os controles do YouTube para iniciar.');
+                        emitTelemetry();
+                    },
+                    onStateChange: () => {
+                        emitTelemetry();
                     },
                     onError: (event) => {
                         updateStatus(messageForError(event.data), true);

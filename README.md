@@ -15,11 +15,13 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - compartilhamento da sala pela própria URL pública, com cópia automática quando a Clipboard API está disponível e seleção manual como fallback;
 - Web Share API como melhoria progressiva em navegadores compatíveis;
 - entrada anônima por apelido, isolada por sala e sessão do navegador;
-- lista de participantes ativos, atualizada por polling a cada 10 segundos e com janela de presença de 45 segundos;
+- lista de participantes ativos, atualizada por polling a cada 5 segundos e com janela de presença de 45 segundos;
+- telemetria observacional do player, com estado, posição e duração transportados junto à presença;
+- medição aproximada do desvio entre dois participantes em reprodução, sem correção automática;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
-- sincronização, chat e autenticação ainda não implementados;
+- sincronização automática, host, controle remoto, chat e autenticação ainda não implementados;
 - controle remoto do player ainda não implementado.
 
 ## Stack
@@ -152,9 +154,9 @@ Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Respon
 <h1><?= e($title) ?></h1>
 ```
 
-`RoomController` coordena a criação e consulta de salas. `RoomParticipantController` trata entrada e presença; `RoomParticipantSession` mantém uma chave aleatória diferente por sala na sessão, enquanto `RoomParticipantRepository` persiste apenas seu hash SHA-256. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado de salas. Na sala, `room-player.js` recebe somente o `youtube_video_id` escapado pela view e cria o player pela IFrame Player API. `room-share.js` deriva a URL pública da página atual, e `room-presence.js` renova a presença sem sobrepor requisições. Não há ORM.
+`RoomController` coordena a criação e consulta de salas. `RoomParticipantController` trata entrada e presença; `RoomParticipantSession` mantém uma chave aleatória diferente por sala na sessão, enquanto `RoomParticipantRepository` persiste apenas seu hash SHA-256. `RoomPlaybackTelemetry` valida snapshots, determina seu frescor, projeta posições em reprodução usando o relógio do banco e calcula o desvio observacional. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado de salas. Na sala, `room-player.js` mantém o `YT.Player` privado e fornece apenas snapshots por eventos internos; `room-presence.js` transporta presença e telemetria a cada cinco segundos; `room-telemetry.js` renderiza o diagnóstico; e `room-share.js` deriva a URL pública. Não há ORM.
 
-Não existem contas de usuário, autenticação, sincronização, controle remoto ou chat nesta etapa. O player não inicia automaticamente e utiliza os controles nativos do YouTube.
+Não existem contas de usuário, autenticação, host, sincronização automática, controle remoto ou chat nesta etapa. A telemetria apenas observa os players: não inicia, pausa, reposiciona ou altera sua velocidade. O player continua dependendo da interação de cada participante e utiliza os controles nativos do YouTube.
 
 ## Banco e migrations
 
@@ -171,7 +173,7 @@ A tabela `rooms` contém somente:
 
 A URL completa não é armazenada. O parser não consulta o YouTube e não confirma se o vídeo existe, está ao vivo, é público ou permite incorporação.
 
-A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Participantes são considerados ativos por 45 segundos após `last_seen_at`.
+A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Participantes são considerados ativos por 45 segundos após `last_seen_at`. A mesma linha mantém somente o último snapshot do player (`player_state`, posição e duração em milissegundos e o horário de recebimento no banco); não existe histórico de telemetria.
 
 ## Segurança
 
