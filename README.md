@@ -14,10 +14,12 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - controles nativos do YouTube e tratamento visual de erros básicos de incorporação;
 - compartilhamento da sala pela própria URL pública, com cópia automática quando a Clipboard API está disponível e seleção manual como fallback;
 - Web Share API como melhoria progressiva em navegadores compatíveis;
+- entrada anônima por apelido, isolada por sala e sessão do navegador;
+- lista de participantes ativos, atualizada por polling a cada 10 segundos e com janela de presença de 45 segundos;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
-- participantes, presença, sincronização, chat e autenticação ainda não implementados;
+- sincronização, chat e autenticação ainda não implementados;
 - controle remoto do player ainda não implementado.
 
 ## Stack
@@ -135,6 +137,8 @@ Para compreender a base técnica e revisar seus fluxos, consulte o [plano de est
 - `GET /` — formulário para criar uma sala com uma URL suportada do YouTube;
 - `POST /rooms` — valida a URL, gera o código e persiste a nova sala;
 - `GET /room/{code}` — exibe uma sala existente e carrega seu conteúdo no YouTube Player;
+- `POST /room/{code}/join` — valida o apelido e registra a identidade anônima da sessão na sala;
+- `POST /room/{code}/presence` — renova a presença e retorna a lista pública de participantes ativos;
 - `GET /health` — retorna `{"status":"ok"}` sem detalhes internos;
 - demais caminhos — página 404 com status correto.
 
@@ -148,9 +152,9 @@ Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Respon
 <h1><?= e($title) ?></h1>
 ```
 
-`RoomController` coordena a criação e consulta de salas. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado do domínio. Na sala, `room-player.js` recebe somente o `youtube_video_id` escapado pela view e cria o player pela IFrame Player API. `room-share.js` deriva a URL pública da página atual, oferece cópia pelo Clipboard com fallback manual e revela o compartilhamento nativo apenas quando a Web Share API existe. Não há ORM.
+`RoomController` coordena a criação e consulta de salas. `RoomParticipantController` trata entrada e presença; `RoomParticipantSession` mantém uma chave aleatória diferente por sala na sessão, enquanto `RoomParticipantRepository` persiste apenas seu hash SHA-256. `YouTubeUrlParser` valida localmente os formatos suportados, `RoomCodeGenerator` cria códigos públicos e `RoomRepository` concentra o SQL preparado de salas. Na sala, `room-player.js` recebe somente o `youtube_video_id` escapado pela view e cria o player pela IFrame Player API. `room-share.js` deriva a URL pública da página atual, e `room-presence.js` renova a presença sem sobrepor requisições. Não há ORM.
 
-Não existem participantes, presença, usuários, autenticação, sincronização, controle remoto ou chat nesta etapa. O player não inicia automaticamente e utiliza os controles nativos do YouTube.
+Não existem contas de usuário, autenticação, sincronização, controle remoto ou chat nesta etapa. O player não inicia automaticamente e utiliza os controles nativos do YouTube.
 
 ## Banco e migrations
 
@@ -166,6 +170,8 @@ A tabela `rooms` contém somente:
 - `created_at`: data de criação definida pelo banco.
 
 A URL completa não é armazenada. O parser não consulta o YouTube e não confirma se o vídeo existe, está ao vivo, é público ou permite incorporação.
+
+A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Participantes são considerados ativos por 45 segundos após `last_seen_at`.
 
 ## Segurança
 

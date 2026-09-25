@@ -19,6 +19,9 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 - Compartilhamento de salas pela própria URL pública.
 - Cópia do link com Clipboard API e fallback por seleção manual.
 - Compartilhamento nativo progressivo através da Web Share API.
+- Entrada anônima por apelido em cada sala e sessão do navegador.
+- Presença de participantes por polling, com atualização a cada 10 segundos e expiração após 45 segundos.
+- Persistência segura de participantes usando apenas o hash SHA-256 da chave anônima.
 
 ### Removed
 

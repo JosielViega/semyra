@@ -115,6 +115,36 @@ Clipboard API / Web Share API
 
 `room-share.js` recebe somente o código público escapado para compor o título de compartilhamento. A URL é derivada de `window.location` como `/room/{code}`, sem query string ou fragment, e não é armazenada nem enviada a um endpoint próprio. A Clipboard API é opcional, com seleção manual do campo como fallback; a Web Share API é uma melhoria progressiva.
 
+Antes de entrar, a sala renderiza somente o formulário de apelido. O fluxo anônimo é separado por sala na sessão do navegador:
+
+```text
+POST /room/{code}/join
+    ↓
+RoomParticipantController
+    ↓
+RoomParticipantSession (chave aleatória de 256 bits)
+    ↓ SHA-256
+RoomParticipantRepository
+    ↓
+room_participants
+```
+
+A chave real nunca é enviada ao frontend nem persistida no banco. O repository grava apenas o hash, o apelido e `last_seen_at`; a constraint composta impede duplicação da mesma identidade na sala.
+
+Depois da entrada, a presença segue um polling simples e sem requisições sobrepostas:
+
+```text
+room-presence.js (imediato e a cada 10 s)
+    ↓ POST + CSRF
+POST /room/{code}/presence
+    ↓
+touch da identidade + participantes vistos nos últimos 45 s
+    ↓
+JSON { name, is_you }
+```
+
+A resposta pública não contém IDs, hashes, tokens de sessão ou timestamps. Falhas de rede preservam a última lista renderizada, e uma resposta `join_required` encerra novas atualizações. Não há endpoint de saída, `sendBeacon`, WebSocket ou sincronização do player.
+
 ## Ferramentas de infraestrutura
 
 Os scripts em `bin/`, herdados da base técnica inicial, não fazem parte do fluxo HTTP nem das regras de negócio. `composer setup` prepara uma cópia local conservadoramente. `composer deploy:hostgator` gera, a partir de uma allowlist versionada, um espelho descartável de produção. O espelho nunca se torna uma segunda fonte de código.

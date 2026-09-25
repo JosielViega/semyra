@@ -9,8 +9,10 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Core\Session;
 use App\Core\View;
+use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Services\RoomCodeGenerator;
+use App\Services\RoomParticipantSession;
 use App\Services\YouTubeUrlParser;
 
 final class RoomController
@@ -24,6 +26,8 @@ final class RoomController
         private readonly Session $session,
         private readonly Csrf $csrf,
         private readonly RoomRepository $rooms,
+        private readonly RoomParticipantRepository $participants,
+        private readonly RoomParticipantSession $participantSession,
         private readonly RoomCodeGenerator $codeGenerator,
         private readonly YouTubeUrlParser $youtubeUrlParser,
     ) {
@@ -71,9 +75,27 @@ final class RoomController
             ]), 404);
         }
 
+        $identity = $this->participantSession->identityFor($room['code']);
+        $participants = [];
+        if ($identity !== null) {
+            $participantKeyHash = hash('sha256', $identity['participant_key']);
+            $participants = array_map(
+                static fn (array $participant): array => [
+                    'name' => $participant['display_name'],
+                    'is_you' => hash_equals($participantKeyHash, $participant['participant_key_hash']),
+                ],
+                $this->participants->activeForRoom((int) $room['id']),
+            );
+        }
+
         return Response::html($this->view->render('pages/room', [
             'title' => 'Sala ' . $room['code'] . ' — Semyra',
             'room' => $room,
+            'identity' => $identity,
+            'participants' => $participants,
+            'flashes' => $this->session->consumeFlash(),
+            'csrfField' => $this->csrf->field(),
+            'csrfToken' => $this->csrf->token(),
         ]));
     }
 }

@@ -36,10 +36,22 @@ button:hover { background: #5445c7; }
 .room-page h1 { margin: .25rem 0 2.5rem; font-size: clamp(2.75rem, 8vw, 4.5rem); line-height: 1; letter-spacing: -.05em; }
 .room-code-label { margin: 0 0 .35rem; color: #596176; font-weight: 700; }
 .room-code { margin: 0 0 2rem; color: var(--brand); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: clamp(2rem, 8vw, 3.5rem); font-weight: 800; letter-spacing: .12em; }
+.room-join { max-width: 32rem; }
+.room-join h2 { margin: 0 0 .35rem; line-height: 1.2; }
+.room-join p { margin: 0 0 1rem; color: #596176; }
+.room-join form { display: grid; gap: .75rem; }
+.room-join label { font-weight: 700; }
+.room-identity { margin: 0 0 1rem; color: #4b556b; }
 .youtube-player-shell { position: relative; width: 100%; min-height: 200px; overflow: hidden; border-radius: 1rem; background: #0f172a; aspect-ratio: 16 / 9; box-shadow: 0 1rem 3rem rgb(23 32 51 / 12%); }
 .youtube-player-shell iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .youtube-player-status { margin: .75rem 0 0; color: #596176; font-size: .925rem; }
 .youtube-player-status-error { color: #991b1b; }
+.room-presence { margin-top: 2rem; padding: clamp(1.25rem, 4vw, 1.75rem); border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); box-shadow: 0 .5rem 1.5rem rgb(23 32 51 / 8%); }
+.room-presence h2 { margin: 0 0 .75rem; line-height: 1.2; }
+.room-participant-list { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.room-participant-list li { padding: .65rem .8rem; overflow-wrap: anywhere; border-radius: .5rem; background: #f6f7fb; }
+.room-presence-status { min-height: 1.5em; margin: .75rem 0 0; color: #596176; font-size: .925rem; }
+.room-presence-status-error { color: #991b1b; }
 .room-share { margin-top: 2rem; padding: clamp(1.25rem, 4vw, 1.75rem); border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); box-shadow: 0 .5rem 1.5rem rgb(23 32 51 / 8%); }
 .room-share h2 { margin: 0 0 .35rem; line-height: 1.2; }
 .room-share p { margin: 0 0 1rem; color: #596176; }
