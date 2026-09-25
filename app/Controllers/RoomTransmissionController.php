@@ -82,10 +82,8 @@ final class RoomTransmissionController
             return $this->errorResponse('Entrada necessária', 'Entre na sala antes de encerrar uma transmissão.', 403);
         }
 
-        $transmission = $this->transmissions->findByRoom((int) $room['id']);
         $participantKeyHash = hash('sha256', $identity['participant_key']);
-        if ($transmission === null
-            || !hash_equals((string) $transmission['owner_participant_key_hash'], $participantKeyHash)) {
+        if (!$this->transmissions->end((int) $room['id'], $participantKeyHash)) {
             return $this->errorResponse(
                 'Ação não permitida',
                 'Somente quem iniciou a transmissão atual pode encerrá-la.',
@@ -93,7 +91,6 @@ final class RoomTransmissionController
             );
         }
 
-        $this->transmissions->end((int) $room['id']);
         $this->session->flash('success', 'Transmissão encerrada.');
 
         return Response::redirect('/room/' . $room['code'], 303);

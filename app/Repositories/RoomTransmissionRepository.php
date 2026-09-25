@@ -55,11 +55,18 @@ final class RoomTransmissionRepository
         ]);
     }
 
-    public function end(int $roomId): void
+    public function end(int $roomId, string $ownerParticipantKeyHash): bool
     {
         $statement = $this->database->connection()->prepare(
-            'DELETE FROM room_transmissions WHERE room_id = :room_id',
+            'DELETE FROM room_transmissions '
+            . 'WHERE room_id = :room_id '
+            . 'AND owner_participant_key_hash = :owner_participant_key_hash',
         );
-        $statement->execute(['room_id' => $roomId]);
+        $statement->execute([
+            'room_id' => $roomId,
+            'owner_participant_key_hash' => $ownerParticipantKeyHash,
+        ]);
+
+        return $statement->rowCount() === 1;
     }
 }
