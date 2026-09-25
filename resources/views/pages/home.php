@@ -22,12 +22,10 @@ declare(strict_types=1);
     <div>
         <p class="eyebrow">Nova sala</p>
         <h2 id="room-preview-title">Sua próxima sessão começa aqui</h2>
-        <p>Cole o link de um vídeo ou Live do YouTube para criar sua sala.</p>
+        <p>Crie uma sala vazia e escolha o que transmitir depois de entrar.</p>
     </div>
     <form class="room-preview-controls" method="post" action="/rooms">
         <?= $csrfField ?>
-        <label for="youtube-url">URL do vídeo ou Live do YouTube</label>
-        <input id="youtube-url" name="youtube_url" type="url" maxlength="2048" placeholder="https://www.youtube.com/watch?v=..." required>
         <button type="submit">Criar sala</button>
     </form>
 </section>

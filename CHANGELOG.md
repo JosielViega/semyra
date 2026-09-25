@@ -24,6 +24,12 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 - Persistência segura de participantes usando apenas o hash SHA-256 da chave anônima.
 - Telemetria observacional de estado, posição e duração do YouTube Player.
 - Medição aproximada de drift entre participantes em reprodução, sem qualquer correção automática.
+- Salas independentes da mídia, criadas inicialmente sem transmissão.
+- Transmissão ativa separada, com proprietário temporário e revisão incremental.
+- Substituição da transmissão por qualquer participante e encerramento restrito ao proprietário atual.
+- Layout imersivo fullscreen com HUD temporário e overlays para participantes e compartilhamento.
+- Player YouTube sem controles nativos, com mute e fullscreen locais do Semyra.
+- Telemetria oculta no uso normal e disponível por `?debug=1`.
 
 ### Removed
 

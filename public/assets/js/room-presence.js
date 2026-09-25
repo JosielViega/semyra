@@ -47,6 +47,29 @@
         participantCount.textContent = String(participants.length);
     };
 
+    const normalizeTransmission = (transmission) => {
+        if (transmission === null) {
+            return null;
+        }
+        if (transmission?.source !== 'youtube'
+            || typeof transmission.youtube_video_id !== 'string'
+            || !/^[A-Za-z0-9_-]{11}$/.test(transmission.youtube_video_id)
+            || !Number.isSafeInteger(transmission.revision)
+            || transmission.revision < 1
+            || typeof transmission.owner_name !== 'string'
+            || typeof transmission.is_owner !== 'boolean') {
+            return null;
+        }
+
+        return {
+            source: transmission.source,
+            videoId: transmission.youtube_video_id,
+            revision: transmission.revision,
+            ownerName: transmission.owner_name,
+            isOwner: transmission.is_owner,
+        };
+    };
+
     document.addEventListener('semyra:player-telemetry', (event) => {
         const telemetry = event.detail;
         if (Number.isInteger(telemetry?.state)
@@ -102,8 +125,12 @@
             }
 
             renderParticipants(payload.participants);
+            const transmission = normalizeTransmission(payload.transmission ?? null);
             document.dispatchEvent(new CustomEvent('semyra:presence-updated', {
-                detail: { participants: payload.participants },
+                detail: {
+                    participants: payload.participants,
+                    transmission,
+                },
             }));
             updateStatus('Participantes atualizados.');
         } catch {

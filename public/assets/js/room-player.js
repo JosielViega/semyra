@@ -1,46 +1,37 @@
 'use strict';
 
 (() => {
-    const playerElement = document.getElementById('youtube-player');
-    if (!playerElement) {
+    const mount = document.getElementById('room-player-mount');
+    if (!mount) {
         return;
     }
 
     const statusElement = document.getElementById('youtube-player-status');
-    const videoId = playerElement.dataset.videoId ?? '';
-    const videoIdPattern = /^[A-Za-z0-9_-]{11}$/;
     const apiUrl = 'https://www.youtube.com/iframe_api';
+    const videoIdPattern = /^[A-Za-z0-9_-]{11}$/;
     const allowedStates = new Set([-1, 0, 1, 2, 3, 5]);
     const maxTimeMs = 315576000000;
-    let playerCreated = false;
     let player = null;
     let playerReady = false;
+    let currentRevision = null;
+    let pendingTransmission = null;
+    let apiPromise = null;
 
     const updateStatus = (message, isError = false) => {
         if (!statusElement) {
             return;
         }
-
         statusElement.textContent = message;
-        statusElement.classList.toggle('youtube-player-status-error', isError);
+        statusElement.classList.toggle('is-error', isError);
     };
 
-    const messageForError = (code) => {
-        switch (code) {
-            case 2:
-                return 'Não foi possível carregar este conteúdo do YouTube.';
-            case 5:
-                return 'Não foi possível reproduzir este conteúdo neste navegador.';
-            case 100:
-                return 'Este vídeo não está disponível.';
-            case 101:
-            case 150:
-                return 'Este vídeo não permite reprodução fora do YouTube.';
-            case 153:
-                return 'Não foi possível carregar o player do YouTube.';
-            default:
-                return 'Não foi possível carregar o conteúdo do YouTube.';
+    const emitMutedState = () => {
+        if (!playerReady || player === null || typeof player.isMuted !== 'function') {
+            return;
         }
+        document.dispatchEvent(new CustomEvent('semyra:player-muted-state', {
+            detail: { muted: player.isMuted() },
+        }));
     };
 
     const emitTelemetry = () => {
@@ -52,7 +43,6 @@
             const state = player.getPlayerState();
             const positionMs = Math.round(player.getCurrentTime() * 1000);
             const durationMs = Math.round(player.getDuration() * 1000);
-
             if (!Number.isInteger(state)
                 || !allowedStates.has(state)
                 || !Number.isSafeInteger(positionMs)
@@ -65,34 +55,90 @@
             }
 
             document.dispatchEvent(new CustomEvent('semyra:player-telemetry', {
-                detail: {
-                    state,
-                    positionMs,
-                    durationMs,
-                },
+                detail: { state, positionMs, durationMs },
             }));
         } catch {
-            // Presence remains available when the embedded player cannot be read.
+            // Presence remains available if the embedded player cannot be read.
         }
     };
 
-    document.addEventListener('semyra:player-telemetry-request', emitTelemetry);
+    const destroyPlayer = () => {
+        playerReady = false;
+        if (player !== null && typeof player.destroy === 'function') {
+            try {
+                player.destroy();
+            } catch {
+                // The mount is reset below even if YouTube cleanup fails.
+            }
+        }
+        player = null;
+        mount.replaceChildren();
+    };
 
-    const createPlayer = () => {
-        if (playerCreated || !window.YT || typeof window.YT.Player !== 'function') {
+    const messageForError = (code) => {
+        if (code === 100) {
+            return 'Este vídeo não está disponível.';
+        }
+        if (code === 101 || code === 150) {
+            return 'Este vídeo não permite reprodução fora do YouTube.';
+        }
+        return 'Não foi possível carregar a transmissão do YouTube.';
+    };
+
+    const ensureApi = () => {
+        if (window.YT && typeof window.YT.Player === 'function') {
+            return Promise.resolve();
+        }
+        if (apiPromise !== null) {
+            return apiPromise;
+        }
+
+        apiPromise = new Promise((resolve, reject) => {
+            const previousReadyHandler = window.onYouTubeIframeAPIReady;
+            window.onYouTubeIframeAPIReady = () => {
+                if (typeof previousReadyHandler === 'function') {
+                    previousReadyHandler();
+                }
+                resolve();
+            };
+
+            const existingScript = document.querySelector(`script[src="${apiUrl}"]`);
+            if (existingScript) {
+                existingScript.addEventListener('error', reject, { once: true });
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = apiUrl;
+            script.async = true;
+            script.addEventListener('error', reject, { once: true });
+            document.head.append(script);
+        });
+
+        return apiPromise;
+    };
+
+    const createPlayer = (transmission) => {
+        if (!window.YT || typeof window.YT.Player !== 'function') {
             return;
         }
 
-        playerCreated = true;
+        destroyPlayer();
+        const target = document.createElement('div');
+        target.id = 'youtube-player';
+        mount.append(target);
 
         try {
-            player = new window.YT.Player(playerElement, {
+            player = new window.YT.Player(target, {
                 width: '100%',
                 height: '100%',
-                videoId,
+                videoId: transmission.videoId,
                 playerVars: {
-                    autoplay: 0,
-                    controls: 1,
+                    autoplay: 1,
+                    controls: 0,
+                    disablekb: 1,
+                    enablejsapi: 1,
+                    fs: 0,
                     playsinline: 1,
                     origin: window.location.origin,
                 },
@@ -100,54 +146,67 @@
                     onReady: (event) => {
                         player = event.target;
                         playerReady = true;
-                        updateStatus('Player pronto. Use os controles do YouTube para iniciar.');
+                        player.mute();
+                        player.playVideo();
+                        emitMutedState();
                         emitTelemetry();
+                        updateStatus('Player pronto. Reprodução local iniciada sem som.');
                     },
-                    onStateChange: () => {
-                        emitTelemetry();
-                    },
-                    onError: (event) => {
-                        updateStatus(messageForError(event.data), true);
-                    },
+                    onStateChange: emitTelemetry,
+                    onError: (event) => updateStatus(messageForError(event.data), true),
                 },
             });
         } catch {
-            updateStatus('Não foi possível carregar o player do YouTube.', true);
+            updateStatus('Não foi possível carregar a transmissão do YouTube.', true);
         }
     };
 
-    if (!videoIdPattern.test(videoId)) {
-        updateStatus('Não foi possível carregar este conteúdo do YouTube.', true);
-        return;
-    }
-
-    if (window.YT && typeof window.YT.Player === 'function') {
-        createPlayer();
-        return;
-    }
-
-    const previousReadyHandler = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-        if (typeof previousReadyHandler === 'function') {
-            previousReadyHandler();
+    const applyTransmission = async (transmission) => {
+        if (transmission === null) {
+            pendingTransmission = null;
+            currentRevision = null;
+            destroyPlayer();
+            updateStatus('');
+            return;
+        }
+        if (transmission.source !== 'youtube'
+            || !videoIdPattern.test(transmission.videoId)
+            || !Number.isSafeInteger(transmission.revision)
+            || transmission.revision < 1
+            || transmission.revision === currentRevision) {
+            return;
         }
 
-        createPlayer();
+        pendingTransmission = transmission;
+        currentRevision = transmission.revision;
+        updateStatus('Carregando transmissão…');
+        try {
+            await ensureApi();
+            if (pendingTransmission?.revision === transmission.revision) {
+                createPlayer(transmission);
+            }
+        } catch {
+            updateStatus('Não foi possível carregar o player do YouTube. Verifique sua conexão.', true);
+        }
     };
 
-    const handleApiLoadError = () => {
-        updateStatus('Não foi possível carregar o player do YouTube. Verifique sua conexão e tente novamente.', true);
-    };
-
-    const existingScript = document.querySelector(`script[src="${apiUrl}"]`);
-    if (existingScript) {
-        existingScript.addEventListener('error', handleApiLoadError, { once: true });
-        return;
-    }
-
-    const apiScript = document.createElement('script');
-    apiScript.src = apiUrl;
-    apiScript.async = true;
-    apiScript.addEventListener('error', handleApiLoadError, { once: true });
-    document.head.append(apiScript);
+    document.addEventListener('semyra:transmission-updated', (event) => {
+        applyTransmission(event.detail?.transmission ?? null);
+    });
+    document.addEventListener('semyra:player-telemetry-request', emitTelemetry);
+    document.addEventListener('semyra:player-mute-toggle', () => {
+        if (!playerReady || player === null) {
+            return;
+        }
+        try {
+            if (player.isMuted()) {
+                player.unMute();
+            } else {
+                player.mute();
+            }
+            emitMutedState();
+        } catch {
+            // Local audio control is optional and must not interrupt presence.
+        }
+    });
 })();

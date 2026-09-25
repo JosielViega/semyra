@@ -16,102 +16,138 @@ final class RoomViewTest extends TestCase
         $this->view = new View(dirname(__DIR__) . '/resources/views');
     }
 
-    public function testGuestSeesOnlyTheJoinExperience(): void
+    public function testGuestSeesFullscreenJoinWithoutPlayer(): void
     {
         $html = $this->renderRoom();
 
+        self::assertStringContainsString('class="room-body"', $html);
+        self::assertStringContainsString('room-shell room-shell-join', $html);
+        self::assertStringContainsString('Código da sala', $html);
         self::assertStringContainsString('7MKP3WQH', $html);
         self::assertStringContainsString('action="/room/7MKP3WQH/join"', $html);
         self::assertStringContainsString('name="display_name"', $html);
-        self::assertStringContainsString('maxlength="30"', $html);
-        self::assertStringContainsString('name="_token" value="csrf-token"', $html);
-        self::assertStringNotContainsString('data-video-id=', $html);
-        self::assertStringNotContainsString('data-room-share', $html);
-        self::assertStringNotContainsString('data-room-presence', $html);
-        self::assertStringNotContainsString('data-room-telemetry', $html);
+        self::assertStringNotContainsString('room-player-mount', $html);
         self::assertStringNotContainsString('/assets/js/room-player.js', $html);
-        self::assertStringNotContainsString('/assets/js/room-share.js', $html);
-        self::assertStringNotContainsString('/assets/js/room-presence.js', $html);
-        self::assertStringNotContainsString('/assets/js/room-telemetry.js', $html);
+        self::assertStringNotContainsString('site-header', $html);
+        self::assertStringNotContainsString('class="container"', $html);
     }
 
-    public function testJoinedParticipantSeesPlayerSharingPresenceAndScripts(): void
+    public function testJoinedParticipantWithoutTransmissionSeesEmptyStateAndStartAction(): void
+    {
+        $html = $this->renderRoom(['identity' => $this->identity()]);
+
+        self::assertStringContainsString('Nenhuma transmissão ativa', $html);
+        self::assertStringContainsString('Iniciar transmissão', $html);
+        self::assertStringContainsString('action="/room/7MKP3WQH/transmission"', $html);
+        self::assertStringContainsString('id="room-transmission-dialog"', $html);
+        self::assertStringContainsString('id="room-player-mount"', $html);
+        self::assertStringContainsString('data-initial-revision=""', $html);
+        self::assertStringContainsString('/assets/js/room-shell.js', $html);
+    }
+
+    public function testOwnerSeesActiveTransmissionHudAndEndAction(): void
     {
         $html = $this->renderRoom([
-            'identity' => [
-                'participant_key' => str_repeat('a', 64),
-                'display_name' => 'Josiel',
-            ],
-            'participants' => [
-                ['name' => 'Josiel', 'is_you' => true],
-                ['name' => 'Pedro', 'is_you' => false],
-            ],
+            'identity' => $this->identity(),
+            'transmission' => $this->transmission(true),
         ]);
 
-        self::assertStringContainsString('Você entrou como <strong>Josiel</strong>', $html);
-        self::assertStringContainsString('data-video-id="dQw4w9WgXcQ"', $html);
-        self::assertStringContainsString('data-room-share', $html);
-        self::assertStringContainsString('data-room-code="7MKP3WQH"', $html);
-        self::assertStringContainsString('data-room-presence', $html);
-        self::assertStringContainsString('data-presence-url="/room/7MKP3WQH/presence"', $html);
-        self::assertStringContainsString('data-csrf-token="csrf-token"', $html);
-        self::assertStringContainsString('data-room-telemetry', $html);
-        self::assertStringContainsString('Reprodução observada', $html);
-        self::assertStringContainsString('Nenhuma sincronização automática é aplicada nesta etapa.', $html);
-        self::assertStringContainsString('<span>Josiel</span><strong> (você)</strong>', $html);
-        self::assertStringContainsString('<span>Pedro</span>', $html);
-        self::assertStringContainsString('<script src="/assets/js/room-player.js" defer></script>', $html);
-        self::assertStringContainsString('<script src="/assets/js/room-share.js" defer></script>', $html);
-        self::assertStringContainsString('<script src="/assets/js/room-telemetry.js" defer></script>', $html);
-        self::assertStringContainsString('<script src="/assets/js/room-presence.js" defer></script>', $html);
-        self::assertLessThan(
-            strpos($html, '/assets/js/room-presence.js'),
-            strpos($html, '/assets/js/room-telemetry.js'),
-        );
-        self::assertStringNotContainsString('action="/room/7MKP3WQH/join"', $html);
+        self::assertStringContainsString('class="room-shell has-transmission"', $html);
+        self::assertStringContainsString('data-initial-video-id="M7lc1UVf-VE"', $html);
+        self::assertStringContainsString('data-initial-revision="4"', $html);
+        self::assertStringContainsString('Você está transmitindo', $html);
+        self::assertMatchesRegularExpression('/data-end-transmission>/', $html);
+        self::assertStringContainsString('Encerrar transmissão', $html);
     }
 
-    public function testEscapesRoomIdentityParticipantAndFlashValuesInHtml(): void
+    public function testViewerCanReplaceButCannotSeeEndAction(): void
     {
         $html = $this->renderRoom([
-            'room' => [
-                'code' => '<script>alert(1)</script>',
-                'youtube_video_id' => 'abc" onload="x',
-            ],
+            'identity' => $this->identity(),
+            'transmission' => $this->transmission(false),
+        ]);
+
+        self::assertStringContainsString('Pedro está transmitindo', $html);
+        self::assertStringContainsString('Iniciar sua transmissão substituirá a transmissão atual.', $html);
+        self::assertStringContainsString('data-end-transmission hidden', $html);
+        self::assertStringContainsString('Iniciar minha transmissão', $html);
+    }
+
+    public function testTelemetryIsRenderedOnlyInDebugMode(): void
+    {
+        $normal = $this->renderRoom(['identity' => $this->identity()]);
+        $debug = $this->renderRoom(['identity' => $this->identity(), 'debug' => true]);
+
+        self::assertStringNotContainsString('data-room-telemetry', $normal);
+        self::assertStringNotContainsString('/assets/js/room-telemetry.js', $normal);
+        self::assertStringContainsString('data-room-telemetry', $debug);
+        self::assertStringContainsString('Diagnóstico', $debug);
+        self::assertStringContainsString('/assets/js/room-telemetry.js', $debug);
+    }
+
+    public function testEscapesRoomParticipantOwnerAndFlashValues(): void
+    {
+        $html = $this->renderRoom([
+            'room' => ['code' => '<script>alert(1)</script>'],
             'identity' => [
                 'participant_key' => str_repeat('b', 64),
-                'display_name' => '<img src=x onerror=alert(1)>',
+                'display_name' => '<img src=x onerror=alert(2)>',
             ],
-            'participants' => [
-                ['name' => '<svg onload=alert(2)>', 'is_you' => true],
+            'participants' => [['name' => '<svg onload=alert(3)>', 'is_you' => true]],
+            'transmission' => [
+                'source' => 'youtube',
+                'youtube_video_id' => 'M7lc1UVf-VE',
+                'revision' => 1,
+                'owner_name' => '<img src=x onerror=alert(4)>',
+                'is_owner' => false,
             ],
-            'flashes' => ['error' => ['<script>alert(3)</script>']],
+            'flashes' => ['error' => ['<script>alert(5)</script>']],
         ]);
 
-        self::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html);
-        self::assertStringContainsString('data-video-id="abc&quot; onload=&quot;x"', $html);
-        self::assertStringContainsString('&lt;img src=x onerror=alert(1)&gt;', $html);
-        self::assertStringContainsString('&lt;svg onload=alert(2)&gt;', $html);
-        self::assertStringContainsString('&lt;script&gt;alert(3)&lt;/script&gt;', $html);
+        foreach ([
+            '&lt;script&gt;alert(1)&lt;/script&gt;',
+            '&lt;svg onload=alert(3)&gt;',
+            '&lt;img src=x onerror=alert(4)&gt;',
+            '&lt;script&gt;alert(5)&lt;/script&gt;',
+        ] as $escaped) {
+            self::assertStringContainsString($escaped, $html);
+        }
         self::assertStringNotContainsString('<script>alert(1)</script>', $html);
-        self::assertStringNotContainsString('<img src=x onerror=alert(1)>', $html);
-        self::assertStringNotContainsString('<svg onload=alert(2)>', $html);
-        self::assertStringNotContainsString('<script>alert(3)</script>', $html);
+        self::assertStringNotContainsString('<svg onload=alert(3)>', $html);
+        self::assertStringNotContainsString('<img src=x onerror=alert(4)>', $html);
     }
 
     private function renderRoom(array $overrides = []): string
     {
         return $this->view->render('pages/room', array_replace([
             'title' => 'Sala 7MKP3WQH — Semyra',
-            'room' => [
-                'code' => '7MKP3WQH',
-                'youtube_video_id' => 'dQw4w9WgXcQ',
-            ],
+            'room' => ['code' => '7MKP3WQH'],
             'identity' => null,
             'participants' => [],
+            'transmission' => null,
+            'debug' => false,
             'flashes' => [],
             'csrfField' => '<input type="hidden" name="_token" value="csrf-token">',
             'csrfToken' => 'csrf-token',
-        ], $overrides));
+        ], $overrides), 'layouts/room');
+    }
+
+    private function identity(): array
+    {
+        return [
+            'participant_key' => str_repeat('a', 64),
+            'display_name' => 'Josiel',
+        ];
+    }
+
+    private function transmission(bool $isOwner): array
+    {
+        return [
+            'source' => 'youtube',
+            'youtube_video_id' => 'M7lc1UVf-VE',
+            'revision' => 4,
+            'owner_name' => 'Pedro',
+            'is_owner' => $isOwner,
+        ];
     }
 }

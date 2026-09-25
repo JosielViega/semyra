@@ -15,17 +15,14 @@ final class RoomRepository
     {
     }
 
-    public function tryCreate(string $code, string $youtubeVideoId): bool
+    public function tryCreate(string $code): bool
     {
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO rooms (code, youtube_video_id) VALUES (:code, :youtube_video_id)',
+            'INSERT INTO rooms (code) VALUES (:code)',
         );
 
         try {
-            $statement->execute([
-                'code' => $code,
-                'youtube_video_id' => $youtubeVideoId,
-            ]);
+            $statement->execute(['code' => $code]);
         } catch (PDOException $exception) {
             if ($this->isDuplicateCode($exception)) {
                 return false;
@@ -40,7 +37,7 @@ final class RoomRepository
     public function findByCode(string $code): ?array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT id, code, youtube_video_id, created_at FROM rooms WHERE code = :code LIMIT 1',
+            'SELECT id, code, created_at FROM rooms WHERE code = :code LIMIT 1',
         );
         $statement->execute(['code' => $code]);
         $room = $statement->fetch();

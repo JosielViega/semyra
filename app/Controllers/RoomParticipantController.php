@@ -11,8 +11,10 @@ use App\Core\Session;
 use App\Core\View;
 use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
+use App\Repositories\RoomTransmissionRepository;
 use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomParticipantSession;
+use App\Services\RoomTransmissionPresenter;
 use App\Validation\Validator;
 
 final class RoomParticipantController
@@ -25,8 +27,10 @@ final class RoomParticipantController
         private readonly Validator $validator,
         private readonly RoomRepository $rooms,
         private readonly RoomParticipantRepository $participants,
+        private readonly RoomTransmissionRepository $transmissions,
         private readonly RoomParticipantSession $participantSession,
         private readonly RoomPlaybackTelemetry $playbackTelemetry,
+        private readonly RoomTransmissionPresenter $transmissionPresenter,
     ) {
     }
 
@@ -98,6 +102,10 @@ final class RoomParticipantController
         return Response::json([
             'participants' => $this->playbackTelemetry->presentParticipants(
                 $this->participants->activeForRoom((int) $room['id']),
+                $participantKeyHash,
+            ),
+            'transmission' => $this->transmissionPresenter->present(
+                $this->transmissions->findByRoom((int) $room['id']),
                 $participantKeyHash,
             ),
         ]);

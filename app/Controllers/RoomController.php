@@ -11,13 +11,13 @@ use App\Core\Session;
 use App\Core\View;
 use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
+use App\Repositories\RoomTransmissionRepository;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
-use App\Services\YouTubeUrlParser;
+use App\Services\RoomTransmissionPresenter;
 
 final class RoomController
 {
-    private const MAX_URL_LENGTH = 2048;
     private const MAX_CODE_ATTEMPTS = 5;
 
     public function __construct(
@@ -27,9 +27,10 @@ final class RoomController
         private readonly Csrf $csrf,
         private readonly RoomRepository $rooms,
         private readonly RoomParticipantRepository $participants,
+        private readonly RoomTransmissionRepository $transmissions,
         private readonly RoomParticipantSession $participantSession,
+        private readonly RoomTransmissionPresenter $transmissionPresenter,
         private readonly RoomCodeGenerator $codeGenerator,
-        private readonly YouTubeUrlParser $youtubeUrlParser,
     ) {
     }
 
@@ -43,19 +44,9 @@ final class RoomController
             ]), 419);
         }
 
-        $url = $this->request->input('youtube_url');
-        $videoId = is_string($url) && strlen($url) <= self::MAX_URL_LENGTH
-            ? $this->youtubeUrlParser->parse($url)
-            : null;
-
-        if ($videoId === null) {
-            $this->session->flash('error', 'Informe uma URL válida de vídeo ou Live do YouTube.');
-            return Response::redirect('/');
-        }
-
         for ($attempt = 0; $attempt < self::MAX_CODE_ATTEMPTS; ++$attempt) {
             $code = $this->codeGenerator->generate();
-            if ($this->rooms->tryCreate($code, $videoId)) {
+            if ($this->rooms->tryCreate($code)) {
                 return Response::redirect('/room/' . $code, 303);
             }
         }
@@ -77,6 +68,7 @@ final class RoomController
 
         $identity = $this->participantSession->identityFor($room['code']);
         $participants = [];
+        $transmission = null;
         if ($identity !== null) {
             $participantKeyHash = hash('sha256', $identity['participant_key']);
             $participants = array_map(
@@ -86,6 +78,10 @@ final class RoomController
                 ],
                 $this->participants->activeForRoom((int) $room['id']),
             );
+            $transmission = $this->transmissionPresenter->present(
+                $this->transmissions->findByRoom((int) $room['id']),
+                $participantKeyHash,
+            );
         }
 
         return Response::html($this->view->render('pages/room', [
@@ -93,9 +89,11 @@ final class RoomController
             'room' => $room,
             'identity' => $identity,
             'participants' => $participants,
+            'transmission' => $transmission,
+            'debug' => $this->request->query('debug') === '1',
             'flashes' => $this->session->consumeFlash(),
             'csrfField' => $this->csrf->field(),
             'csrfToken' => $this->csrf->token(),
-        ]));
+        ], 'layouts/room'));
     }
 }

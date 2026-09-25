@@ -67,14 +67,12 @@ Dependências são montadas explicitamente em `bootstrap/app.php` ou `routes/web
 
 ## Fluxo de salas
 
-A criação da primeira entidade de domínio segue:
+A criação da sala segue:
 
 ```text
 POST /rooms
     ↓
 RoomController
-    ↓
-YouTubeUrlParser
     ↓
 RoomCodeGenerator
     ↓
@@ -83,7 +81,31 @@ RoomRepository
 PDO / MySQL
 ```
 
-O parser valida somente a estrutura da URL e o video ID, sem acessar o YouTube. O gerador cria códigos públicos aleatórios e o repository tenta inserir cada código; colisões da constraint `UNIQUE` permitem até cinco novas tentativas no controller.
+O gerador cria códigos públicos aleatórios e o repository tenta inserir cada código; colisões da constraint `UNIQUE` permitem até cinco novas tentativas no controller. A sala nasce vazia e não possui dono.
+
+```text
+Room
+└── RoomTransmission (0..1)
+    ├── source
+    ├── owner temporário
+    └── revision
+```
+
+A primeira fonte suportada é YouTube. A transmissão é iniciada ou substituída por:
+
+```text
+POST /room/{code}/transmission
+    ↓
+RoomTransmissionController
+    ↓
+YouTubeUrlParser
+    ↓
+RoomTransmissionRepository
+    ↓
+MySQL
+```
+
+Quem inicia torna-se proprietário da transmissão vigente. Outra pessoa pode substituí-la, incrementando `revision` e assumindo a propriedade. Somente o proprietário atual pode encerrá-la. Não há owner da sala, histórico de transmissões ou expiração automática quando o owner fica offline.
 
 A consulta segue:
 
@@ -96,12 +118,14 @@ RoomRepository
     ↓
 room.php
     ↓
+room-shell.js
+    ↓
 room-player.js
     ↓
 YouTube IFrame Player API
 ```
 
-O frontend recebe somente o `youtube_video_id` persistido, por meio de um atributo HTML escapado. O JavaScript específico da sala carrega a API externamente e cria o player; a URL original e o ID interno do banco não são expostos para essa integração.
+O layout `layouts/room` é fullscreen e independente do layout tradicional da aplicação. O frontend recebe uma apresentação pública escapada da transmissão, sem `room_id`, hash, token ou ID de participante. `room-shell.js` coordena HUD, dialog, painéis, fullscreen e mute locais. `room-player.js` cria, troca ou destrói o player conforme eventos internos de transmissão.
 
 O compartilhamento permanece exclusivamente no frontend e reutiliza a rota pública existente:
 
@@ -134,16 +158,26 @@ A chave real nunca é enviada ao frontend nem persistida no banco. O repository 
 Depois da entrada, a presença segue um polling simples e sem requisições sobrepostas:
 
 ```text
-room-presence.js (imediato e a cada 10 s)
+room-presence.js (imediato e a cada 5 s)
     ↓ POST + CSRF
 POST /room/{code}/presence
     ↓
 touch da identidade + participantes vistos nos últimos 45 s
     ↓
-JSON { name, is_you }
+JSON { participants, transmission }
 ```
 
-A resposta pública não contém IDs, hashes, tokens de sessão ou timestamps. Falhas de rede preservam a última lista renderizada, e uma resposta `join_required` encerra novas atualizações. Não há endpoint de saída, `sendBeacon`, WebSocket ou sincronização do player.
+A resposta pública não contém IDs, hashes, tokens de sessão ou timestamps. `transmission` contém somente fonte, video ID, revisão, nome do owner e `is_owner`. A mesma resposta atualiza o frontend sem polling adicional:
+
+```text
+room-presence.js
+    ↓ /presence
+participants + telemetry + transmission
+    ↓ semyra:transmission-updated
+room-player.js
+```
+
+Falhas de rede preservam o último estado renderizado. Não há `sendBeacon`, WebSocket, SSE, sincronização automática ou estado compartilhado de Play/Pause/Seek.
 
 ## Telemetria observacional do player
 
@@ -175,11 +209,11 @@ room-presence.js
 room-telemetry.js
 ```
 
-`room-player.js` é o único componente com uma referência ao `YT.Player`, mantida dentro da própria IIFE. Ele responde por `CustomEvent` com estado, posição e duração em milissegundos inteiros. `room-presence.js` envia esse snapshot opcional junto ao heartbeat de cinco segundos; se o player não estiver pronto, a presença continua sem telemetria. `room-telemetry.js` apenas renderiza o resultado e nunca acessa o player ou faz requisições.
+`room-player.js` é o único componente com uma referência ao `YT.Player`, mantida dentro da própria IIFE. Ele responde por `CustomEvent` com estado, posição e duração em milissegundos inteiros. `room-presence.js` envia esse snapshot opcional junto ao heartbeat de cinco segundos; se o player não estiver pronto, a presença continua sem telemetria. `room-telemetry.js` só é carregado em `?debug=1`; o uso normal mantém o diagnóstico invisível.
 
 O banco mantém somente o último snapshot na linha de cada participante e calcula sua idade com o relógio do MySQL. Telemetria é recente por 12 segundos, separadamente da janela de presença de 45 segundos. Para dois participantes no estado `playing`, posições recentes são projetadas pela idade do snapshot e o drift é `posição estimada do outro - posição estimada de você`: positivo significa que o outro está à frente, negativo significa que está atrás. Duração é somente diagnóstica, inclusive em Lives.
 
-Este fluxo é exclusivamente de observação. Não existem comandos de play, pause, seek, alteração de velocidade, eleição de host, correção de drift ou histórico de amostras.
+Este fluxo é observacional. O bootstrap do YouTube pode mutar e iniciar reprodução localmente para compatibilidade com autoplay, mas não existem comandos compartilhados de play, pause ou seek, eleição de host, correção de drift ou histórico de amostras.
 
 ## Ferramentas de infraestrutura
 
