@@ -80,6 +80,19 @@ final class RoomPlaybackTelemetryTest extends TestCase
         self::assertNull($this->telemetry->normalizePayload([]));
     }
 
+    public function testAcceptsRealLiveSnapshotWherePositionExceedsReportedDuration(): void
+    {
+        self::assertSame([
+            'state' => 1,
+            'position_ms' => 2_890_000,
+            'duration_ms' => 2_827_000,
+        ], $this->telemetry->normalizePayload([
+            'player_state' => '1',
+            'player_position_ms' => '2890000',
+            'player_duration_ms' => '2827000',
+        ]));
+    }
+
     public function testFreshPlayingSnapshotsAreProjectedAndProduceSignedDrift(): void
     {
         $participants = $this->telemetry->presentParticipants([

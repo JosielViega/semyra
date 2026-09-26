@@ -11,6 +11,34 @@
         return;
     }
 
+    const mediaDebug = {
+        mediaMode: 'unknown',
+        atLiveEdge: false,
+        transmissionRevision: null,
+        playbackRevision: null,
+        playerReady: false,
+        playerState: null,
+        positionMs: null,
+        durationMs: null,
+        liveEdgePositionMs: null,
+        behindLiveMs: null,
+        uiBranch: 'preparing',
+    };
+
+    const debugFields = {
+        mediaMode: document.querySelector('[data-debug-media-mode]'),
+        atLiveEdge: document.querySelector('[data-debug-at-live-edge]'),
+        transmissionRevision: document.querySelector('[data-debug-transmission-revision]'),
+        playbackRevision: document.querySelector('[data-debug-playback-revision]'),
+        playerReady: document.querySelector('[data-debug-player-ready]'),
+        playerState: document.querySelector('[data-debug-player-state]'),
+        currentTime: document.querySelector('[data-debug-current-time]'),
+        duration: document.querySelector('[data-debug-duration]'),
+        liveEdge: document.querySelector('[data-debug-live-edge]'),
+        behindLive: document.querySelector('[data-debug-behind-live]'),
+        uiBranch: document.querySelector('[data-debug-ui-branch]'),
+    };
+
     const stateLabels = new Map([
         [-1, 'Não iniciado'],
         [0, 'Finalizado'],
@@ -34,6 +62,26 @@
         return hours > 0
             ? `${hours}:${minuteText}:${secondText}.${tenths}`
             : `${minuteText}:${secondText}.${tenths}`;
+    };
+
+    const formatMeasurement = (milliseconds) => Number.isSafeInteger(milliseconds)
+        ? `${milliseconds} ms (${formatTime(milliseconds)})`
+        : '—';
+
+    const renderMediaDebug = () => {
+        debugFields.mediaMode.textContent = mediaDebug.mediaMode;
+        debugFields.atLiveEdge.textContent = String(mediaDebug.atLiveEdge);
+        debugFields.transmissionRevision.textContent = mediaDebug.transmissionRevision ?? '—';
+        debugFields.playbackRevision.textContent = mediaDebug.playbackRevision ?? '—';
+        debugFields.playerReady.textContent = String(mediaDebug.playerReady);
+        debugFields.playerState.textContent = mediaDebug.playerState === null
+            ? '—'
+            : `${mediaDebug.playerState} (${stateLabels.get(mediaDebug.playerState) ?? 'desconhecido'})`;
+        debugFields.currentTime.textContent = formatMeasurement(mediaDebug.positionMs);
+        debugFields.duration.textContent = formatMeasurement(mediaDebug.durationMs);
+        debugFields.liveEdge.textContent = formatMeasurement(mediaDebug.liveEdgePositionMs);
+        debugFields.behindLive.textContent = formatMeasurement(mediaDebug.behindLiveMs);
+        debugFields.uiBranch.textContent = mediaDebug.uiBranch;
     };
 
     const describeComparison = (participant) => {
@@ -87,4 +135,34 @@
             render(participants);
         }
     });
+
+    document.addEventListener('semyra:media-debug', (event) => {
+        const detail = event.detail;
+        if (detail?.source === 'player') {
+            if (typeof detail.playerReady === 'boolean') {
+                mediaDebug.playerReady = detail.playerReady;
+            }
+            const snapshot = detail.snapshot;
+            if (snapshot !== null && typeof snapshot === 'object') {
+                mediaDebug.playerState = snapshot.state;
+                mediaDebug.positionMs = snapshot.positionMs;
+                mediaDebug.durationMs = snapshot.durationMs;
+            } else if (Number.isInteger(detail.playerState)) {
+                mediaDebug.playerState = detail.playerState;
+            }
+        }
+        if (detail?.source === 'playback') {
+            const transmission = detail.transmission;
+            mediaDebug.mediaMode = transmission?.mediaMode ?? 'unknown';
+            mediaDebug.atLiveEdge = transmission?.playback.atLiveEdge ?? false;
+            mediaDebug.transmissionRevision = transmission?.revision ?? null;
+            mediaDebug.playbackRevision = transmission?.playback.revision ?? null;
+            mediaDebug.liveEdgePositionMs = detail.liveEdgePositionMs;
+            mediaDebug.behindLiveMs = detail.behindLiveMs;
+            mediaDebug.uiBranch = detail.uiBranch ?? 'preparing';
+        }
+        renderMediaDebug();
+    });
+
+    renderMediaDebug();
 })();

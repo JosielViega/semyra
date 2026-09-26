@@ -40,6 +40,9 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('Iniciar transmissão', $html);
         self::assertStringContainsString('action="/room/7MKP3WQH/transmission"', $html);
         self::assertStringContainsString('id="room-transmission-dialog"', $html);
+        self::assertStringContainsString('name="media_mode"', $html);
+        self::assertMatchesRegularExpression('/value="vod"\s+checked/', $html);
+        self::assertStringContainsString('value="live"', $html);
         self::assertStringContainsString('id="room-player-mount"', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
         self::assertStringContainsString('/assets/js/room-shell.js', $html);
@@ -58,6 +61,10 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('Você está transmitindo', $html);
         self::assertMatchesRegularExpression('/data-end-transmission>/', $html);
         self::assertStringContainsString('Encerrar transmissão', $html);
+        self::assertMatchesRegularExpression('/data-shared-playback-controls>/', $html);
+        self::assertStringContainsString('data-playback-url="/room/7MKP3WQH/transmission/playback"', $html);
+        self::assertStringContainsString('/assets/js/room-playback.js', $html);
+        self::assertStringContainsString('/assets/js/room-media.js', $html);
     }
 
     public function testViewerCanReplaceButCannotSeeEndAction(): void
@@ -71,6 +78,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('Iniciar sua transmissão substituirá a transmissão atual.', $html);
         self::assertStringContainsString('data-end-transmission hidden', $html);
         self::assertStringContainsString('Iniciar minha transmissão', $html);
+        self::assertMatchesRegularExpression('/data-shared-playback-controls>/', $html);
     }
 
     public function testTelemetryIsRenderedOnlyInDebugMode(): void
@@ -80,8 +88,13 @@ final class RoomViewTest extends TestCase
 
         self::assertStringNotContainsString('data-room-telemetry', $normal);
         self::assertStringNotContainsString('/assets/js/room-telemetry.js', $normal);
+        self::assertStringNotContainsString('data-debug-media-mode', $normal);
         self::assertStringContainsString('data-room-telemetry', $debug);
         self::assertStringContainsString('Diagnóstico', $debug);
+        self::assertStringContainsString('Estado da mídia', $debug);
+        self::assertStringContainsString('data-debug-media-mode', $debug);
+        self::assertStringContainsString('data-debug-at-live-edge', $debug);
+        self::assertStringNotContainsString('data-debug-classification', $debug);
         self::assertStringContainsString('/assets/js/room-telemetry.js', $debug);
     }
 
@@ -100,6 +113,9 @@ final class RoomViewTest extends TestCase
                 'revision' => 1,
                 'owner_name' => '<img src=x onerror=alert(4)>',
                 'is_owner' => false,
+                'media_mode' => 'vod',
+                'playback' => ['state' => 'playing', 'position_ms' => 0, 'revision' => 1,
+                    'at_live_edge' => false, 'live_edge_position_ms' => null],
             ],
             'flashes' => ['error' => ['<script>alert(5)</script>']],
         ]);
@@ -148,6 +164,14 @@ final class RoomViewTest extends TestCase
             'revision' => 4,
             'owner_name' => 'Pedro',
             'is_owner' => $isOwner,
+            'media_mode' => 'vod',
+            'playback' => [
+                'state' => 'playing',
+                'position_ms' => 125430,
+                'revision' => 7,
+                'at_live_edge' => false,
+                'live_edge_position_ms' => null,
+            ],
         ];
     }
 }

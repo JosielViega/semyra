@@ -158,7 +158,7 @@ A chave real nunca é enviada ao frontend nem persistida no banco. O repository 
 Depois da entrada, a presença segue um polling simples e sem requisições sobrepostas:
 
 ```text
-room-presence.js (imediato e a cada 5 s)
+room-presence.js (imediato; ~5 s sem transmissão, ~1 s com transmissão)
     ↓ POST + CSRF
 POST /room/{code}/presence
     ↓
@@ -167,17 +167,50 @@ touch da identidade + participantes vistos nos últimos 45 s
 JSON { participants, transmission }
 ```
 
-A resposta pública não contém IDs, hashes, tokens de sessão ou timestamps. `transmission` contém somente fonte, video ID, revisão, nome do owner e `is_owner`. A mesma resposta atualiza o frontend sem polling adicional:
+A resposta pública não contém IDs, hashes, tokens de sessão ou timestamps. `transmission` contém fonte, video ID, revisão, nome do owner, `is_owner`, `media_mode` e playback oficial, incluindo `at_live_edge` e a posição projetada da borda quando conhecida. O estado `playing` e a âncora da borda são projetados pelo relógio do MySQL. A mesma resposta atualiza o frontend sem polling adicional:
 
 ```text
 room-presence.js
     ↓ /presence
-participants + telemetry + transmission
-    ↓ semyra:transmission-updated
+participants + telemetry + transmission/playback
+    ↓ semyra:shared-playback-updated
 room-player.js
+    ↓ owner ao vivo: getCurrentTime ocasional junto à presença
+live_edge_position_ms
 ```
 
-Falhas de rede preservam o último estado renderizado. Não há `sendBeacon`, WebSocket, SSE, sincronização automática ou estado compartilhado de Play/Pause/Seek.
+O owner envia comandos por `POST /room/{code}/transmission/playback`. O update usa compare-and-swap por `room_id`, hash do owner, revisão da transmissão e revisão do playback; sucesso incrementa somente `playback_revision`. A resposta imediata atualiza o owner, enquanto viewers recebem a mesma revisão pelo polling. Falhas de rede preservam o último estado confirmado. Não há `sendBeacon`, WebSocket ou SSE.
+
+```text
+room-playback.js
+    ↓ snapshot por CustomEvent
+room-player.js
+    ↓ POST Play/Pause/Seek/AO VIVO
+RoomTransmissionController
+    ↓ validação + compare-and-swap
+RoomTransmissionRepository
+    ↓
+room_transmissions
+```
+
+Ao iniciar YouTube, o participante escolhe explicitamente `vod` ou `live`; não há classificador automático. VOD nasce em `playing`, posição zero, `at_live_edge=false` e revisão um. Live nasce em `playing`, `at_live_edge=true` e revisão um: o player carrega no ponto natural do YouTube, sem aplicar `seekTo(0)`.
+
+Quando o player do owner está reproduzindo e o estado oficial continua `live` e `at_live_edge=true`, seu `getCurrentTime()` é enviado ocasionalmente junto à presença. Um único `UPDATE` valida owner, revisão da transmissão, revisão do playback, modo Live, estado playing e borda ativa antes de gravar `live_edge_position_ms` e `live_edge_updated_at`. O banco projeta a borda somando a idade calculada por `CURRENT_TIMESTAMP(3)`; viewers nunca escrevem essa âncora. `getDuration()` permanece apenas para VOD e telemetria/diagnóstico.
+
+Pause captura uma posição fresca e converte a sala em DVR (`at_live_edge=false`). Play e Seek continuam atrás, preservando a posição absoluta projetada. `AO VIVO` publica uma nova revisão em `playing` e `at_live_edge=true`; os players recarregam a mesma mídia sem `startSeconds`, em vez de buscar a duração. A barra Live usa a borda projetada como máximo, mostra distância relativa quando em DVR e mostra `🔴 AO VIVO` na borda.
+
+Conceitualmente:
+
+```text
+Room
+└── active transmission
+    ├── source_type
+    │   ├── youtube
+    │   └── future screen
+    └── shared playback
+```
+
+Para `source_type=youtube`, o `media_mode` torna-se `vod` ou `live`. YouTube permanece uma fonte permanente. Compartilhamento de tela será uma fonte adicional futura, sem arquitetura técnica definida nesta etapa.
 
 ## Telemetria observacional do player
 
@@ -209,11 +242,11 @@ room-presence.js
 room-telemetry.js
 ```
 
-`room-player.js` é o único componente com uma referência ao `YT.Player`, mantida dentro da própria IIFE. Ele responde por `CustomEvent` com estado, posição e duração em milissegundos inteiros. `room-presence.js` envia esse snapshot opcional junto ao heartbeat de cinco segundos; se o player não estiver pronto, a presença continua sem telemetria. `room-telemetry.js` só é carregado em `?debug=1`; o uso normal mantém o diagnóstico invisível.
+`room-player.js` é o único componente com uma referência ao `YT.Player`, mantida dentro da própria IIFE. Ele responde por `CustomEvent` com estado, posição e duração em milissegundos inteiros. `room-presence.js` envia esse snapshot opcional no polling dinâmico; se o player não estiver pronto, a presença continua sem telemetria. `room-telemetry.js` só é carregado em `?debug=1`; o uso normal mantém o diagnóstico invisível.
 
 O banco mantém somente o último snapshot na linha de cada participante e calcula sua idade com o relógio do MySQL. Telemetria é recente por 12 segundos, separadamente da janela de presença de 45 segundos. Para dois participantes no estado `playing`, posições recentes são projetadas pela idade do snapshot e o drift é `posição estimada do outro - posição estimada de você`: positivo significa que o outro está à frente, negativo significa que está atrás. Duração é somente diagnóstica, inclusive em Lives.
 
-Este fluxo é observacional. O bootstrap do YouTube pode mutar e iniciar reprodução localmente para compatibilidade com autoplay, mas não existem comandos compartilhados de play, pause ou seek, eleição de host, correção de drift ou histórico de amostras.
+Este fluxo de telemetria continua observacional e não define autoridade. O playback oficial é aplicado apenas quando muda a revisão da transmissão ou do playback; não existe seek periódico, eleição, consenso, playback rate, correção contínua de drift ou histórico de amostras. Mute e fullscreen continuam exclusivamente locais.
 
 ## Ferramentas de infraestrutura
 

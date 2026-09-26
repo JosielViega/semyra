@@ -19,9 +19,11 @@
     let hideTimer = null;
     let currentTransmission = null;
     let hasAppliedTransmission = false;
+    let playbackInteraction = false;
 
     const anyInteractionOpen = () => (dialog instanceof HTMLDialogElement && dialog.open)
-        || panels.some((panel) => !panel.hidden);
+        || panels.some((panel) => !panel.hidden)
+        || playbackInteraction;
 
     const revealHud = () => {
         shell.classList.remove('is-hud-hidden');
@@ -145,6 +147,15 @@
         );
     });
 
+    document.addEventListener('semyra:hud-interaction-start', () => {
+        playbackInteraction = true;
+        revealHud();
+    });
+    document.addEventListener('semyra:hud-interaction-end', () => {
+        playbackInteraction = false;
+        revealHud();
+    });
+
     const sameTransmission = (left, right) => left === right
         || (left !== null
             && right !== null
@@ -194,6 +205,16 @@
             revision: initialRevision,
             ownerName: shell.dataset.initialOwnerName || 'Participante',
             isOwner: shell.dataset.initialIsOwner === '1',
+            mediaMode: shell.dataset.initialMediaMode ?? '',
+            playback: {
+                state: shell.dataset.initialPlaybackState ?? '',
+                positionMs: Number(shell.dataset.initialPlaybackPositionMs),
+                revision: Number(shell.dataset.initialPlaybackRevision),
+                atLiveEdge: shell.dataset.initialPlaybackAtLiveEdge === '1',
+                liveEdgePositionMs: shell.dataset.initialLiveEdgePositionMs === ''
+                    ? null
+                    : Number(shell.dataset.initialLiveEdgePositionMs),
+            },
         }
         : null;
     applyTransmission(initialTransmission);

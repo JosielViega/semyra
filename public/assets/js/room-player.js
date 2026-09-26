@@ -7,6 +7,7 @@
     }
 
     const statusElement = document.getElementById('youtube-player-status');
+    const debugEnabled = document.querySelector('[data-room-telemetry]') !== null;
     const apiUrl = 'https://www.youtube.com/iframe_api';
     const videoIdPattern = /^[A-Za-z0-9_-]{11}$/;
     const allowedStates = new Set([-1, 0, 1, 2, 3, 5]);
@@ -14,8 +15,21 @@
     let player = null;
     let playerReady = false;
     let currentRevision = null;
+    let currentVideoId = null;
     let pendingTransmission = null;
+    let pendingSharedPlayback = null;
+    let appliedPlaybackRevision = null;
+    let currentIsOwner = false;
+    let endedReportedRevision = null;
     let apiPromise = null;
+
+    const emitMediaDebug = (detail) => {
+        if (debugEnabled) {
+            document.dispatchEvent(new CustomEvent('semyra:media-debug', {
+                detail: { source: 'player', ...detail },
+            }));
+        }
+    };
 
     const updateStatus = (message, isError = false) => {
         if (!statusElement) {
@@ -34,9 +48,9 @@
         }));
     };
 
-    const emitTelemetry = () => {
+    const readSnapshot = () => {
         if (!playerReady || player === null) {
-            return;
+            return null;
         }
 
         try {
@@ -51,19 +65,33 @@
                 || !Number.isSafeInteger(durationMs)
                 || durationMs < 0
                 || durationMs > maxTimeMs) {
-                return;
+                return null;
             }
 
-            document.dispatchEvent(new CustomEvent('semyra:player-telemetry', {
-                detail: { state, positionMs, durationMs },
-            }));
+            return { state, positionMs, durationMs };
         } catch {
-            // Presence remains available if the embedded player cannot be read.
+            return null;
+        }
+    };
+
+    const emitTelemetry = () => {
+        const snapshot = readSnapshot();
+        if (snapshot !== null) {
+            document.dispatchEvent(new CustomEvent('semyra:player-telemetry', { detail: snapshot }));
+            emitMediaDebug({ playerReady: true, playerState: snapshot.state, snapshot });
+        }
+    };
+
+    const emitSnapshot = () => {
+        const snapshot = readSnapshot();
+        if (snapshot !== null) {
+            document.dispatchEvent(new CustomEvent('semyra:player-snapshot', { detail: snapshot }));
         }
     };
 
     const destroyPlayer = () => {
         playerReady = false;
+        emitMediaDebug({ playerReady: false });
         if (player !== null && typeof player.destroy === 'function') {
             try {
                 player.destroy();
@@ -73,6 +101,63 @@
         }
         player = null;
         mount.replaceChildren();
+    };
+
+    const applySharedPlayback = (force = false) => {
+        const playback = pendingSharedPlayback;
+        if (!playerReady
+            || player === null
+            || playback === null
+            || playback.transmissionRevision !== currentRevision
+            || (!force && playback.playbackRevision === appliedPlaybackRevision)) {
+            return;
+        }
+
+        try {
+            if (playback.mediaMode === 'live' && playback.atLiveEdge) {
+                if (appliedPlaybackRevision === null) {
+                    // A newly loaded Live stays at YouTube's natural live position.
+                    player.playVideo();
+                } else {
+                    // Returning to Live reloads the same media without startSeconds.
+                    player.loadVideoById({ videoId: currentVideoId });
+                }
+            } else {
+                player.seekTo(playback.positionMs / 1000, true);
+                if (playback.state === 'playing') {
+                    player.playVideo();
+                } else {
+                    player.pauseVideo();
+                }
+            }
+            appliedPlaybackRevision = playback.playbackRevision;
+            endedReportedRevision = null;
+            emitTelemetry();
+            updateStatus(playback.mediaMode === 'live' && playback.atLiveEdge
+                ? 'Acompanhando ao vivo.'
+                : (playback.state === 'playing' ? 'Reprodução sincronizada.' : 'Transmissão pausada.'));
+        } catch {
+            updateStatus('Não foi possível aplicar o estado compartilhado agora.', true);
+        }
+    };
+
+    const receiveSharedPlayback = (playback) => {
+        if (!Number.isSafeInteger(playback?.transmissionRevision)
+            || playback.transmissionRevision < 1
+            || !['vod', 'live'].includes(playback?.mediaMode)
+            || typeof playback?.atLiveEdge !== 'boolean'
+            || (playback.mediaMode !== 'live' && playback.atLiveEdge)
+            || !['playing', 'paused'].includes(playback?.state)
+            || !Number.isSafeInteger(playback?.positionMs)
+            || playback.positionMs < 0
+            || playback.positionMs > maxTimeMs
+            || !Number.isSafeInteger(playback?.playbackRevision)
+            || playback.playbackRevision < 1) {
+            return;
+        }
+
+        pendingSharedPlayback = playback;
+        applySharedPlayback();
     };
 
     const messageForError = (code) => {
@@ -147,12 +232,30 @@
                         player = event.target;
                         playerReady = true;
                         player.mute();
-                        player.playVideo();
                         emitMutedState();
+                        emitMediaDebug({ playerReady: true, snapshot: readSnapshot() });
                         emitTelemetry();
-                        updateStatus('Player pronto. Reprodução local iniciada sem som.');
+                        applySharedPlayback(true);
                     },
-                    onStateChange: emitTelemetry,
+                    onStateChange: (event) => {
+                        emitTelemetry();
+                        emitMediaDebug({
+                            playerReady: true,
+                            playerState: Number.isInteger(event.data) ? event.data : null,
+                            snapshot: readSnapshot(),
+                        });
+                        if (event.data === 0
+                            && currentIsOwner
+                            && endedReportedRevision !== appliedPlaybackRevision) {
+                            const snapshot = readSnapshot();
+                            if (snapshot !== null) {
+                                endedReportedRevision = appliedPlaybackRevision;
+                                document.dispatchEvent(new CustomEvent('semyra:player-ended', {
+                                    detail: snapshot,
+                                }));
+                            }
+                        }
+                    },
                     onError: (event) => updateStatus(messageForError(event.data), true),
                 },
             });
@@ -164,7 +267,11 @@
     const applyTransmission = async (transmission) => {
         if (transmission === null) {
             pendingTransmission = null;
+            pendingSharedPlayback = null;
             currentRevision = null;
+            currentVideoId = null;
+            appliedPlaybackRevision = null;
+            currentIsOwner = false;
             destroyPlayer();
             updateStatus('');
             return;
@@ -172,13 +279,27 @@
         if (transmission.source !== 'youtube'
             || !videoIdPattern.test(transmission.videoId)
             || !Number.isSafeInteger(transmission.revision)
-            || transmission.revision < 1
-            || transmission.revision === currentRevision) {
+            || transmission.revision < 1) {
+            return;
+        }
+
+        currentIsOwner = transmission.isOwner === true;
+        receiveSharedPlayback({
+            transmissionRevision: transmission.revision,
+            mediaMode: transmission.mediaMode,
+            atLiveEdge: transmission.playback?.atLiveEdge,
+            state: transmission.playback?.state,
+            positionMs: transmission.playback?.positionMs,
+            playbackRevision: transmission.playback?.revision,
+        });
+        if (transmission.revision === currentRevision) {
             return;
         }
 
         pendingTransmission = transmission;
         currentRevision = transmission.revision;
+        currentVideoId = transmission.videoId;
+        appliedPlaybackRevision = null;
         updateStatus('Carregando transmissão…');
         try {
             await ensureApi();
@@ -193,7 +314,11 @@
     document.addEventListener('semyra:transmission-updated', (event) => {
         applyTransmission(event.detail?.transmission ?? null);
     });
+    document.addEventListener('semyra:shared-playback-updated', (event) => {
+        receiveSharedPlayback(event.detail);
+    });
     document.addEventListener('semyra:player-telemetry-request', emitTelemetry);
+    document.addEventListener('semyra:player-snapshot-request', emitSnapshot);
     document.addEventListener('semyra:player-mute-toggle', () => {
         if (!playerReady || player === null) {
             return;

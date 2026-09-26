@@ -16,6 +16,7 @@ use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomTransmissionPresenter;
+use App\Services\RoomTransmissionPlayback;
 use App\Services\YouTubeUrlParser;
 
 $home = new HomeController(
@@ -30,6 +31,7 @@ $transmissionRepository = new RoomTransmissionRepository($app['database']);
 $participantSession = new RoomParticipantSession($app['session']);
 $playbackTelemetry = new RoomPlaybackTelemetry();
 $transmissionPresenter = new RoomTransmissionPresenter();
+$transmissionPlayback = new RoomTransmissionPlayback();
 $rooms = new RoomController(
     $app['request'],
     $app['view'],
@@ -54,6 +56,7 @@ $roomParticipants = new RoomParticipantController(
     $participantSession,
     $playbackTelemetry,
     $transmissionPresenter,
+    $transmissionPlayback,
 );
 $roomTransmissions = new RoomTransmissionController(
     $app['request'],
@@ -64,6 +67,8 @@ $roomTransmissions = new RoomTransmissionController(
     $transmissionRepository,
     $participantSession,
     new YouTubeUrlParser(),
+    $transmissionPlayback,
+    $transmissionPresenter,
 );
 $health = new HealthController();
 $router = $app['router'];
@@ -75,6 +80,7 @@ $router->post('/room/{code}/join', [$roomParticipants, 'join']);
 $router->post('/room/{code}/presence', [$roomParticipants, 'presence']);
 $router->post('/room/{code}/transmission', [$roomTransmissions, 'start']);
 $router->post('/room/{code}/transmission/end', [$roomTransmissions, 'end']);
+$router->post('/room/{code}/transmission/playback', [$roomTransmissions, 'playback']);
 $router->get('/health', [$health, 'index']);
 $router->fallback(static function (Request $request) use ($app): Response {
     return Response::html($app['view']->render('pages/404', [

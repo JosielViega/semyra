@@ -5,7 +5,7 @@ declare(strict_types=1);
 /** @var array $room */
 /** @var null|array{participant_key: string, display_name: string} $identity */
 /** @var list<array{name: string, is_you: bool}> $participants */
-/** @var null|array{source: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool} $transmission */
+/** @var null|array{source: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool, media_mode: string, playback: array{state: string, position_ms: int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int}} $transmission */
 /** @var bool $debug */
 /** @var array $flashes */
 /** @var string $csrfField */
@@ -40,12 +40,19 @@ declare(strict_types=1);
         data-room-shell
         data-room-presence
         data-presence-url="/room/<?= e($room['code']) ?>/presence"
+        data-playback-url="/room/<?= e($room['code']) ?>/transmission/playback"
         data-csrf-token="<?= e($csrfToken) ?>"
         data-initial-source="<?= e($transmission['source'] ?? '') ?>"
         data-initial-video-id="<?= e($transmission['youtube_video_id'] ?? '') ?>"
         data-initial-revision="<?= e((string) ($transmission['revision'] ?? '')) ?>"
         data-initial-owner-name="<?= e($transmission['owner_name'] ?? '') ?>"
         data-initial-is-owner="<?= ($transmission['is_owner'] ?? false) ? '1' : '0' ?>"
+        data-initial-media-mode="<?= e($transmission['media_mode'] ?? '') ?>"
+        data-initial-playback-state="<?= e($transmission['playback']['state'] ?? '') ?>"
+        data-initial-playback-position-ms="<?= e((string) ($transmission['playback']['position_ms'] ?? '')) ?>"
+        data-initial-playback-revision="<?= e((string) ($transmission['playback']['revision'] ?? '')) ?>"
+        data-initial-playback-at-live-edge="<?= ($transmission['playback']['at_live_edge'] ?? false) ? '1' : '0' ?>"
+        data-initial-live-edge-position-ms="<?= e((string) ($transmission['playback']['live_edge_position_ms'] ?? '')) ?>"
     >
         <div class="room-stage" aria-hidden="true">
             <div id="room-player-mount" class="room-player-frame"></div>
@@ -76,6 +83,14 @@ declare(strict_types=1);
                 <div class="room-owner-copy" aria-live="polite">
                     <span data-room-owner><?= $transmission !== null ? e(($transmission['is_owner'] ? 'Você' : $transmission['owner_name']) . ' está transmitindo') : 'Sem transmissão ativa' ?></span>
                     <span class="room-player-status" id="youtube-player-status" role="status" aria-live="polite"></span>
+                </div>
+                <div class="room-shared-playback" data-shared-playback-controls<?= $transmission === null ? ' hidden' : '' ?>>
+                    <button type="button" class="room-icon-button" data-playback-toggle aria-label="Pausar transmissão">Ⅱ</button>
+                    <label class="room-visually-hidden" for="room-playback-seek">Posição da transmissão</label>
+                    <input id="room-playback-seek" data-playback-seek type="range" min="0" max="0" step="1" value="0">
+                    <output class="room-playback-time"><span data-playback-current>00:00</span><span data-playback-separator> / </span><span data-playback-duration>00:00</span></output>
+                    <button type="button" class="room-live-button" data-playback-live hidden>AO VIVO</button>
+                    <span class="room-playback-feedback" data-playback-status role="status" aria-live="polite"></span>
                 </div>
                 <div class="room-local-controls">
                     <button type="button" class="room-icon-button" data-mute-toggle aria-label="Ativar som">🔇</button>
@@ -109,6 +124,22 @@ declare(strict_types=1);
                         <li><strong><?= e($participant['name']) ?><?php if ($participant['is_you']): ?> (você)<?php endif; ?></strong><span>Aguardando player</span></li>
                     <?php endforeach; ?>
                 </ul>
+                <section class="room-media-debug" aria-labelledby="room-media-debug-title">
+                    <h3 id="room-media-debug-title">Estado da mídia</h3>
+                    <dl id="room-media-debug-state">
+                        <div><dt>media_mode</dt><dd data-debug-media-mode>unknown</dd></div>
+                        <div><dt>at live edge</dt><dd data-debug-at-live-edge>false</dd></div>
+                        <div><dt>transmission revision</dt><dd data-debug-transmission-revision>—</dd></div>
+                        <div><dt>playback revision</dt><dd data-debug-playback-revision>—</dd></div>
+                        <div><dt>player ready</dt><dd data-debug-player-ready>false</dd></div>
+                        <div><dt>player state</dt><dd data-debug-player-state>—</dd></div>
+                        <div><dt>currentTime</dt><dd data-debug-current-time>—</dd></div>
+                        <div><dt>duration</dt><dd data-debug-duration>—</dd></div>
+                        <div><dt>live edge position</dt><dd data-debug-live-edge>—</dd></div>
+                        <div><dt>behind live</dt><dd data-debug-behind-live>—</dd></div>
+                        <div><dt>UI branch</dt><dd data-debug-ui-branch>preparing</dd></div>
+                    </dl>
+                </section>
                 <p id="room-presence-status" role="status" aria-live="polite"></p>
             </aside>
         <?php else: ?>
@@ -138,14 +169,21 @@ declare(strict_types=1);
                 <p class="room-replace-warning" data-replace-warning<?= $transmission === null ? ' hidden' : '' ?>><strong data-replace-owner><?= e($transmission['owner_name'] ?? 'Participante') ?></strong> está transmitindo. Iniciar sua transmissão substituirá a transmissão atual.</p>
                 <label for="youtube-url">Link do YouTube</label>
                 <input id="youtube-url" name="youtube_url" type="url" maxlength="2048" placeholder="https://youtube.com/watch?v=..." required>
+                <fieldset class="room-media-mode">
+                    <legend>Tipo de conteúdo</legend>
+                    <label><input type="radio" name="media_mode" value="vod" checked> <span>Vídeo</span></label>
+                    <label><input type="radio" name="media_mode" value="live"> <span>Ao vivo</span></label>
+                </fieldset>
                 <div class="room-dialog-actions"><button type="button" class="room-secondary-button" data-close-transmission>Cancelar</button><button type="submit">Iniciar minha transmissão</button></div>
             </form>
         </dialog>
     </main>
 
+    <script src="/assets/js/room-media.js" defer></script>
     <script src="/assets/js/room-player.js" defer></script>
     <script src="/assets/js/room-share.js" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js" defer></script><?php endif; ?>
+    <script src="/assets/js/room-playback.js" defer></script>
     <script src="/assets/js/room-shell.js" defer></script>
     <script src="/assets/js/room-presence.js" defer></script>
 <?php endif; ?>

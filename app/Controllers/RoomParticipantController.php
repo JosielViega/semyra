@@ -15,6 +15,7 @@ use App\Repositories\RoomTransmissionRepository;
 use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPresenter;
+use App\Services\RoomTransmissionPlayback;
 use App\Validation\Validator;
 
 final class RoomParticipantController
@@ -31,6 +32,7 @@ final class RoomParticipantController
         private readonly RoomParticipantSession $participantSession,
         private readonly RoomPlaybackTelemetry $playbackTelemetry,
         private readonly RoomTransmissionPresenter $transmissionPresenter,
+        private readonly RoomTransmissionPlayback $transmissionPlayback,
     ) {
     }
 
@@ -98,6 +100,37 @@ final class RoomParticipantController
             $identity['display_name'],
             $playback,
         );
+
+        $liveEdgeValues = [
+            $this->request->input('live_edge_position_ms'),
+            $this->request->input('live_edge_transmission_revision'),
+            $this->request->input('live_edge_playback_revision'),
+        ];
+        $liveEdgeProvided = count(array_filter(
+            $liveEdgeValues,
+            static fn (mixed $value): bool => $value !== null,
+        ));
+        if ($liveEdgeProvided > 0) {
+            if ($liveEdgeProvided !== 3) {
+                return Response::json(['error' => 'invalid_live_edge_observation'], 422);
+            }
+            try {
+                $observation = $this->transmissionPlayback->normalizeLiveEdgeObservation([
+                    'position_ms' => $liveEdgeValues[0],
+                    'transmission_revision' => $liveEdgeValues[1],
+                    'playback_revision' => $liveEdgeValues[2],
+                ]);
+            } catch (\InvalidArgumentException) {
+                return Response::json(['error' => 'invalid_live_edge_observation'], 422);
+            }
+            $this->transmissions->observeLiveEdge(
+                (int) $room['id'],
+                $participantKeyHash,
+                $observation['transmission_revision'],
+                $observation['playback_revision'],
+                $observation['position_ms'],
+            );
+        }
 
         return Response::json([
             'participants' => $this->playbackTelemetry->presentParticipants(

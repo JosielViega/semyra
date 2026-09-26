@@ -12,19 +12,21 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - transmissão ativa separada da sala, com YouTube como primeira fonte;
 - proprietário temporário definido por quem iniciou a transmissão vigente;
 - substituição da transmissão por qualquer participante, com incremento de revisão;
+- estado oficial de Play/Pause/Seek controlado pelo proprietário da transmissão, com modo Vídeo/Ao vivo escolhido explicitamente;
+- YouTube VOD com duração convencional e YouTube Live com DVR, distância relativa e ação compartilhada `AO VIVO`;
 - página imersiva fullscreen com player responsivo, HUD temporário e overlays;
 - controles nativos do YouTube ocultos, com mute e fullscreen locais do Semyra;
 - compartilhamento da sala pela própria URL pública, com cópia automática quando a Clipboard API está disponível e seleção manual como fallback;
 - Web Share API como melhoria progressiva em navegadores compatíveis;
 - entrada anônima por apelido, isolada por sala e sessão do navegador;
-- lista de participantes ativos, atualizada por polling a cada 5 segundos e com janela de presença de 45 segundos;
+- lista de participantes ativos, atualizada por polling a cada 5 segundos sem transmissão e a cada 1 segundo durante uma transmissão;
 - telemetria observacional do player, com estado, posição e duração transportados junto à presença;
 - medição aproximada do desvio entre participantes disponível somente no modo de diagnóstico;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
-- sincronização automática, Play/Pause/Seek compartilhados, chat e autenticação ainda não implementados;
-- compartilhamento de tela é uma direção futura possível; o pipeline ainda não foi definido.
+- correção contínua de drift, chat e autenticação ainda não implementados;
+- compartilhamento de tela é uma fonte futura adicional; não substitui a integração permanente com YouTube e seu pipeline ainda não foi definido.
 
 ## Stack
 
@@ -145,6 +147,7 @@ Para compreender a base técnica e revisar seus fluxos, consulte o [plano de est
 - `POST /room/{code}/presence` — renova a presença e retorna a lista pública de participantes ativos;
 - `POST /room/{code}/transmission` — inicia ou substitui a transmissão YouTube ativa;
 - `POST /room/{code}/transmission/end` — encerra a transmissão quando solicitado pelo proprietário atual;
+- `POST /room/{code}/transmission/playback` — aplica Play, Pause ou Seek por compare-and-swap do proprietário atual;
 - `GET /health` — retorna `{"status":"ok"}` sem detalhes internos;
 - demais caminhos — página 404 com status correto.
 
@@ -158,9 +161,9 @@ Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Respon
 <h1><?= e($title) ?></h1>
 ```
 
-`RoomController` cria e consulta salas independentes de mídia. `RoomTransmissionController` inicia, substitui e encerra a transmissão ativa; `RoomTransmissionRepository` mantém no máximo uma transmissão por sala e incrementa sua revisão. `RoomParticipantController` trata entrada e presença; `RoomParticipantSession` mantém uma chave aleatória por sala na sessão, enquanto o banco recebe somente seu hash SHA-256. `YouTubeUrlParser` valida a primeira fonte suportada. Na sala, `room-presence.js` transporta presença, telemetria e transmissão em um único polling; `room-player.js` mantém o `YT.Player` privado; `room-shell.js` coordena HUD, overlays, mute e fullscreen locais. Não há ORM.
+`RoomController` cria e consulta salas independentes de mídia. `RoomTransmissionController` inicia, substitui e encerra a transmissão ativa e recebe comandos do playback oficial; `RoomTransmissionRepository` mantém no máximo uma transmissão por sala e protege comandos com owner e revisões esperadas. `RoomParticipantController` trata entrada e presença; `RoomParticipantSession` mantém uma chave aleatória por sala na sessão, enquanto o banco recebe somente seu hash SHA-256. `YouTubeUrlParser` valida a primeira fonte suportada. Na sala, `room-presence.js` transporta presença, telemetria, transmissão e observações moderadas da borda ao vivo em um único polling dinâmico; `room-media.js` contém somente funções puras de apresentação; `room-playback.js` coordena os controles compartilhados sem acessar o player; `room-player.js` mantém o `YT.Player` privado; `room-shell.js` coordena HUD, overlays, mute e fullscreen locais. Não há ORM.
 
-A sala não possui dono. A transmissão ativa possui um proprietário temporário: quem iniciou a mídia vigente. Qualquer participante pode substituí-la e assumir automaticamente essa propriedade. Não existem host permanente, sincronização automática, Play/Pause/Seek compartilhados ou comandos persistidos nesta etapa. O autoplay local pode iniciar silenciado para respeitar políticas do navegador.
+A sala não possui dono. A transmissão ativa possui um proprietário temporário: quem iniciou a mídia vigente. Qualquer participante pode substituí-la e assumir automaticamente essa propriedade. Somente esse owner inicializa e envia Play/Pause/Seek/AO VIVO ao estado oficial; viewers aplicam as revisões confirmadas pelo servidor. Mute e fullscreen permanecem locais. Não existem host permanente, eleição ou correção contínua de drift.
 
 ## Banco e migrations
 
@@ -174,7 +177,7 @@ A tabela `rooms` contém somente:
 - `code`: código público ASCII de 8 caracteres, com índice `UNIQUE`;
 - `created_at`: data de criação definida pelo banco.
 
-A tabela `room_transmissions` relaciona uma sala a zero ou uma transmissão ativa. Ela mantém fonte, video ID do YouTube, hash do proprietário temporário, revisão e timestamps. Não existe histórico nesta etapa. A URL completa não é armazenada; o parser não consulta o YouTube nem confirma disponibilidade ou permissão de incorporação.
+A tabela `room_transmissions` relaciona uma sala a zero ou uma transmissão ativa. Ela mantém fonte, video ID do YouTube, modo de mídia (`vod`/`live`, com `unknown` apenas como default técnico de migração), hash do proprietário temporário, revisão da transmissão e o estado oficial de playback (`playing`/`paused`, posição, indicador de borda ao vivo, revisão própria e instante-base). A posição pública e a âncora de borda são projetadas pelo relógio do MySQL. Live inicia na posição natural do YouTube e usa DVR; `getDuration()` não detecta Live nem define sua borda. Não existe histórico nesta etapa. A URL completa não é armazenada; o parser não consulta o YouTube nem confirma disponibilidade ou permissão de incorporação.
 
 A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Participantes são considerados ativos por 45 segundos após `last_seen_at`. A mesma linha mantém somente o último snapshot do player (`player_state`, posição e duração em milissegundos e o horário de recebimento no banco); não existe histórico de telemetria.
 

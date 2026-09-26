@@ -30,6 +30,14 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 - Layout imersivo fullscreen com HUD temporário e overlays para participantes e compartilhamento.
 - Player YouTube sem controles nativos, com mute e fullscreen locais do Semyra.
 - Telemetria oculta no uso normal e disponível por `?debug=1`.
+- Estado oficial de Play/Pause/Seek por transmissão, controlado somente pelo owner temporário.
+- Compare-and-swap por owner, revisão da transmissão e revisão do playback para rejeitar comandos antigos.
+- Controles compartilhados imersivos para o owner e aplicação das revisões oficiais nos viewers.
+- Polling de presença dinâmico: aproximadamente 1 segundo com transmissão e 5 segundos sem transmissão.
+- Seleção explícita de YouTube Vídeo ou Ao vivo ao iniciar uma transmissão, sem classificador heurístico.
+- Live iniciada no ponto natural do YouTube, sem `seekTo(0)` e sem usar `getDuration()` como borda.
+- Âncora de live edge observada pelo player do owner via `getCurrentTime()`, projetada pelo relógio do banco e transportada no polling já existente.
+- DVR de Live com barra relativa ao live edge oficial e ação compartilhada `AO VIVO`.
 
 ### Removed
 
