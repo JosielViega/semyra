@@ -13,17 +13,24 @@
     const replaceWarning = shell.querySelector('[data-replace-warning]');
     const replaceOwner = shell.querySelector('[data-replace-owner]');
     const muteButton = shell.querySelector('[data-mute-toggle]');
+    const mutedIcon = muteButton?.querySelector('[data-icon-muted]');
+    const audibleIcon = muteButton?.querySelector('[data-icon-audible]');
+    const volumeInput = shell.querySelector('[data-volume-control]');
     const fullscreenButton = shell.querySelector('[data-fullscreen-toggle]');
+    const maximizeIcon = fullscreenButton?.querySelector('[data-icon-maximize]');
+    const minimizeIcon = fullscreenButton?.querySelector('[data-icon-minimize]');
     const panels = Array.from(shell.querySelectorAll('[data-room-panel]'));
     const panelToggles = Array.from(shell.querySelectorAll('[data-panel-toggle]'));
     let hideTimer = null;
     let currentTransmission = null;
     let hasAppliedTransmission = false;
     let playbackInteraction = false;
+    let localControlInteraction = false;
 
     const anyInteractionOpen = () => (dialog instanceof HTMLDialogElement && dialog.open)
         || panels.some((panel) => !panel.hidden)
-        || playbackInteraction;
+        || playbackInteraction
+        || localControlInteraction;
 
     const revealHud = () => {
         shell.classList.remove('is-hud-hidden');
@@ -119,11 +126,41 @@
         revealHud();
     });
 
-    document.addEventListener('semyra:player-muted-state', (event) => {
+    volumeInput?.addEventListener('input', () => {
+        document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {
+            detail: { volume: Number(volumeInput.value) },
+        }));
+        revealHud();
+    });
+    volumeInput?.addEventListener('focus', () => {
+        localControlInteraction = true;
+        revealHud();
+    });
+    volumeInput?.addEventListener('blur', () => {
+        localControlInteraction = false;
+        revealHud();
+    });
+
+    document.addEventListener('semyra:player-audio-state', (event) => {
         const muted = event.detail?.muted === true;
+        const volume = Number(event.detail?.volume);
         if (muteButton) {
-            muteButton.textContent = muted ? '🔇' : '🔊';
+            muteButton.dataset.state = muted ? 'muted' : 'audible';
             muteButton.setAttribute('aria-label', muted ? 'Ativar som' : 'Silenciar');
+            muteButton.setAttribute('aria-pressed', String(muted));
+            if (mutedIcon) {
+                mutedIcon.toggleAttribute('hidden', !muted);
+            }
+            if (audibleIcon) {
+                audibleIcon.toggleAttribute('hidden', muted);
+            }
+        }
+        if (volumeInput && Number.isFinite(volume)) {
+            volumeInput.value = String(Math.min(100, Math.max(0, Math.round(volume))));
+            volumeInput.setAttribute(
+                'aria-valuetext',
+                `${volumeInput.value}%${muted ? ', sem som' : ''}`,
+            );
         }
     });
 
@@ -141,10 +178,18 @@
     });
 
     document.addEventListener('fullscreenchange', () => {
+        const fullscreen = document.fullscreenElement !== null;
+        fullscreenButton?.setAttribute('data-state', fullscreen ? 'fullscreen' : 'windowed');
         fullscreenButton?.setAttribute(
             'aria-label',
-            document.fullscreenElement ? 'Sair da tela cheia' : 'Entrar em tela cheia',
+            fullscreen ? 'Sair da tela cheia' : 'Entrar em tela cheia',
         );
+        if (maximizeIcon) {
+            maximizeIcon.toggleAttribute('hidden', fullscreen);
+        }
+        if (minimizeIcon) {
+            minimizeIcon.toggleAttribute('hidden', !fullscreen);
+        }
     });
 
     document.addEventListener('semyra:hud-interaction-start', () => {

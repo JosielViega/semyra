@@ -10,11 +10,28 @@ declare(strict_types=1);
 /** @var array $flashes */
 /** @var string $csrfField */
 /** @var string $csrfToken */
+$initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing';
 ?>
+<svg class="room-icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="room-icon-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="room-icon-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98M15.41 6.51 8.59 10.49"/></symbol>
+    <symbol id="room-icon-video-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5 3V8l-5 3"/><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M8 9v6M5 12h6"/></symbol>
+    <symbol id="room-icon-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-5V2M4 17h5v5"/><path d="M5.1 9A8 8 0 0 1 18.4 5.6L20 7M4 17l1.6 1.4A8 8 0 0 0 18.9 15"/></symbol>
+    <symbol id="room-icon-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 5 11 7-11 7Z"/></symbol>
+    <symbol id="room-icon-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H6v14h3ZM18 5h-3v14h3Z"/></symbol>
+    <symbol id="room-icon-volume-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4Z"/><path d="m23 9-6 6M17 9l6 6"/></symbol>
+    <symbol id="room-icon-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+    <symbol id="room-icon-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></symbol>
+    <symbol id="room-icon-minimize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5"/></symbol>
+    <symbol id="room-icon-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="room-icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="room-icon-stop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/></symbol>
+    <symbol id="room-icon-enter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></symbol>
+</svg>
 <?php if ($identity === null): ?>
     <main class="room-shell room-shell-join">
         <section class="room-join-panel" aria-labelledby="room-join-title">
-            <a class="room-wordmark" href="/">Semyra</a>
+            <a class="room-logo-link room-logo-link-join" href="/" aria-label="Semyra — início"><img class="room-logo room-logo-join" src="/assets/images/logo_semyra.png?v=8a-polish-2" alt="Semyra"></a>
             <p class="room-kicker">Código da sala</p>
             <p class="room-code"><?= e($room['code']) ?></p>
 
@@ -30,7 +47,7 @@ declare(strict_types=1);
                 <?= $csrfField ?>
                 <label for="display-name">Seu apelido</label>
                 <input id="display-name" name="display_name" type="text" maxlength="30" autocomplete="nickname" required>
-                <button type="submit">Entrar na sala</button>
+                <button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-enter"></use></svg><span>Entrar na sala</span></button>
             </form>
         </section>
     </main>
@@ -62,22 +79,21 @@ declare(strict_types=1);
         </div>
 
         <section class="room-empty-state" data-room-empty-state<?= $transmission !== null ? ' hidden' : '' ?>>
-            <span class="room-empty-mark">S</span>
-            <h1>Semyra</h1>
+            <img class="room-logo room-logo-empty" src="/assets/images/logo_semyra.png?v=8a-polish-2" alt="Semyra">
             <p>Nenhuma transmissão ativa</p>
-            <button type="button" data-open-transmission>Iniciar transmissão</button>
+            <button type="button" class="room-text-button" data-open-transmission><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg><span>Iniciar transmissão</span></button>
         </section>
 
         <div class="room-hud" data-room-hud>
             <header class="room-hud-top">
                 <div>
-                    <a class="room-wordmark" href="/">Semyra</a>
+                    <a class="room-logo-link room-logo-link-hud" href="/" aria-label="Semyra — início"><img class="room-logo room-logo-hud" src="/assets/images/logo_semyra.png?v=8a-polish-2" alt="Semyra"></a>
                     <span class="room-code-compact">Sala <?= e($room['code']) ?></span>
                 </div>
                 <nav class="room-hud-actions" aria-label="Ações da sala">
-                    <button type="button" class="room-icon-button" data-panel-toggle="participants" aria-label="Mostrar participantes" aria-expanded="false"><span aria-hidden="true">●●</span><strong id="room-participant-count"><?= count($participants) ?></strong></button>
-                    <button type="button" class="room-icon-button" data-panel-toggle="share" aria-label="Compartilhar sala" aria-expanded="false">↗</button>
-                    <button type="button" class="room-icon-button" data-open-transmission aria-label="Iniciar ou trocar transmissão">＋</button>
+                    <button type="button" class="room-icon-button room-participants-button" data-panel-toggle="participants" aria-label="Mostrar participantes" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-users"></use></svg><strong id="room-participant-count"><?= count($participants) ?></strong></button>
+                    <button type="button" class="room-icon-button" data-panel-toggle="share" aria-label="Compartilhar sala" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-share"></use></svg></button>
+                    <button type="button" class="room-icon-button" data-open-transmission aria-label="Iniciar ou trocar transmissão"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg></button>
                 </nav>
             </header>
 
@@ -87,8 +103,8 @@ declare(strict_types=1);
                     <span class="room-player-status" id="youtube-player-status" role="status" aria-live="polite"></span>
                 </div>
                 <div class="room-shared-playback" data-shared-playback-controls<?= $transmission === null ? ' hidden' : '' ?>>
-                    <button type="button" class="room-icon-button" data-playback-sync aria-label="Sincronizar reprodução" hidden>↻</button>
-                    <button type="button" class="room-icon-button" data-playback-toggle aria-label="Pausar transmissão">Ⅱ</button>
+                    <button type="button" class="room-icon-button" data-playback-sync aria-label="Sincronizar reprodução" hidden><svg class="room-icon" aria-hidden="true"><use href="#room-icon-sync"></use></svg></button>
+                    <button type="button" class="room-icon-button" data-playback-toggle aria-label="<?= $initialPlaying ? 'Pausar' : 'Reproduzir' ?> transmissão" data-state="<?= $initialPlaying ? 'playing' : 'paused' ?>"><svg class="room-icon" data-icon-play aria-hidden="true"<?= $initialPlaying ? ' hidden' : '' ?>><use href="#room-icon-play"></use></svg><svg class="room-icon" data-icon-pause aria-hidden="true"<?= $initialPlaying ? '' : ' hidden' ?>><use href="#room-icon-pause"></use></svg></button>
                     <label class="room-visually-hidden" for="room-playback-seek">Posição da transmissão</label>
                     <input id="room-playback-seek" data-playback-seek type="range" min="0" max="0" step="1" value="0">
                     <output class="room-playback-time"><span data-playback-current>00:00</span><span data-playback-separator> / </span><span data-playback-duration>00:00</span></output>
@@ -96,14 +112,20 @@ declare(strict_types=1);
                     <span class="room-playback-feedback" data-playback-status role="status" aria-live="polite"></span>
                 </div>
                 <div class="room-local-controls">
-                    <button type="button" class="room-icon-button" data-mute-toggle aria-label="Ativar som">🔇</button>
-                    <button type="button" class="room-icon-button" data-fullscreen-toggle aria-label="Entrar em tela cheia">⛶</button>
+                    <label class="room-visually-hidden" for="room-player-volume">Volume</label>
+                    <input id="room-player-volume" class="room-volume-control" data-volume-control type="range" min="0" max="100" step="1" value="100" aria-label="Volume local" aria-valuetext="100%, sem som">
+                    <button type="button" class="room-icon-button" data-mute-toggle data-state="muted" aria-label="Ativar som" aria-pressed="true"><svg class="room-icon" data-icon-muted aria-hidden="true"><use href="#room-icon-volume-x"></use></svg><svg class="room-icon" data-icon-audible aria-hidden="true" hidden><use href="#room-icon-volume"></use></svg></button>
+                    <button type="button" class="room-icon-button" data-fullscreen-toggle data-state="windowed" aria-label="Entrar em tela cheia"><svg class="room-icon" data-icon-maximize aria-hidden="true"><use href="#room-icon-maximize"></use></svg><svg class="room-icon" data-icon-minimize aria-hidden="true" hidden><use href="#room-icon-minimize"></use></svg></button>
                 </div>
+                <form class="room-end-form" action="/room/<?= e($room['code']) ?>/transmission/end" method="post" data-end-transmission<?= !($transmission['is_owner'] ?? false) ? ' hidden' : '' ?>>
+                    <?= $csrfField ?>
+                    <button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-stop"></use></svg><span>Encerrar transmissão</span></button>
+                </form>
             </footer>
         </div>
 
         <aside class="room-panel room-panel-participants" data-room-panel="participants" hidden aria-labelledby="participants-title">
-            <div class="room-panel-heading"><h2 id="participants-title">Na sala</h2><button type="button" class="room-close-button" data-panel-close aria-label="Fechar participantes">×</button></div>
+            <div class="room-panel-heading"><h2 id="participants-title">Na sala</h2><button type="button" class="room-close-button" data-panel-close aria-label="Fechar participantes"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button></div>
             <ul id="room-participant-list" class="room-participant-list">
                 <?php foreach ($participants as $participant): ?>
                     <li><span><?= e($participant['name']) ?></span><?php if ($participant['is_you']): ?><strong> (você)</strong><?php endif; ?></li>
@@ -112,10 +134,10 @@ declare(strict_types=1);
         </aside>
 
         <aside class="room-panel room-panel-share" data-room-panel="share" data-room-share data-room-code="<?= e($room['code']) ?>" hidden aria-labelledby="share-title">
-            <div class="room-panel-heading"><h2 id="share-title">Compartilhar sala</h2><button type="button" class="room-close-button" data-panel-close aria-label="Fechar compartilhamento">×</button></div>
+            <div class="room-panel-heading"><h2 id="share-title">Compartilhar sala</h2><button type="button" class="room-close-button" data-panel-close aria-label="Fechar compartilhamento"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button></div>
             <label for="room-share-url">Link da sala</label>
             <input id="room-share-url" type="url" readonly>
-            <div class="room-panel-actions"><button id="room-copy-link" type="button">Copiar link</button><button id="room-native-share" type="button" hidden>Compartilhar</button></div>
+            <div class="room-panel-actions"><button id="room-copy-link" type="button" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-copy"></use></svg><span>Copiar link</span></button><button id="room-native-share" type="button" class="room-text-button" hidden><svg class="room-icon" aria-hidden="true"><use href="#room-icon-share"></use></svg><span>Compartilhar</span></button></div>
             <p id="room-share-status" class="room-panel-status" role="status" aria-live="polite"></p>
         </aside>
 
@@ -145,6 +167,7 @@ declare(strict_types=1);
                         <div><dt>local vs official drift</dt><dd data-debug-local-drift>—</dd></div>
                         <div><dt>behind synchronized live</dt><dd data-debug-behind-live>—</dd></div>
                         <div><dt>UI branch</dt><dd data-debug-ui-branch>preparing</dd></div>
+                        <div><dt>wake lock</dt><dd data-debug-wake-lock>—</dd></div>
                     </dl>
                 </section>
                 <p id="room-presence-status" role="status" aria-live="polite"></p>
@@ -161,17 +184,12 @@ declare(strict_types=1);
             <?php endforeach; ?>
         </div>
 
-        <form class="room-end-form" action="/room/<?= e($room['code']) ?>/transmission/end" method="post" data-end-transmission<?= !($transmission['is_owner'] ?? false) ? ' hidden' : '' ?>>
-            <?= $csrfField ?>
-            <button type="submit">Encerrar transmissão</button>
-        </form>
-
         <dialog id="room-transmission-dialog" class="room-dialog" aria-labelledby="transmission-dialog-title">
             <form method="post" action="/room/<?= e($room['code']) ?>/transmission">
                 <?= $csrfField ?>
                 <div class="room-dialog-heading">
                     <div><p class="room-kicker">YouTube</p><h2 id="transmission-dialog-title">Iniciar transmissão</h2></div>
-                    <button type="button" class="room-close-button" data-close-transmission aria-label="Cancelar">×</button>
+                    <button type="button" class="room-close-button" data-close-transmission aria-label="Cancelar"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button>
                 </div>
                 <p class="room-replace-warning" data-replace-warning<?= $transmission === null ? ' hidden' : '' ?>><strong data-replace-owner><?= e($transmission['owner_name'] ?? 'Participante') ?></strong> está transmitindo. Iniciar sua transmissão substituirá a transmissão atual.</p>
                 <label for="youtube-url">Link do YouTube</label>
@@ -181,16 +199,17 @@ declare(strict_types=1);
                     <label><input type="radio" name="media_mode" value="vod" checked> <span>Vídeo</span></label>
                     <label><input type="radio" name="media_mode" value="live"> <span>Ao vivo</span></label>
                 </fieldset>
-                <div class="room-dialog-actions"><button type="button" class="room-secondary-button" data-close-transmission>Cancelar</button><button type="submit">Iniciar minha transmissão</button></div>
+                <div class="room-dialog-actions"><button type="button" class="room-secondary-button" data-close-transmission>Cancelar</button><button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg><span>Iniciar minha transmissão</span></button></div>
             </form>
         </dialog>
     </main>
 
-    <script src="/assets/js/room-media.js?v=7ca-cohorts" defer></script>
-    <script src="/assets/js/room-player.js" defer></script>
-    <script src="/assets/js/room-share.js" defer></script>
-    <?php if ($debug): ?><script src="/assets/js/room-telemetry.js" defer></script><?php endif; ?>
-    <script src="/assets/js/room-playback.js?v=7ca-cohorts" defer></script>
-    <script src="/assets/js/room-shell.js" defer></script>
-    <script src="/assets/js/room-presence.js" defer></script>
+    <script src="/assets/js/room-media.js?v=8a-polish-2" defer></script>
+    <script src="/assets/js/room-player.js?v=8a-polish-2" defer></script>
+    <script src="/assets/js/room-share.js?v=8a-polish-2" defer></script>
+    <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8a-polish-2" defer></script><?php endif; ?>
+    <script src="/assets/js/room-playback.js?v=8a-polish-2" defer></script>
+    <script src="/assets/js/room-shell.js?v=8a-polish-2" defer></script>
+    <script src="/assets/js/room-wake-lock.js?v=8a-polish-2" defer></script>
+    <script src="/assets/js/room-presence.js?v=8a-polish-2" defer></script>
 <?php endif; ?>

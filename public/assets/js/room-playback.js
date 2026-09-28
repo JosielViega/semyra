@@ -13,6 +13,8 @@
     const csrfToken = shell.dataset.csrfToken ?? '';
     const syncButton = controls.querySelector('[data-playback-sync]');
     const toggleButton = controls.querySelector('[data-playback-toggle]');
+    const playIcon = toggleButton?.querySelector('[data-icon-play]');
+    const pauseIcon = toggleButton?.querySelector('[data-icon-pause]');
     const liveButton = controls.querySelector('[data-playback-live]');
     const seekInput = controls.querySelector('[data-playback-seek]');
     const currentOutput = controls.querySelector('[data-playback-current]');
@@ -32,7 +34,7 @@
     let dispatchedKey = '';
 
     if (!endpoint || !csrfToken || !syncButton || !toggleButton || !liveButton || !seekInput
-        || !currentOutput || !separator || !durationOutput) {
+        || !playIcon || !pauseIcon || !currentOutput || !separator || !durationOutput) {
         return;
     }
 
@@ -171,7 +173,9 @@
         const rangeMaxMs = live ? media.liveRangeMaxMs(liveSyncPositionMs) : durationMs;
         syncButton.hidden = !owner;
         syncButton.disabled = controlsLocked();
-        toggleButton.textContent = playing ? 'Ⅱ' : '▶';
+        toggleButton.dataset.state = playing ? 'playing' : 'paused';
+        playIcon.toggleAttribute('hidden', playing);
+        pauseIcon.toggleAttribute('hidden', !playing);
         toggleButton.setAttribute('aria-label', playing ? 'Pausar transmissão' : 'Reproduzir transmissão');
         toggleButton.hidden = !owner;
         toggleButton.disabled = controlsLocked();

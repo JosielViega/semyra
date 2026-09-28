@@ -13,6 +13,62 @@
     const SYNC_SETTLE_DELAY_MS = 2000;
     const PARTICIPANT_SYNC_WARMUP_MS = 4000;
     const AUTO_RESYNC_RETRY_DELAY_MS = 5000;
+    const PLAYER_VOLUME_STORAGE_KEY = 'semyra:player-volume';
+    const DEFAULT_PLAYER_VOLUME = 100;
+
+    const normalizePlayerVolume = (value, fallback = DEFAULT_PLAYER_VOLUME) => {
+        const normalizedFallback = Number.isFinite(Number(fallback))
+            ? Math.min(100, Math.max(0, Math.round(Number(fallback))))
+            : DEFAULT_PLAYER_VOLUME;
+        if ((typeof value !== 'number' && typeof value !== 'string')
+            || (typeof value === 'string' && value.trim() === '')) {
+            return normalizedFallback;
+        }
+        const numericValue = Number(value);
+        return Number.isFinite(numericValue)
+            ? Math.min(100, Math.max(0, Math.round(numericValue)))
+            : normalizedFallback;
+    };
+
+    const readStoredPlayerVolume = (storage, fallback = DEFAULT_PLAYER_VOLUME) => {
+        try {
+            const stored = storage?.getItem(PLAYER_VOLUME_STORAGE_KEY);
+            return stored === null || stored === undefined
+                ? normalizePlayerVolume(fallback)
+                : normalizePlayerVolume(stored, fallback);
+        } catch {
+            return normalizePlayerVolume(fallback);
+        }
+    };
+
+    const writeStoredPlayerVolume = (storage, volume) => {
+        const normalized = normalizePlayerVolume(volume);
+        try {
+            storage?.setItem(PLAYER_VOLUME_STORAGE_KEY, String(normalized));
+        } catch {
+            // Persisting the local preference is optional.
+        }
+        return normalized;
+    };
+
+    const playerVolumeSelection = (value, previousNonZero = DEFAULT_PLAYER_VOLUME) => {
+        const volume = normalizePlayerVolume(value);
+        const fallback = normalizePlayerVolume(previousNonZero);
+        return {
+            muted: volume === 0,
+            volume,
+            restoreVolume: volume > 0 ? volume : (fallback > 0 ? fallback : DEFAULT_PLAYER_VOLUME),
+        };
+    };
+
+    const playerUnmuteVolume = (volume, previousNonZero = DEFAULT_PLAYER_VOLUME) => {
+        const selected = normalizePlayerVolume(volume);
+        if (selected > 0) {
+            return selected;
+        }
+        const previous = normalizePlayerVolume(previousNonZero);
+        return previous > 0 ? previous : DEFAULT_PLAYER_VOLUME;
+    };
 
     const behindLiveMs = (liveEdgeMs, positionMs) => (
         Number.isSafeInteger(liveEdgeMs) ? Math.max(0, liveEdgeMs - positionMs) : null
@@ -53,7 +109,7 @@
         if (behindMs === null) {
             return '—';
         }
-        return behindMs <= LIVE_SCRUB_THRESHOLD_MS ? '🔴 AO VIVO' : `-${formatTime(behindMs)}`;
+        return behindMs <= LIVE_SCRUB_THRESHOLD_MS ? 'AO VIVO' : `-${formatTime(behindMs)}`;
     };
 
     const sharedPlaybackDispatchKey = (
@@ -338,7 +394,7 @@
     }) => {
         if (mediaMode === 'live') {
             return atLiveEdge
-                ? { kind: 'live-edge', current: '🔴 AO VIVO', duration: '' }
+                ? { kind: 'live-edge', current: 'AO VIVO', duration: '' }
                 : {
                     kind: 'live-dvr',
                     current: livePositionLabel(liveEdgeMs, positionMs),
@@ -356,7 +412,9 @@
         LIVE_SCRUB_THRESHOLD_MS,
         SYNC_SETTLE_DELAY_MS,
         AUTO_RESYNC_RETRY_DELAY_MS,
+        DEFAULT_PLAYER_VOLUME,
         PARTICIPANT_SYNC_WARMUP_MS,
+        PLAYER_VOLUME_STORAGE_KEY,
         behindLiveMs,
         createParticipantSyncTracker,
         createScrubbingSession,
@@ -369,10 +427,15 @@
         localOfficialDriftMs,
         playbackPresentation,
         participantSyncStorageKey,
+        playerUnmuteVolume,
+        playerVolumeSelection,
+        normalizePlayerVolume,
+        readStoredPlayerVolume,
         resyncContextMatches,
         resyncPlan,
         runResyncSequence,
         sharedPlaybackDispatchKey,
         shouldBootstrapLiveEdge,
+        writeStoredPlayerVolume,
     };
 });

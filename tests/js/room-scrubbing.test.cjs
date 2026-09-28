@@ -22,7 +22,7 @@ assert.deepEqual(liveDvr.commit('live', 600000), {action: 'seek', positionMs: 51
 const nearLive = media.createScrubbingSession();
 nearLive.start(590000, true);
 nearLive.update(596000);
-assert.equal(media.livePositionLabel(600000, nearLive.positionMs()), '🔴 AO VIVO');
+assert.equal(media.livePositionLabel(600000, nearLive.positionMs()), 'AO VIVO');
 assert.deepEqual(nearLive.commit('live', 600000), {action: 'live', positionMs: null});
 
 const cancelled = media.createScrubbingSession();

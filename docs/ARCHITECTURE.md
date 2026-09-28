@@ -125,7 +125,13 @@ room-player.js
 YouTube IFrame Player API
 ```
 
-O layout `layouts/room` é fullscreen e independente do layout tradicional da aplicação. O frontend recebe uma apresentação pública escapada da transmissão, sem `room_id`, hash, token ou ID de participante. `room-shell.js` coordena HUD, dialog, painéis, fullscreen e mute locais. `room-player.js` cria, troca ou destrói o player conforme eventos internos de transmissão.
+O layout `layouts/room` é fullscreen e independente do layout tradicional da aplicação. O frontend recebe uma apresentação pública escapada da transmissão, sem `room_id`, hash, token ou ID de participante. `room-shell.js` coordena HUD, dialog, painéis, fullscreen e áudio locais. `room-player.js` cria, troca ou destrói o player conforme eventos internos de transmissão.
+
+O player permanece 16:9 e usa `contain`, centralizado sobre fundo preto; portanto telas retrato, paisagem curta e ultrawide preservam o quadro completo em vez de recortá-lo. `room-player.js` continua sendo o único módulo com acesso ao `YT.Player`: recebe os pedidos locais de volume do HUD, persiste somente o nível em `semyra:player-volume` e emite `semyra:player-audio-state` com `{muted, volume}`. Toda nova carga começa muda, independentemente do nível salvo.
+
+`room-wake-lock.js` é uma melhoria progressiva separada. Ele observa apenas a presença de transmissão, o estado oficial playing/paused e o ciclo de visibilidade/fullscreen; solicita `navigator.wakeLock` quando a transmissão está reproduzindo em uma página visível e libera em pausa, fim, ocultação ou `pagehide`. A API não participa da autoridade, revisão, polling, telemetria ou correção de drift, e sua ausência ou recusa não afeta o playback.
+
+A identidade visual da sala depende somente de assets públicos: a logo oficial fica em `public/assets/images/` e a view fornece um sprite SVG inline, sem CDN ou pacote de ícones. O JavaScript alterna visibilidade e atributos dos ícones já renderizados; o `YT.Player` e o estado compartilhado permanecem encapsulados e independentes dessa camada visual.
 
 O compartilhamento permanece exclusivamente no frontend e reutiliza a rota pública existente:
 
@@ -248,7 +254,7 @@ room-telemetry.js
 
 O banco mantém somente o último snapshot na linha de cada participante e calcula sua idade com o relógio do MySQL. Telemetria é recente por 12 segundos, separadamente da janela de presença de 45 segundos. Para dois participantes no estado `playing`, posições recentes são projetadas pela idade do snapshot e o drift é `posição estimada do outro - posição estimada de você`: positivo significa que o outro está à frente, negativo significa que está atrás. Duração é somente diagnóstica, inclusive em Lives.
 
-Este fluxo de telemetria continua observacional e não define autoridade. O playback oficial é aplicado quando muda a revisão da transmissão, a revisão do playback ou quando a primeira âncora se torna pronta; a projeção seguinte não redispara seek. Não existe seek periódico, eleição, consenso, playback rate, correção contínua de drift ou histórico de amostras. A margem de 5 segundos ainda está em validação empírica. Mute e fullscreen continuam exclusivamente locais.
+Este fluxo de telemetria continua observacional e não define autoridade. O playback oficial é aplicado quando muda a revisão da transmissão, a revisão do playback ou quando a primeira âncora se torna pronta; a projeção seguinte não redispara seek. Não existe seek periódico, eleição, consenso, playback rate, correção contínua de drift ou histórico de amostras. A margem de 5 segundos ainda está em validação empírica. Volume, mute, fullscreen e Wake Lock continuam exclusivamente locais.
 
 Como experimento de estabilização, o owner dispõe de `Sincronizar`: em conteúdo playing, o frontend serializa `pause`, confirmação oficial, espera de 2 segundos e `play` — ou `live` quando estava no ponto AO VIVO. Em paused, republica a posição por `seek` e não inicia reprodução. Revisions e ownership são revalidados antes da segunda ação; conflito, substituição ou perda de ownership cancelam a retomada antiga. Viewers continuam reagindo somente às revisions oficiais.
 

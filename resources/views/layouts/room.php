@@ -11,7 +11,7 @@ declare(strict_types=1);
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title><?= e($title ?? 'Semyra') ?></title>
-    <link rel="stylesheet" href="/assets/css/room.css">
+    <link rel="stylesheet" href="/assets/css/room.css?v=8a-polish-2">
 </head>
 <body class="room-body">
     <?= $content ?>

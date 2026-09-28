@@ -46,6 +46,7 @@
         localDrift: document.querySelector('[data-debug-local-drift]'),
         behindLive: document.querySelector('[data-debug-behind-live]'),
         uiBranch: document.querySelector('[data-debug-ui-branch]'),
+        wakeLock: document.querySelector('[data-debug-wake-lock]'),
     };
 
     const stateLabels = new Map([
@@ -191,6 +192,12 @@
             mediaDebug.uiBranch = detail.uiBranch ?? 'preparing';
         }
         renderMediaDebug();
+    });
+
+    document.addEventListener('semyra:wake-lock-state', (event) => {
+        if (debugFields.wakeLock) {
+            debugFields.wakeLock.textContent = event.detail?.state ?? 'unknown';
+        }
     });
 
     renderMediaDebug();

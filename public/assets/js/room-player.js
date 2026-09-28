@@ -7,6 +7,10 @@
     }
 
     const statusElement = document.getElementById('youtube-player-status');
+    const media = window.SemyraMedia;
+    if (!media) {
+        return;
+    }
     const debugEnabled = document.querySelector('[data-room-telemetry]') !== null;
     const apiUrl = 'https://www.youtube.com/iframe_api';
     const videoIdPattern = /^[A-Za-z0-9_-]{11}$/;
@@ -23,6 +27,16 @@
     let currentIsOwner = false;
     let endedReportedRevision = null;
     let apiPromise = null;
+    let volumeStorage = null;
+    try {
+        volumeStorage = window.localStorage;
+    } catch {
+        // Storage can be unavailable in privacy-restricted browsing contexts.
+    }
+    let selectedVolume = media.readStoredPlayerVolume(volumeStorage);
+    let restoreVolume = selectedVolume > 0 ? selectedVolume : media.DEFAULT_PLAYER_VOLUME;
+    let locallyMuted = true;
+    let audioPreferenceTouched = false;
 
     const emitMediaDebug = (detail) => {
         if (debugEnabled) {
@@ -40,13 +54,73 @@
         statusElement.classList.toggle('is-error', isError);
     };
 
-    const emitMutedState = () => {
-        if (!playerReady || player === null || typeof player.isMuted !== 'function') {
+    const emitAudioState = () => {
+        if (!playerReady
+            || player === null
+            || typeof player.isMuted !== 'function'
+            || typeof player.getVolume !== 'function') {
             return;
         }
-        document.dispatchEvent(new CustomEvent('semyra:player-muted-state', {
-            detail: { muted: player.isMuted() },
-        }));
+        try {
+            const muted = audioPreferenceTouched
+                ? locallyMuted
+                : locallyMuted || player.isMuted();
+            const volume = audioPreferenceTouched
+                ? selectedVolume
+                : media.normalizePlayerVolume(player.getVolume(), selectedVolume);
+            document.dispatchEvent(new CustomEvent('semyra:player-audio-state', {
+                detail: {
+                    muted,
+                    volume,
+                },
+            }));
+        } catch {
+            // Local audio state is optional and must not interrupt playback.
+        }
+    };
+
+    const applyLocalAudioPreference = () => {
+        if (!playerReady || player === null) {
+            return;
+        }
+        try {
+            player.setVolume(selectedVolume);
+            if (audioPreferenceTouched && !locallyMuted && selectedVolume > 0) {
+                player.unMute();
+            } else {
+                player.mute();
+                locallyMuted = true;
+            }
+            emitAudioState();
+            window.setTimeout(emitAudioState, 0);
+        } catch {
+            // YouTube audio APIs are a progressive local enhancement.
+        }
+    };
+
+    const selectLocalVolume = (value) => {
+        if (!playerReady || player === null) {
+            return;
+        }
+        const selection = media.playerVolumeSelection(value, restoreVolume);
+        selectedVolume = selection.volume;
+        restoreVolume = selection.restoreVolume;
+        locallyMuted = selection.muted;
+        audioPreferenceTouched = true;
+        media.writeStoredPlayerVolume(volumeStorage, selectedVolume);
+
+        try {
+            player.setVolume(selectedVolume);
+            if (selection.muted) {
+                player.mute();
+            } else {
+                player.unMute();
+            }
+            emitAudioState();
+            window.setTimeout(emitAudioState, 0);
+        } catch {
+            // Local audio control is optional and must not interrupt playback.
+        }
     };
 
     const readSnapshot = () => {
@@ -248,8 +322,7 @@
                     onReady: (event) => {
                         player = event.target;
                         playerReady = true;
-                        player.mute();
-                        emitMutedState();
+                        applyLocalAudioPreference();
                         emitMediaDebug({ playerReady: true, snapshot: readSnapshot() });
                         emitTelemetry();
                         applySharedPlayback(true);
@@ -346,14 +419,25 @@
             return;
         }
         try {
-            if (player.isMuted()) {
+            if (locallyMuted || player.isMuted()) {
+                selectedVolume = media.playerUnmuteVolume(selectedVolume, restoreVolume);
+                restoreVolume = selectedVolume;
+                media.writeStoredPlayerVolume(volumeStorage, selectedVolume);
+                player.setVolume(selectedVolume);
                 player.unMute();
+                locallyMuted = false;
             } else {
                 player.mute();
+                locallyMuted = true;
             }
-            emitMutedState();
+            audioPreferenceTouched = true;
+            emitAudioState();
+            window.setTimeout(emitAudioState, 0);
         } catch {
             // Local audio control is optional and must not interrupt presence.
         }
+    });
+    document.addEventListener('semyra:player-volume-change', (event) => {
+        selectLocalVolume(event.detail?.volume);
     });
 })();

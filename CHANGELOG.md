@@ -6,6 +6,10 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Controle local de volume persistido por navegador, com cada nova página iniciando sem som.
+- Screen Wake Lock progressivo durante transmissões em reprodução, com liberação em pausa, fim ou página oculta.
+- Player 16:9 em modo `contain`, sem corte da imagem em telas retrato, paisagem ou ultrawide.
+- Identidade visual da sala com logo oficial e iconografia SVG local, consistente e sem dependências externas.
 - Início do projeto Semyra com base na infraestrutura técnica do `modeloPHP`.
 - Identidade inicial da aplicação e conceito “Assista junto.”.
 - Página inicial e identidade visual base da aplicação.
