@@ -9,7 +9,10 @@
         root.SemyraMedia = api;
     }
 })(typeof window === 'undefined' ? null : window, () => {
-    const LIVE_EDGE_THRESHOLD_MS = 5000;
+    const LIVE_SCRUB_THRESHOLD_MS = 5000;
+    const SYNC_SETTLE_DELAY_MS = 2000;
+    const PARTICIPANT_SYNC_WARMUP_MS = 4000;
+    const AUTO_RESYNC_RETRY_DELAY_MS = 5000;
 
     const behindLiveMs = (liveEdgeMs, positionMs) => (
         Number.isSafeInteger(liveEdgeMs) ? Math.max(0, liveEdgeMs - positionMs) : null
@@ -17,8 +20,23 @@
 
     const isNearLiveEdge = (liveEdgeMs, positionMs) => {
         const behindMs = behindLiveMs(liveEdgeMs, positionMs);
-        return behindMs !== null && behindMs <= LIVE_EDGE_THRESHOLD_MS;
+        return behindMs !== null && behindMs <= LIVE_SCRUB_THRESHOLD_MS;
     };
+
+    const liveSyncTargetMs = (physicalLiveEdgeMs, syncDelayMs) => (
+        Number.isSafeInteger(physicalLiveEdgeMs)
+        && physicalLiveEdgeMs >= 0
+        && Number.isSafeInteger(syncDelayMs)
+        && syncDelayMs >= 0
+            ? Math.max(0, physicalLiveEdgeMs - syncDelayMs)
+            : null
+    );
+
+    const liveRangeMaxMs = (liveSyncPositionMs) => (
+        Number.isSafeInteger(liveSyncPositionMs) && liveSyncPositionMs >= 0
+            ? liveSyncPositionMs
+            : null
+    );
 
     const formatTime = (milliseconds) => {
         const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -35,7 +53,235 @@
         if (behindMs === null) {
             return '—';
         }
-        return behindMs <= LIVE_EDGE_THRESHOLD_MS ? '🔴 AO VIVO' : `-${formatTime(behindMs)}`;
+        return behindMs <= LIVE_SCRUB_THRESHOLD_MS ? '🔴 AO VIVO' : `-${formatTime(behindMs)}`;
+    };
+
+    const sharedPlaybackDispatchKey = (
+        transmissionRevision,
+        playbackRevision,
+        liveSyncPositionMs,
+    ) => `${transmissionRevision}:${playbackRevision}:${liveSyncPositionMs === null ? 0 : 1}`;
+
+    const localOfficialDriftMs = ({
+        localState,
+        officialState,
+        localPositionMs,
+        officialPositionMs,
+    }) => {
+        const compatible = (officialState === 'playing' && localState === 1)
+            || (officialState === 'paused' && localState === 2);
+        if (!compatible
+            || !Number.isSafeInteger(localPositionMs)
+            || !Number.isSafeInteger(officialPositionMs)) {
+            return null;
+        }
+        return localPositionMs - officialPositionMs;
+    };
+
+    const shouldBootstrapLiveEdge = ({
+        isOwner,
+        mediaMode,
+        atLiveEdge,
+        playbackState,
+        liveEdgePositionMs,
+        playerState,
+        elapsedMs,
+        retryIntervalMs,
+    }) => isOwner === true
+        && mediaMode === 'live'
+        && atLiveEdge === true
+        && playbackState === 'playing'
+        && liveEdgePositionMs === null
+        && playerState === 1
+        && Number.isFinite(elapsedMs)
+        && elapsedMs >= retryIntervalMs;
+
+    const resyncPlan = ({mediaMode, state, atLiveEdge}) => {
+        if (!['vod', 'live'].includes(mediaMode)
+            || !['playing', 'paused'].includes(state)
+            || typeof atLiveEdge !== 'boolean'
+            || (mediaMode !== 'live' && atLiveEdge)) {
+            return null;
+        }
+
+        if (state === 'paused') {
+            return {firstAction: 'seek', resumeAction: null};
+        }
+
+        return {
+            firstAction: 'pause',
+            resumeAction: mediaMode === 'live' && atLiveEdge ? 'live' : 'play',
+        };
+    };
+
+    const createResyncLock = () => {
+        let active = false;
+        return {
+            active: () => active,
+            begin: () => {
+                if (active) {
+                    return false;
+                }
+                active = true;
+                return true;
+            },
+            end: () => {
+                active = false;
+            },
+        };
+    };
+
+    const resyncContextMatches = (expected, current) => expected !== null
+        && current !== null
+        && current.isOwner === true
+        && current.transmissionRevision === expected.transmissionRevision
+        && current.playbackRevision === expected.playbackRevision;
+
+    const participantSyncStorageKey = (scope, transmissionRevision) => (
+        `semyra:resync:${scope}:${transmissionRevision}`
+    );
+
+    const createParticipantSyncTracker = ({
+        synchronizedIds = [],
+        warmupMs = PARTICIPANT_SYNC_WARMUP_MS,
+        retryDelayMs = AUTO_RESYNC_RETRY_DELAY_MS,
+    } = {}) => {
+        const validId = (value) => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
+        const synchronized = new Set(synchronizedIds.filter(validId));
+        const readySince = new Map();
+        let ready = new Set();
+        let retryAfter = 0;
+
+        const observe = ({participants, now, officialState, allowPausedStabilization = true}) => {
+            const active = new Set();
+            ready = new Set();
+            if (Array.isArray(participants)) {
+                participants.forEach((participant) => {
+                    const id = participant?.public_id;
+                    if (!validId(id)) {
+                        return;
+                    }
+                    active.add(id);
+                    if (participant?.playback !== null && participant?.playback?.fresh === true) {
+                        ready.add(id);
+                    }
+                });
+            }
+
+            let changed = false;
+            synchronized.forEach((id) => {
+                if (!active.has(id)) {
+                    synchronized.delete(id);
+                    changed = true;
+                }
+            });
+            readySince.forEach((_seenAt, id) => {
+                if (!ready.has(id) || synchronized.has(id)) {
+                    readySince.delete(id);
+                }
+            });
+            ready.forEach((id) => {
+                if (!synchronized.has(id) && !readySince.has(id)) {
+                    readySince.set(id, now);
+                }
+            });
+
+            const warmed = [];
+            const pending = [];
+            ready.forEach((id) => {
+                if (synchronized.has(id)) {
+                    return;
+                }
+                if (Number.isFinite(now) && now - readySince.get(id) >= warmupMs) {
+                    warmed.push(id);
+                } else {
+                    pending.push(id);
+                }
+            });
+
+            if (officialState === 'paused' && allowPausedStabilization) {
+                warmed.forEach((id) => synchronized.add(id));
+                warmed.forEach((id) => readySince.delete(id));
+                changed = changed || warmed.length > 0;
+            }
+
+            return {
+                activeIds: [...active],
+                readyIds: [...ready],
+                warmedIds: warmed,
+                pendingIds: pending,
+                changed,
+                shouldResync: officialState === 'playing'
+                    && ready.size >= 2
+                    && warmed.length > 0
+                    && Number.isFinite(now)
+                    && now >= retryAfter,
+            };
+        };
+
+        return {
+            observe,
+            readyParticipantIds: () => [...ready],
+            synchronizedParticipantIds: () => [...synchronized],
+            markSynchronized(ids) {
+                let changed = false;
+                ids.filter(validId).forEach((id) => {
+                    if (!synchronized.has(id)) {
+                        synchronized.add(id);
+                        changed = true;
+                    }
+                    readySince.delete(id);
+                });
+                retryAfter = 0;
+                return changed;
+            },
+            deferRetry(now) {
+                retryAfter = Number.isFinite(now) ? now + retryDelayMs : retryAfter;
+            },
+        };
+    };
+
+    const runResyncSequence = async ({
+        transmission,
+        requestSnapshot,
+        sendCommand,
+        wait,
+        currentContext,
+    }) => {
+        const plan = resyncPlan(transmission);
+        if (plan === null) {
+            return {ok: false, reason: 'invalid_state'};
+        }
+
+        const initialContext = currentContext();
+        const snapshot = await requestSnapshot();
+        if (!Number.isSafeInteger(snapshot?.positionMs)
+            || snapshot.positionMs < 0
+            || !resyncContextMatches(initialContext, currentContext())) {
+            return {ok: false, reason: 'stale'};
+        }
+
+        const first = await sendCommand(plan.firstAction, snapshot.positionMs, initialContext);
+        if (first?.ok !== true) {
+            return {ok: false, reason: first?.reason ?? 'command_failed'};
+        }
+        if (plan.resumeAction === null) {
+            return {ok: true};
+        }
+
+        const pausedContext = currentContext();
+        await wait(SYNC_SETTLE_DELAY_MS);
+        if (!resyncContextMatches(pausedContext, currentContext())) {
+            return {ok: false, reason: 'stale'};
+        }
+
+        const resumePositionMs = plan.resumeAction === 'live'
+            ? null
+            : pausedContext.playbackPositionMs;
+        const resumed = await sendCommand(plan.resumeAction, resumePositionMs, pausedContext);
+        return resumed?.ok === true
+            ? {ok: true}
+            : {ok: false, reason: resumed?.reason ?? 'command_failed'};
     };
 
     const createScrubbingSession = () => {
@@ -107,12 +353,26 @@
     };
 
     return {
-        LIVE_EDGE_THRESHOLD_MS,
+        LIVE_SCRUB_THRESHOLD_MS,
+        SYNC_SETTLE_DELAY_MS,
+        AUTO_RESYNC_RETRY_DELAY_MS,
+        PARTICIPANT_SYNC_WARMUP_MS,
         behindLiveMs,
+        createParticipantSyncTracker,
         createScrubbingSession,
+        createResyncLock,
         formatTime,
         isNearLiveEdge,
+        liveRangeMaxMs,
         livePositionLabel,
+        liveSyncTargetMs,
+        localOfficialDriftMs,
         playbackPresentation,
+        participantSyncStorageKey,
+        resyncContextMatches,
+        resyncPlan,
+        runResyncSequence,
+        sharedPlaybackDispatchKey,
+        shouldBootstrapLiveEdge,
     };
 });

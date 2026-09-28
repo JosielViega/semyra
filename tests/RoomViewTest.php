@@ -62,9 +62,11 @@ final class RoomViewTest extends TestCase
         self::assertMatchesRegularExpression('/data-end-transmission>/', $html);
         self::assertStringContainsString('Encerrar transmissão', $html);
         self::assertMatchesRegularExpression('/data-shared-playback-controls>/', $html);
+        self::assertStringContainsString('data-playback-sync aria-label="Sincronizar reprodução" hidden', $html);
         self::assertStringContainsString('data-playback-url="/room/7MKP3WQH/transmission/playback"', $html);
         self::assertStringContainsString('/assets/js/room-playback.js', $html);
         self::assertStringContainsString('/assets/js/room-media.js', $html);
+        self::assertStringContainsString('data-initial-live-sync-position-ms=""', $html);
     }
 
     public function testViewerCanReplaceButCannotSeeEndAction(): void
@@ -94,6 +96,9 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('Estado da mídia', $debug);
         self::assertStringContainsString('data-debug-media-mode', $debug);
         self::assertStringContainsString('data-debug-at-live-edge', $debug);
+        self::assertStringContainsString('data-debug-live-sync-target', $debug);
+        self::assertStringContainsString('data-debug-official-position', $debug);
+        self::assertStringContainsString('data-debug-local-drift', $debug);
         self::assertStringNotContainsString('data-debug-classification', $debug);
         self::assertStringContainsString('/assets/js/room-telemetry.js', $debug);
     }
@@ -115,7 +120,8 @@ final class RoomViewTest extends TestCase
                 'is_owner' => false,
                 'media_mode' => 'vod',
                 'playback' => ['state' => 'playing', 'position_ms' => 0, 'revision' => 1,
-                    'at_live_edge' => false, 'live_edge_position_ms' => null],
+                    'at_live_edge' => false, 'live_edge_position_ms' => null,
+                    'live_sync_position_ms' => null, 'live_sync_delay_ms' => null],
             ],
             'flashes' => ['error' => ['<script>alert(5)</script>']],
         ]);
@@ -171,6 +177,8 @@ final class RoomViewTest extends TestCase
                 'revision' => 7,
                 'at_live_edge' => false,
                 'live_edge_position_ms' => null,
+                'live_sync_position_ms' => null,
+                'live_sync_delay_ms' => null,
             ],
         ];
     }

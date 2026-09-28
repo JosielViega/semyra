@@ -214,6 +214,12 @@
                 liveEdgePositionMs: shell.dataset.initialLiveEdgePositionMs === ''
                     ? null
                     : Number(shell.dataset.initialLiveEdgePositionMs),
+                liveSyncPositionMs: shell.dataset.initialLiveSyncPositionMs === ''
+                    ? null
+                    : Number(shell.dataset.initialLiveSyncPositionMs),
+                liveSyncDelayMs: shell.dataset.initialLiveSyncDelayMs === ''
+                    ? null
+                    : Number(shell.dataset.initialLiveSyncDelayMs),
             },
         }
         : null;

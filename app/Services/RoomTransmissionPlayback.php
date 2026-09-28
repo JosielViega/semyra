@@ -7,6 +7,7 @@ namespace App\Services;
 final class RoomTransmissionPlayback
 {
     public const MAX_TIME_MS = 315_576_000_000;
+    public const LIVE_SYNC_DELAY_MS = 5_000;
 
     private const STATES = ['playing', 'paused'];
     private const ACTIONS = ['play', 'pause', 'seek', 'live'];
@@ -87,7 +88,7 @@ final class RoomTransmissionPlayback
 
     /**
      * @param array<string, mixed> $transmission
-     * @return array{state: string, position_ms: int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int}
+     * @return array{state: string, position_ms: null|int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int, live_sync_position_ms: null|int, live_sync_delay_ms: null|int}
      */
     public function present(array $transmission): array
     {
@@ -119,8 +120,12 @@ final class RoomTransmissionPlayback
             throw new \InvalidArgumentException('Stored shared playback state is invalid.');
         }
 
-        if ($atLiveEdge && $liveEdgePositionMs !== null) {
-            $positionMs = $liveEdgePositionMs;
+        $liveSyncPositionMs = $mediaMode === 'live' && $liveEdgePositionMs !== null
+            ? max(0, $liveEdgePositionMs - self::LIVE_SYNC_DELAY_MS)
+            : null;
+
+        if ($mediaMode === 'live' && $atLiveEdge) {
+            $positionMs = $liveSyncPositionMs;
         } elseif ($state === 'playing') {
             $positionMs = min($positionMs + min($ageMs, self::MAX_TIME_MS), self::MAX_TIME_MS);
         }
@@ -131,6 +136,8 @@ final class RoomTransmissionPlayback
             'revision' => $revision,
             'at_live_edge' => $atLiveEdge,
             'live_edge_position_ms' => $liveEdgePositionMs,
+            'live_sync_position_ms' => $liveSyncPositionMs,
+            'live_sync_delay_ms' => $mediaMode === 'live' ? self::LIVE_SYNC_DELAY_MS : null,
         ];
     }
 

@@ -62,12 +62,14 @@ final class RoomTransmissionRepositoryTest extends TestCase
         self::assertStringContainsString('live_edge_position_ms = NULL', $this->pdo->lastQuery);
     }
 
-    public function testOwnerObservationUpdatesLiveEdgeWithoutChangingRevision(): void
+    public function testOwnerObservationBootstrapsLiveEdgeOnlyOnceWithoutChangingRevision(): void
     {
         $this->pdo->put(7, 'owner-a', 4, 6, 'live', true);
         self::assertTrue($this->repository->observeLiveEdge(7, 'owner-a', 4, 6, 5_954_106));
+        self::assertFalse($this->repository->observeLiveEdge(7, 'owner-a', 4, 6, 5_949_106));
         self::assertSame(5_954_106, $this->pdo->transmissionFor(7)['live_edge_position_ms']);
         self::assertSame(6, $this->pdo->transmissionFor(7)['playback_revision']);
+        self::assertStringContainsString('live_edge_position_ms IS NULL', $this->pdo->lastQuery);
     }
 
     public function testLiveEdgeObservationRejectsViewerStaleRevisionsAndNonEdge(): void
@@ -116,7 +118,10 @@ final class TransmissionPdo extends PDO
             || $current['transmission_revision'] !== (int) ($params['transmission_revision'] ?? 0)
             || $current['playback_revision'] !== (int) ($params['playback_revision'] ?? 0)) return 0;
         if (array_key_exists('live_edge_position_ms', $params)) {
-            if ($current['media_mode'] !== 'live' || !$current['at_live_edge'] || $current['state'] !== 'playing') return 0;
+            if ($current['media_mode'] !== 'live'
+                || !$current['at_live_edge']
+                || $current['state'] !== 'playing'
+                || $current['live_edge_position_ms'] !== null) return 0;
             $current['live_edge_position_ms'] = (int) $params['live_edge_position_ms'];
         } else {
             $current['state'] = (string) $params['playback_state'];

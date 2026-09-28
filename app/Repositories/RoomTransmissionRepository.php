@@ -137,7 +137,8 @@ final class RoomTransmissionRepository
             . 'AND playback_revision = :playback_revision '
             . 'AND media_mode = \'live\' '
             . 'AND playback_at_live_edge = 1 '
-            . 'AND playback_state = \'playing\'',
+            . 'AND playback_state = \'playing\' '
+            . 'AND live_edge_position_ms IS NULL',
         );
         $statement->execute([
             'live_edge_position_ms' => $positionMs,

@@ -14,6 +14,8 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - substituição da transmissão por qualquer participante, com incremento de revisão;
 - estado oficial de Play/Pause/Seek controlado pelo proprietário da transmissão, com modo Vídeo/Ao vivo escolhido explicitamente;
 - YouTube VOD com duração convencional e YouTube Live com DVR, distância relativa e ação compartilhada `AO VIVO`;
+- ponto `AO VIVO` sincronizado aproximadamente 5 segundos atrás da borda física da Live, política ainda em validação para privilegiar assistir junto;
+- pulso experimental de sincronização Pause/Play, manual pelo owner e automático por nova coorte de participantes prontos ainda não cobertos;
 - página imersiva fullscreen com player responsivo, HUD temporário e overlays;
 - controles nativos do YouTube ocultos, com mute e fullscreen locais do Semyra;
 - compartilhamento da sala pela própria URL pública, com cópia automática quando a Clipboard API está disponível e seleção manual como fallback;
@@ -21,7 +23,7 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - entrada anônima por apelido, isolada por sala e sessão do navegador;
 - lista de participantes ativos, atualizada por polling a cada 5 segundos sem transmissão e a cada 1 segundo durante uma transmissão;
 - telemetria observacional do player, com estado, posição e duração transportados junto à presença;
-- medição aproximada do desvio entre participantes disponível somente no modo de diagnóstico;
+- diagnóstico do desvio entre a posição local e o playback oficial, sem correção automática;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;

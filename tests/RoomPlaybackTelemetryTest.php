@@ -132,6 +132,26 @@ final class RoomPlaybackTelemetryTest extends TestCase
         self::assertSame(2, $participants[1]['playback']['state']);
     }
 
+    public function testPresentsStableOpaqueDistinctIdsWithoutInternalHashes(): void
+    {
+        $rows = [
+            $this->row('internal-hash-a', 'Pedro', 1, 1_000, 10_000, 100),
+            $this->row('internal-hash-b', 'Pedro', 1, 1_000, 10_000, 100),
+        ];
+
+        $first = $this->telemetry->presentParticipants($rows, 'internal-hash-a');
+        $second = $this->telemetry->presentParticipants($rows, 'internal-hash-a');
+
+        self::assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $first[0]['public_id']);
+        self::assertSame($first[0]['public_id'], $second[0]['public_id']);
+        self::assertNotSame($first[0]['public_id'], $first[1]['public_id']);
+        self::assertSame('Pedro', $first[0]['name']);
+        self::assertSame('Pedro', $first[1]['name']);
+        self::assertArrayNotHasKey('participant_key_hash', $first[0]);
+        self::assertStringNotContainsString('internal-hash-a', json_encode($first, JSON_THROW_ON_ERROR));
+        self::assertStringNotContainsString('internal-hash-b', json_encode($first, JSON_THROW_ON_ERROR));
+    }
+
     /** @return array<string, int|string> */
     private function row(
         string $key,

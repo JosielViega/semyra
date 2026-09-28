@@ -7,7 +7,8 @@
     }
 
     const telemetryList = document.getElementById('room-telemetry-list');
-    if (!telemetryList) {
+    const media = window.SemyraMedia;
+    if (!telemetryList || !media) {
         return;
     }
 
@@ -21,6 +22,10 @@
         positionMs: null,
         durationMs: null,
         liveEdgePositionMs: null,
+        liveSyncDelayMs: null,
+        liveSyncPositionMs: null,
+        officialState: null,
+        officialPositionMs: null,
         behindLiveMs: null,
         uiBranch: 'preparing',
     };
@@ -35,6 +40,10 @@
         currentTime: document.querySelector('[data-debug-current-time]'),
         duration: document.querySelector('[data-debug-duration]'),
         liveEdge: document.querySelector('[data-debug-live-edge]'),
+        liveSyncDelay: document.querySelector('[data-debug-live-sync-delay]'),
+        liveSyncTarget: document.querySelector('[data-debug-live-sync-target]'),
+        officialPosition: document.querySelector('[data-debug-official-position]'),
+        localDrift: document.querySelector('[data-debug-local-drift]'),
         behindLive: document.querySelector('[data-debug-behind-live]'),
         uiBranch: document.querySelector('[data-debug-ui-branch]'),
     };
@@ -68,6 +77,13 @@
         ? `${milliseconds} ms (${formatTime(milliseconds)})`
         : '—';
 
+    const formatSignedMeasurement = (milliseconds) => {
+        if (!Number.isSafeInteger(milliseconds)) {
+            return '—';
+        }
+        return `${milliseconds >= 0 ? '+' : ''}${milliseconds} ms`;
+    };
+
     const renderMediaDebug = () => {
         debugFields.mediaMode.textContent = mediaDebug.mediaMode;
         debugFields.atLiveEdge.textContent = String(mediaDebug.atLiveEdge);
@@ -80,6 +96,15 @@
         debugFields.currentTime.textContent = formatMeasurement(mediaDebug.positionMs);
         debugFields.duration.textContent = formatMeasurement(mediaDebug.durationMs);
         debugFields.liveEdge.textContent = formatMeasurement(mediaDebug.liveEdgePositionMs);
+        debugFields.liveSyncDelay.textContent = formatMeasurement(mediaDebug.liveSyncDelayMs);
+        debugFields.liveSyncTarget.textContent = formatMeasurement(mediaDebug.liveSyncPositionMs);
+        debugFields.officialPosition.textContent = formatMeasurement(mediaDebug.officialPositionMs);
+        debugFields.localDrift.textContent = formatSignedMeasurement(media.localOfficialDriftMs({
+            localState: mediaDebug.playerState,
+            officialState: mediaDebug.officialState,
+            localPositionMs: mediaDebug.positionMs,
+            officialPositionMs: mediaDebug.officialPositionMs,
+        }));
         debugFields.behindLive.textContent = formatMeasurement(mediaDebug.behindLiveMs);
         debugFields.uiBranch.textContent = mediaDebug.uiBranch;
     };
@@ -158,6 +183,10 @@
             mediaDebug.transmissionRevision = transmission?.revision ?? null;
             mediaDebug.playbackRevision = transmission?.playback.revision ?? null;
             mediaDebug.liveEdgePositionMs = detail.liveEdgePositionMs;
+            mediaDebug.liveSyncDelayMs = detail.liveSyncDelayMs;
+            mediaDebug.liveSyncPositionMs = detail.liveSyncPositionMs;
+            mediaDebug.officialState = detail.officialState;
+            mediaDebug.officialPositionMs = detail.officialPositionMs;
             mediaDebug.behindLiveMs = detail.behindLiveMs;
             mediaDebug.uiBranch = detail.uiBranch ?? 'preparing';
         }

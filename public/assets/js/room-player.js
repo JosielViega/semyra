@@ -19,6 +19,7 @@
     let pendingTransmission = null;
     let pendingSharedPlayback = null;
     let appliedPlaybackRevision = null;
+    let appliedAnchorReady = false;
     let currentIsOwner = false;
     let endedReportedRevision = null;
     let apiPromise = null;
@@ -105,21 +106,27 @@
 
     const applySharedPlayback = (force = false) => {
         const playback = pendingSharedPlayback;
+        const anchorReady = Number.isSafeInteger(playback?.liveSyncPositionMs);
         if (!playerReady
             || player === null
             || playback === null
             || playback.transmissionRevision !== currentRevision
-            || (!force && playback.playbackRevision === appliedPlaybackRevision)) {
+            || (!force
+                && playback.playbackRevision === appliedPlaybackRevision
+                && anchorReady === appliedAnchorReady)) {
             return;
         }
 
         try {
             if (playback.mediaMode === 'live' && playback.atLiveEdge) {
-                if (appliedPlaybackRevision === null) {
+                if (anchorReady) {
+                    player.seekTo(playback.liveSyncPositionMs / 1000, true);
+                    player.playVideo();
+                } else if (appliedPlaybackRevision === null) {
                     // A newly loaded Live stays at YouTube's natural live position.
                     player.playVideo();
                 } else {
-                    // Returning to Live reloads the same media without startSeconds.
+                    // Without an anchor, returning to Live uses YouTube's natural position.
                     player.loadVideoById({ videoId: currentVideoId });
                 }
             } else {
@@ -131,6 +138,7 @@
                 }
             }
             appliedPlaybackRevision = playback.playbackRevision;
+            appliedAnchorReady = anchorReady;
             endedReportedRevision = null;
             emitTelemetry();
             updateStatus(playback.mediaMode === 'live' && playback.atLiveEdge
@@ -148,9 +156,18 @@
             || typeof playback?.atLiveEdge !== 'boolean'
             || (playback.mediaMode !== 'live' && playback.atLiveEdge)
             || !['playing', 'paused'].includes(playback?.state)
-            || !Number.isSafeInteger(playback?.positionMs)
-            || playback.positionMs < 0
-            || playback.positionMs > maxTimeMs
+            || (playback?.positionMs !== null
+                && (!Number.isSafeInteger(playback.positionMs)
+                    || playback.positionMs < 0
+                    || playback.positionMs > maxTimeMs))
+            || (playback?.positionMs === null
+                && !(playback.mediaMode === 'live'
+                    && playback.atLiveEdge
+                    && playback.liveSyncPositionMs === null))
+            || (playback?.liveSyncPositionMs !== null
+                && (!Number.isSafeInteger(playback.liveSyncPositionMs)
+                    || playback.liveSyncPositionMs < 0
+                    || playback.liveSyncPositionMs > maxTimeMs))
             || !Number.isSafeInteger(playback?.playbackRevision)
             || playback.playbackRevision < 1) {
             return;
@@ -271,6 +288,7 @@
             currentRevision = null;
             currentVideoId = null;
             appliedPlaybackRevision = null;
+            appliedAnchorReady = false;
             currentIsOwner = false;
             destroyPlayer();
             updateStatus('');
@@ -291,6 +309,9 @@
             state: transmission.playback?.state,
             positionMs: transmission.playback?.positionMs,
             playbackRevision: transmission.playback?.revision,
+            liveEdgePositionMs: transmission.playback?.liveEdgePositionMs,
+            liveSyncPositionMs: transmission.playback?.liveSyncPositionMs,
+            liveSyncDelayMs: transmission.playback?.liveSyncDelayMs,
         });
         if (transmission.revision === currentRevision) {
             return;
@@ -300,6 +321,7 @@
         currentRevision = transmission.revision;
         currentVideoId = transmission.videoId;
         appliedPlaybackRevision = null;
+        appliedAnchorReady = false;
         updateStatus('Carregando transmissão…');
         try {
             await ensureApi();

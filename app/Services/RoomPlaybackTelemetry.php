@@ -57,16 +57,22 @@ final class RoomPlaybackTelemetry
 
     /**
      * @param list<array<string, mixed>> $participants
-     * @return list<array{name: string, is_you: bool, playback: null|array{state: int, position_ms: int, duration_ms: int, age_ms: int, fresh: bool, drift_ms: null|int}}>
+     * @return list<array{public_id: string, name: string, is_you: bool, playback: null|array{state: int, position_ms: int, duration_ms: int, age_ms: int, fresh: bool, drift_ms: null|int}}>
      */
     public function presentParticipants(array $participants, string $currentParticipantKeyHash): array
     {
         $presented = array_map(function (array $participant) use ($currentParticipantKeyHash): array {
+            $participantKeyHash = (string) $participant['participant_key_hash'];
+
             return [
+                'public_id' => substr(hash(
+                    'sha256',
+                    "semyra-public-participant\0" . $participantKeyHash,
+                ), 0, 32),
                 'name' => (string) $participant['display_name'],
                 'is_you' => hash_equals(
                     $currentParticipantKeyHash,
-                    (string) $participant['participant_key_hash'],
+                    $participantKeyHash,
                 ),
                 'playback' => $this->playbackFromRow($participant),
             ];

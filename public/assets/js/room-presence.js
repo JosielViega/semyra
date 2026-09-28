@@ -2,7 +2,8 @@
 
 (() => {
     const presenceContainer = document.querySelector('[data-room-presence]');
-    if (!presenceContainer) {
+    const media = window.SemyraMedia;
+    if (!presenceContainer || !media) {
         return;
     }
 
@@ -55,6 +56,16 @@
         if (transmission === null) {
             return null;
         }
+        const playback = transmission?.playback;
+        const liveEdgePositionMs = playback?.live_edge_position_ms === null
+            ? null
+            : Number(playback?.live_edge_position_ms);
+        const liveSyncPositionMs = playback?.live_sync_position_ms === null
+            ? null
+            : Number(playback?.live_sync_position_ms);
+        const liveSyncDelayMs = playback?.live_sync_delay_ms === null
+            ? null
+            : Number(playback?.live_sync_delay_ms);
         if (transmission?.source !== 'youtube'
             || typeof transmission.youtube_video_id !== 'string'
             || !/^[A-Za-z0-9_-]{11}$/.test(transmission.youtube_video_id)
@@ -63,15 +74,26 @@
             || typeof transmission.owner_name !== 'string'
             || typeof transmission.is_owner !== 'boolean'
             || !['unknown', 'vod', 'live'].includes(transmission.media_mode)
-            || !['playing', 'paused'].includes(transmission.playback?.state)
-            || !Number.isSafeInteger(transmission.playback?.position_ms)
-            || transmission.playback.position_ms < 0
-            || !Number.isSafeInteger(transmission.playback?.revision)
-            || transmission.playback.revision < 1
-            || typeof transmission.playback?.at_live_edge !== 'boolean'
-            || (transmission.playback.live_edge_position_ms !== null
-                && (!Number.isSafeInteger(transmission.playback.live_edge_position_ms)
-                    || transmission.playback.live_edge_position_ms < 0))) {
+            || !['playing', 'paused'].includes(playback?.state)
+            || (playback?.position_ms !== null
+                && (!Number.isSafeInteger(playback.position_ms) || playback.position_ms < 0))
+            || (playback?.position_ms === null
+                && !(transmission.media_mode === 'live'
+                    && playback.at_live_edge === true
+                    && liveSyncPositionMs === null))
+            || !Number.isSafeInteger(playback?.revision)
+            || playback.revision < 1
+            || typeof playback?.at_live_edge !== 'boolean'
+            || (liveEdgePositionMs !== null
+                && (!Number.isSafeInteger(liveEdgePositionMs) || liveEdgePositionMs < 0))
+            || (liveSyncPositionMs !== null
+                && (!Number.isSafeInteger(liveSyncPositionMs) || liveSyncPositionMs < 0))
+            || (transmission.media_mode === 'live'
+                && (!Number.isSafeInteger(liveSyncDelayMs) || liveSyncDelayMs < 0))
+            || (transmission.media_mode !== 'live'
+                && (liveEdgePositionMs !== null
+                    || liveSyncPositionMs !== null
+                    || liveSyncDelayMs !== null))) {
             return null;
         }
 
@@ -83,11 +105,13 @@
             isOwner: transmission.is_owner,
             mediaMode: transmission.media_mode,
             playback: {
-                state: transmission.playback.state,
-                positionMs: transmission.playback.position_ms,
-                revision: transmission.playback.revision,
-                atLiveEdge: transmission.playback.at_live_edge,
-                liveEdgePositionMs: transmission.playback.live_edge_position_ms,
+                state: playback.state,
+                positionMs: playback.position_ms,
+                revision: playback.revision,
+                atLiveEdge: playback.at_live_edge,
+                liveEdgePositionMs,
+                liveSyncPositionMs,
+                liveSyncDelayMs,
             },
         };
     };
@@ -128,12 +152,16 @@
                 body.set('player_duration_ms', String(latestTelemetry.durationMs));
 
                 const now = Date.now();
-                if (latestTransmission?.isOwner === true
-                    && latestTransmission.mediaMode === 'live'
-                    && latestTransmission.playback.atLiveEdge === true
-                    && latestTransmission.playback.state === 'playing'
-                    && latestTelemetry.state === 1
-                    && now - lastLiveEdgeObservationAt >= liveEdgeObservationIntervalMs) {
+                if (media.shouldBootstrapLiveEdge({
+                    isOwner: latestTransmission?.isOwner,
+                    mediaMode: latestTransmission?.mediaMode,
+                    atLiveEdge: latestTransmission?.playback.atLiveEdge,
+                    playbackState: latestTransmission?.playback.state,
+                    liveEdgePositionMs: latestTransmission?.playback.liveEdgePositionMs,
+                    playerState: latestTelemetry.state,
+                    elapsedMs: now - lastLiveEdgeObservationAt,
+                    retryIntervalMs: liveEdgeObservationIntervalMs,
+                })) {
                     body.set('live_edge_position_ms', String(latestTelemetry.positionMs));
                     body.set('live_edge_transmission_revision', String(latestTransmission.revision));
                     body.set('live_edge_playback_revision', String(latestTransmission.playback.revision));

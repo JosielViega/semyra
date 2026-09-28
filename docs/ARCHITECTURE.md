@@ -167,7 +167,7 @@ touch da identidade + participantes vistos nos últimos 45 s
 JSON { participants, transmission }
 ```
 
-A resposta pública não contém IDs, hashes, tokens de sessão ou timestamps. `transmission` contém fonte, video ID, revisão, nome do owner, `is_owner`, `media_mode` e playback oficial, incluindo `at_live_edge` e a posição projetada da borda quando conhecida. O estado `playing` e a âncora da borda são projetados pelo relógio do MySQL. A mesma resposta atualiza o frontend sem polling adicional:
+A resposta pública não contém IDs internos, hashes, tokens de sessão ou timestamps. Cada participante recebe apenas um `public_id` opaco de 128 bits, derivado com separação de domínio do hash interno para o frontend distinguir identidades com apelidos iguais. `transmission` contém fonte, video ID, revisão, nome do owner, `is_owner`, `media_mode` e playback oficial. Para Live, `live_edge_position_ms` é a borda física projetada, enquanto `live_sync_position_ms` é o target sincronizado derivado e `live_sync_delay_ms` explicita a política atual. O estado `playing` e a âncora da borda são projetados pelo relógio do MySQL. A mesma resposta atualiza o frontend sem polling adicional:
 
 ```text
 room-presence.js
@@ -195,9 +195,11 @@ room_transmissions
 
 Ao iniciar YouTube, o participante escolhe explicitamente `vod` ou `live`; não há classificador automático. VOD nasce em `playing`, posição zero, `at_live_edge=false` e revisão um. Live nasce em `playing`, `at_live_edge=true` e revisão um: o player carrega no ponto natural do YouTube, sem aplicar `seekTo(0)`.
 
-Quando o player do owner está reproduzindo e o estado oficial continua `live` e `at_live_edge=true`, seu `getCurrentTime()` é enviado ocasionalmente junto à presença. Um único `UPDATE` valida owner, revisão da transmissão, revisão do playback, modo Live, estado playing e borda ativa antes de gravar `live_edge_position_ms` e `live_edge_updated_at`. O banco projeta a borda somando a idade calculada por `CURRENT_TIMESTAMP(3)`; viewers nunca escrevem essa âncora. `getDuration()` permanece apenas para VOD e telemetria/diagnóstico.
+Quando uma Live nova ainda não possui âncora, o player natural do owner fornece uma primeira observação de `getCurrentTime()` junto ao polling de presença. O `UPDATE` valida owner, revisões, modo Live, estado playing, borda ativa e exige `live_edge_position_ms IS NULL`; assim a âncora física é inicializada uma única vez e nunca é reancorada pelo player já atrasado. Tentativas moderadas continuam pelo mesmo polling enquanto a âncora for nula. O banco projeta a borda física somando a idade calculada por `CURRENT_TIMESTAMP(3)`; viewers e sessões em DVR nunca escrevem essa âncora. `getDuration()` permanece apenas para VOD e telemetria/diagnóstico.
 
-Pause captura uma posição fresca e converte a sala em DVR (`at_live_edge=false`). Play e Seek continuam atrás, preservando a posição absoluta projetada. `AO VIVO` publica uma nova revisão em `playing` e `at_live_edge=true`; os players recarregam a mesma mídia sem `startSeconds`, em vez de buscar a duração. A barra Live usa a borda projetada como máximo, mostra distância relativa quando em DVR e mostra `🔴 AO VIVO` na borda.
+`RoomTransmissionPlayback::LIVE_SYNC_DELAY_MS` centraliza a margem experimental de 5 segundos. O backend deriva `live_sync_position_ms = max(0, physical edge - delay)`. Quando `at_live_edge=true`, a posição pública oficial é esse target; antes do bootstrap ela permanece desconhecida e o YouTube carrega naturalmente. A transição local `anchorReady=false → true` aplica o target uma vez, sem incluir sua projeção numérica na chave de dispatch e sem seek a cada poll.
+
+Pause captura uma posição fresca e converte a sala em DVR (`at_live_edge=false`). Play e Seek continuam atrás, preservando a posição absoluta projetada. `AO VIVO` publica uma nova revisão em `playing` e `at_live_edge=true`; com âncora pronta, todos fazem seek para o target sincronizado e continuam reproduzindo. A barra Live usa o target sincronizado como máximo, calcula a distância DVR em relação a ele e mantém a margem técnica invisível ao mostrar `🔴 AO VIVO`.
 
 Conceitualmente:
 
@@ -242,11 +244,15 @@ room-presence.js
 room-telemetry.js
 ```
 
-`room-player.js` é o único componente com uma referência ao `YT.Player`, mantida dentro da própria IIFE. Ele responde por `CustomEvent` com estado, posição e duração em milissegundos inteiros. `room-presence.js` envia esse snapshot opcional no polling dinâmico; se o player não estiver pronto, a presença continua sem telemetria. `room-telemetry.js` só é carregado em `?debug=1`; o uso normal mantém o diagnóstico invisível.
+`room-player.js` é o único componente com uma referência ao `YT.Player`, mantida dentro da própria IIFE. Ele responde por `CustomEvent` com estado, posição e duração em milissegundos inteiros. `room-presence.js` envia esse snapshot opcional no polling dinâmico; se o player não estiver pronto, a presença continua sem telemetria. `room-telemetry.js` só é carregado em `?debug=1`; o uso normal mantém o diagnóstico invisível. O painel mostra borda física, margem, target sincronizado, posição oficial, posição local e `drift = local - oficial`; o valor só é numérico quando os estados playing/paused são compatíveis.
 
 O banco mantém somente o último snapshot na linha de cada participante e calcula sua idade com o relógio do MySQL. Telemetria é recente por 12 segundos, separadamente da janela de presença de 45 segundos. Para dois participantes no estado `playing`, posições recentes são projetadas pela idade do snapshot e o drift é `posição estimada do outro - posição estimada de você`: positivo significa que o outro está à frente, negativo significa que está atrás. Duração é somente diagnóstica, inclusive em Lives.
 
-Este fluxo de telemetria continua observacional e não define autoridade. O playback oficial é aplicado apenas quando muda a revisão da transmissão ou do playback; não existe seek periódico, eleição, consenso, playback rate, correção contínua de drift ou histórico de amostras. Mute e fullscreen continuam exclusivamente locais.
+Este fluxo de telemetria continua observacional e não define autoridade. O playback oficial é aplicado quando muda a revisão da transmissão, a revisão do playback ou quando a primeira âncora se torna pronta; a projeção seguinte não redispara seek. Não existe seek periódico, eleição, consenso, playback rate, correção contínua de drift ou histórico de amostras. A margem de 5 segundos ainda está em validação empírica. Mute e fullscreen continuam exclusivamente locais.
+
+Como experimento de estabilização, o owner dispõe de `Sincronizar`: em conteúdo playing, o frontend serializa `pause`, confirmação oficial, espera de 2 segundos e `play` — ou `live` quando estava no ponto AO VIVO. Em paused, republica a posição por `seek` e não inicia reprodução. Revisions e ownership são revalidados antes da segunda ação; conflito, substituição ou perda de ownership cancelam a retomada antiga. Viewers continuam reagindo somente às revisions oficiais.
+
+O owner também pode executar esse pulso automaticamente por nova coorte de participantes ainda não cobertos na revision vigente. Cada `public_id` precisa permanecer ativo e com telemetria fresh por quatro segundos; chegadas próximas são agrupadas numa única barreira, e somente os IDs ready capturados no início são marcados após sucesso. Saída observada remove a cobertura para permitir novo warmup no rejoin. Em paused, o estado determinístico estabilizado funciona como barreira natural sem Pause/Play. A cobertura local fica em memória e `sessionStorage`, limitada à revision atual. Posições e drift não entram na decisão nem se tornam autoridade; polling sem nova identidade não repete a barreira.
 
 ## Ferramentas de infraestrutura
 

@@ -38,6 +38,9 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 - Live iniciada no ponto natural do YouTube, sem `seekTo(0)` e sem usar `getDuration()` como borda.
 - Âncora de live edge observada pelo player do owner via `getCurrentTime()`, projetada pelo relógio do banco e transportada no polling já existente.
 - DVR de Live com barra relativa ao live edge oficial e ação compartilhada `AO VIVO`.
+- Bootstrap único da borda física de Live e target `AO VIVO` sincronizado com margem técnica experimental de 5 segundos.
+- Diagnóstico de drift entre a posição local e o playback oficial, sem correção automática.
+- Barreira experimental de sincronização com controle manual e pulso automático por nova coorte de participantes prontos em cada revisão da transmissão.
 
 ### Removed
 

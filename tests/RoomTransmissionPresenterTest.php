@@ -42,10 +42,12 @@ final class RoomTransmissionPresenterTest extends TestCase
             'is_owner' => true,
             'playback' => [
                 'state' => 'playing',
-                'position_ms' => 8092855,
+                'position_ms' => 8087855,
                 'revision' => 7,
                 'at_live_edge' => true,
                 'live_edge_position_ms' => 8092855,
+                'live_sync_position_ms' => 8087855,
+                'live_sync_delay_ms' => 5000,
             ],
         ], $presented);
         self::assertArrayNotHasKey('room_id', $presented);
@@ -75,6 +77,8 @@ final class RoomTransmissionPresenterTest extends TestCase
         self::assertSame('Participante', $presented['owner_name']);
         self::assertFalse($presented['playback']['at_live_edge']);
         self::assertSame(0, $presented['playback']['position_ms']);
+        self::assertNull($presented['playback']['live_sync_position_ms']);
+        self::assertNull($presented['playback']['live_sync_delay_ms']);
         self::assertFalse($presented['is_owner']);
     }
 }

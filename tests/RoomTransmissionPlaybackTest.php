@@ -14,16 +14,34 @@ final class RoomTransmissionPlaybackTest extends TestCase
     public function testProjectsVodPlayingPositionUsingDatabaseAge(): void
     {
         self::assertSame(['state' => 'playing', 'position_ms' => 12_750, 'revision' => 4,
-            'at_live_edge' => false, 'live_edge_position_ms' => null],
+            'at_live_edge' => false, 'live_edge_position_ms' => null,
+            'live_sync_position_ms' => null, 'live_sync_delay_ms' => null],
             $this->playback->present($this->row('vod', 'playing', 12_000, 4, 750)));
     }
 
-    public function testLiveAtEdgeUsesProjectedOwnerObservation(): void
+    public function testLiveAtEdgeUsesSynchronizedTargetBehindPhysicalEdge(): void
     {
-        $presented = $this->playback->present($this->row('live', 'playing', 0, 4, 900, true, 5_954_106));
-        self::assertSame(5_954_106, $presented['position_ms']);
-        self::assertSame(5_954_106, $presented['live_edge_position_ms']);
+        $presented = $this->playback->present($this->row('live', 'playing', 0, 4, 900, true, 100_000));
+        self::assertSame(95_000, $presented['position_ms']);
+        self::assertSame(100_000, $presented['live_edge_position_ms']);
+        self::assertSame(95_000, $presented['live_sync_position_ms']);
+        self::assertSame(5_000, $presented['live_sync_delay_ms']);
         self::assertTrue($presented['at_live_edge']);
+    }
+
+    public function testLiveSyncTargetIsClampedAtZero(): void
+    {
+        $presented = $this->playback->present($this->row('live', 'playing', 0, 1, 100, true, 3_000));
+        self::assertSame(0, $presented['position_ms']);
+        self::assertSame(0, $presented['live_sync_position_ms']);
+    }
+
+    public function testLiveAtEdgeWithoutAnchorHasNoInventedOfficialPosition(): void
+    {
+        $presented = $this->playback->present($this->row('live', 'playing', 0, 1, 900, true));
+        self::assertNull($presented['position_ms']);
+        self::assertNull($presented['live_edge_position_ms']);
+        self::assertNull($presented['live_sync_position_ms']);
     }
 
     public function testLiveBehindEdgeProjectsOfficialPositionIndependently(): void
@@ -31,6 +49,7 @@ final class RoomTransmissionPlaybackTest extends TestCase
         $presented = $this->playback->present($this->row('live', 'playing', 5_900_000, 4, 1_250, false, 5_954_106));
         self::assertSame(5_901_250, $presented['position_ms']);
         self::assertSame(5_954_106, $presented['live_edge_position_ms']);
+        self::assertSame(5_949_106, $presented['live_sync_position_ms']);
     }
 
     public function testPausedPositionDoesNotAdvance(): void
