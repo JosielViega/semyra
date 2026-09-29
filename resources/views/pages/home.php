@@ -23,6 +23,11 @@ declare(strict_types=1);
             <?= $csrfField ?>
             <button type="submit"><svg class="home-icon" aria-hidden="true"><use href="#home-icon-plus"></use></svg><span>Criar sala</span></button>
         </form>
+        <p class="home-room-lifetime">
+            <?= is_array($currentUser ?? null)
+                ? 'As salas que você criar conectado ficam salvas.'
+                : 'Salas criadas sem conta expiram após 24 horas sem atividade.' ?>
+        </p>
     </div>
     <div class="home-brand-stage" aria-hidden="true">
         <span class="home-brand-orbit"></span>

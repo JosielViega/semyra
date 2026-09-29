@@ -78,7 +78,7 @@ AuthController
 
 O e-mail é aparado e normalizado para lowercase antes de consultas e inserções, enquanto a constraint `UNIQUE` case-insensitive do MySQL resolve corridas entre cadastros. A senha nunca é persistida em texto: o cadastro usa `password_hash(PASSWORD_DEFAULT)` e o login usa `password_verify()` com mensagem genérica para qualquer credencial inválida.
 
-`AuthSession` é deliberadamente separada de `RoomParticipantSession`. Login e logout regeneram o ID da sessão, mas alteram somente `auth_user_id`; chaves e apelidos anônimos por sala continuam intactos. Uma conta é opcional e ainda não possui relação com `rooms` ou `room_participants`. A criação de sala permanece idêntica para convidados e usuários autenticados; salas persistentes por usuário pertencem a uma etapa futura.
+`AuthSession` é deliberadamente separada de `RoomParticipantSession`. Login e logout regeneram o ID da sessão, mas alteram somente `auth_user_id`; chaves e apelidos anônimos por sala continuam intactos. Uma conta é opcional e não possui relação com `room_participants`. Ao criar uma sala, um usuário autenticado válido é registrado em `rooms.created_by_user_id`; convidados criam salas temporárias.
 
 ## Fluxo de salas
 
@@ -96,7 +96,9 @@ RoomRepository
 PDO / MySQL
 ```
 
-O gerador cria códigos públicos aleatórios e o repository tenta inserir cada código; colisões da constraint `UNIQUE` permitem até cinco novas tentativas no controller. A sala nasce vazia e não possui dono.
+O gerador cria códigos públicos aleatórios e o repository tenta inserir cada código; colisões da constraint `UNIQUE` permitem até cinco novas tentativas no controller. A sala nasce vazia. `created_by_user_id = NULL` identifica uma sala temporária, que fica inacessível após 24 horas sem join ou presence válidos. Com usuário autenticado válido, o ID é persistido e a sala não expira por inatividade.
+
+`RoomRepository::findByCode()` aplica a expiração lógica para todos os controllers. `touchActivity()` usa throttle atômico de 60 segundos no SQL, evitando uma escrita por poll. A limpeza física é oportunística na criação e na consulta direta de um código expirado; os relacionamentos existentes removem participantes e transmissão por cascade. Login posterior não reivindica sala temporária e logout não altera a persistência já definida. “Minhas Salas” ainda não foi implementado.
 
 ```text
 Room
@@ -120,7 +122,7 @@ RoomTransmissionRepository
 MySQL
 ```
 
-Quem inicia torna-se proprietário da transmissão vigente. Outra pessoa pode substituí-la, incrementando `revision` e assumindo a propriedade. Somente o proprietário atual pode encerrá-la. Não há owner da sala, histórico de transmissões ou expiração automática quando o owner fica offline.
+Quem inicia torna-se proprietário da transmissão vigente. Outra pessoa pode substituí-la, incrementando `revision` e assumindo a propriedade. Somente o proprietário atual pode encerrá-la. O criador persistido da sala não recebe privilégios de playback; não há host permanente ou histórico de transmissões.
 
 A consulta segue:
 

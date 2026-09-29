@@ -12,6 +12,8 @@ use App\Core\View;
 use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
+use App\Repositories\UserRepository;
+use App\Services\AuthSession;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPresenter;
@@ -31,6 +33,8 @@ final class RoomController
         private readonly RoomParticipantSession $participantSession,
         private readonly RoomTransmissionPresenter $transmissionPresenter,
         private readonly RoomCodeGenerator $codeGenerator,
+        private readonly UserRepository $users,
+        private readonly AuthSession $auth,
     ) {
     }
 
@@ -44,9 +48,12 @@ final class RoomController
             ]), 419);
         }
 
+        $creatorUserId = $this->authenticatedUserId();
+        $this->rooms->deleteExpiredTemporaryRooms();
+
         for ($attempt = 0; $attempt < self::MAX_CODE_ATTEMPTS; ++$attempt) {
             $code = $this->codeGenerator->generate();
-            if ($this->rooms->tryCreate($code)) {
+            if ($this->rooms->tryCreate($code, $creatorUserId)) {
                 return Response::redirect('/room/' . $code, 303);
             }
         }
@@ -58,6 +65,7 @@ final class RoomController
     {
         $room = $this->rooms->findByCode($code);
         if ($room === null) {
+            $this->rooms->deleteExpiredTemporaryRoomByCode($code);
             return Response::html($this->view->render('pages/404', [
                 'title' => 'Sala não encontrada',
                 'heading' => 'Sala não encontrada',
@@ -95,5 +103,20 @@ final class RoomController
             'csrfField' => $this->csrf->field(),
             'csrfToken' => $this->csrf->token(),
         ], 'layouts/room'));
+    }
+
+    private function authenticatedUserId(): ?int
+    {
+        $userId = $this->auth->userId();
+        if ($userId === null) {
+            return null;
+        }
+
+        if ($this->users->findById($userId) === null) {
+            $this->auth->logout();
+            return null;
+        }
+
+        return $userId;
     }
 }

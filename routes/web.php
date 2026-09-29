@@ -59,6 +59,8 @@ $rooms = new RoomController(
     $participantSession,
     $transmissionPresenter,
     new RoomCodeGenerator(),
+    $userRepository,
+    $authSession,
 );
 $roomParticipants = new RoomParticipantController(
     $app['request'],

@@ -29,6 +29,59 @@ final class RoomParticipantControllerTest extends TestCase
         $_SESSION = [];
     }
 
+    public function testValidJoinTouchesRoomActivity(): void
+    {
+        [$controller, $pdo] = $this->controller(null, extraBody: ['display_name' => 'Pedro']);
+
+        $response = $controller->join('ROOM1234');
+
+        self::assertSame(303, $response->status());
+        self::assertSame(1, $pdo->roomActivityTouches);
+    }
+
+    public function testInvalidJoinAndInvalidCsrfDoNotTouchRoomActivity(): void
+    {
+        [$invalidJoin, $invalidJoinPdo] = $this->controller(null, extraBody: ['display_name' => '']);
+        [$invalidCsrf, $invalidCsrfPdo] = $this->controller(
+            null,
+            validCsrf: false,
+            extraBody: ['display_name' => 'Pedro'],
+        );
+
+        self::assertSame(303, $invalidJoin->join('ROOM1234')->status());
+        self::assertSame(0, $invalidJoinPdo->roomActivityTouches);
+        self::assertSame(419, $invalidCsrf->join('ROOM1234')->status());
+        self::assertSame(0, $invalidCsrfPdo->roomActivityTouches);
+    }
+
+    public function testValidPresenceTouchesRoomActivity(): void
+    {
+        [$controller, $pdo] = $this->controller('0123456789abcdef0123456789abcdef');
+
+        self::assertSame(200, $controller->presence('ROOM1234')->status());
+        self::assertSame(1, $pdo->roomActivityTouches);
+    }
+
+    public function testInvalidCsrfPresenceDoesNotTouchRoomActivity(): void
+    {
+        [$controller, $pdo] = $this->controller(null, validCsrf: false);
+
+        self::assertSame(419, $controller->presence('ROOM1234')->status());
+        self::assertSame(0, $pdo->roomActivityTouches);
+    }
+
+    public function testPresenceWithoutIdentityOrWithExpiredRoomDoesNotTouchActivity(): void
+    {
+        [$withoutIdentity, $identityPdo] = $this->controller(null, joined: false);
+
+        self::assertSame(403, $withoutIdentity->presence('ROOM1234')->status());
+        self::assertSame(0, $identityPdo->roomActivityTouches);
+
+        [$expiredRoom, $expiredPdo] = $this->controller(null, roomExists: false);
+        self::assertSame(404, $expiredRoom->presence('ROOM1234')->status());
+        self::assertSame(0, $expiredPdo->roomActivityTouches);
+    }
+
     public function testPresenceRejectsInvalidPlayerInstanceWithSpecific422(): void
     {
         [$controller, $pdo] = $this->controller('NOT-LOWERCASE-HEX');
@@ -38,6 +91,7 @@ final class RoomParticipantControllerTest extends TestCase
         self::assertSame(422, $response->status());
         self::assertSame(['error' => 'invalid_player_instance'], json_decode($response->body(), true));
         self::assertNull($pdo->registeredInstanceHash);
+        self::assertSame(0, $pdo->roomActivityTouches);
     }
 
     public function testPresenceHashesValidPlayerInstanceBeforeRegistration(): void
@@ -131,6 +185,7 @@ final class RoomParticipantControllerTest extends TestCase
         bool $roomExists = true,
         bool $joined = true,
         ?string $currentInstanceHash = null,
+        array $extraBody = [],
     ): array {
         $pdo = new PresencePdo();
         $pdo->roomExists = $roomExists;
@@ -147,10 +202,10 @@ final class RoomParticipantControllerTest extends TestCase
         $playback = new RoomTransmissionPlayback();
 
         return [new RoomParticipantController(
-            new Request([], [
+            new Request([], [...[
                 '_token' => $validCsrf ? $csrfToken : 'invalid-token',
                 'player_instance_id' => $playerInstanceId,
-            ]),
+            ], ...$extraBody]),
             new View(dirname(__DIR__) . '/resources/views'),
             $session,
             $csrf,
@@ -172,6 +227,7 @@ final class PresencePdo extends PDO
     public ?string $currentInstanceHash = null;
     public ?string $lastLeaveInstanceHash = null;
     public bool $roomExists = true;
+    public int $roomActivityTouches = 0;
 
     public function __construct()
     {
@@ -197,6 +253,11 @@ final class PresenceStatement extends PDOStatement
     public function execute(?array $params = null): bool
     {
         $this->params = $params ?? [];
+        if (str_starts_with($this->query, 'UPDATE rooms SET last_activity_at')) {
+            ++$this->pdo->roomActivityTouches;
+            $this->affectedRows = 1;
+            return true;
+        }
         if (array_key_exists('player_instance_key_hash', $this->params)) {
             $instanceHash = (string) $this->params['player_instance_key_hash'];
             if (str_starts_with($this->query, 'UPDATE room_participants SET')) {

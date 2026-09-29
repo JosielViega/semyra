@@ -25,6 +25,7 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - telemetria observacional do player, com estado, posição e duração transportados junto à presença;
 - diagnóstico do desvio entre a posição local e o playback oficial, sem correção automática;
 - contas locais opcionais com cadastro, login e logout por e-mail e senha; convidados continuam com acesso integral às salas;
+- salas de convidados temporárias por 24 horas sem atividade e salas criadas por usuários autenticados persistentes;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
@@ -171,7 +172,7 @@ Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Respon
 
 `AuthController` coordena cadastro, login e logout; `UserRepository` persiste contas e trata a constraint `UNIQUE` de e-mail como autoridade contra duplicidade concorrente. Senhas usam `password_hash()` com `PASSWORD_DEFAULT` e são verificadas por `password_verify()`. `AuthSession` mantém somente `auth_user_id`, separado de `RoomParticipantSession`, e regenera o ID da sessão no login e logout sem destruir apelidos ou chaves anônimas já existentes.
 
-Contas são opcionais nesta etapa. Usuários autenticados e convidados criam e acessam salas pelo mesmo fluxo, sem `created_by_user_id`, vínculo entre `users` e `room_participants`, histórico ou “Minhas Salas”. Salas persistentes associadas a contas ainda não foram implementadas.
+Contas continuam opcionais. Salas criadas por convidados têm `created_by_user_id = NULL` e expiram logicamente após 24 horas sem join ou presence válidos; salas criadas por usuários autenticados guardam o ID do criador e não expiram por inatividade. Fazer login depois não reivindica uma sala temporária, e logout não altera uma sala persistente já criada. Ainda não existem vínculo entre `users` e `room_participants`, histórico ou “Minhas Salas”.
 
 A sala não possui dono. A transmissão ativa possui um proprietário temporário: quem iniciou a mídia vigente. Qualquer participante pode substituí-la e assumir automaticamente essa propriedade. Somente esse owner inicializa e envia Play/Pause/Seek/AO VIVO ao estado oficial; viewers aplicam as revisões confirmadas pelo servidor. Volume, mute, fullscreen e Wake Lock permanecem locais. Não existem host permanente, eleição ou correção contínua de drift.
 
@@ -187,17 +188,21 @@ A interface da sala usa a logo oficial servida por `public/assets/images/` e um 
 
 As migrations SQL versionadas ficam em `database/migrations/`. `composer migrate` executa cada arquivo ainda não registrado uma única vez. Faça backup e teste alterações de schema antes de produção.
 
-A tabela `rooms` contém somente:
+A tabela `rooms` contém:
 
 - `id`: chave primária incremental;
 - `code`: código público ASCII de 8 caracteres, com índice `UNIQUE`;
-- `created_at`: data de criação definida pelo banco.
+- `created_by_user_id`: usuário criador ou `NULL` para uma sala temporária;
+- `created_at`: data de criação definida pelo banco;
+- `last_activity_at`: última atividade válida, atualizada com throttle de 60 segundos.
+
+Salas temporárias são invisíveis depois de 24 horas sem atividade e removidas oportunisticamente durante novas criações ou ao consultar diretamente um código expirado. A exclusão física usa os `ON DELETE CASCADE` existentes para participantes e transmissão. Salas persistentes podem atualizar `last_activity_at`, mas esse valor não determina sua expiração.
 
 A tabela `room_transmissions` relaciona uma sala a zero ou uma transmissão ativa. Ela mantém fonte, video ID do YouTube, modo de mídia (`vod`/`live`, com `unknown` apenas como default técnico de migração), hash do proprietário temporário, revisão da transmissão e o estado oficial de playback (`playing`/`paused`, posição, indicador de borda ao vivo, revisão própria e instante-base). A posição pública e a âncora de borda são projetadas pelo relógio do MySQL. Live inicia na posição natural do YouTube e usa DVR; `getDuration()` não detecta Live nem define sua borda. Não existe histórico nesta etapa. A URL completa não é armazenada; o parser não consulta o YouTube nem confirma disponibilidade ou permissão de incorporação.
 
 A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Cada documento novo também cria em memória um nonce de 128 bits para a instância física do player e persiste somente seu hash. Participantes são considerados ativos por 45 segundos após `last_seen_at`. A mesma linha mantém somente o último snapshot do player (`player_state`, posição e duração em milissegundos e o horário de recebimento no banco); não existe histórico de telemetria.
 
-A tabela `users` contém nome de exibição, e-mail normalizado e único, hash de senha e timestamps. Ela não possui vínculo com salas ou participantes nesta etapa.
+A tabela `users` contém nome de exibição, e-mail normalizado e único, hash de senha e timestamps. `rooms.created_by_user_id` registra apenas quem criou uma sala persistente; isso não vincula a conta à identidade do participante nem concede controle sobre a transmissão.
 
 No payload público, `public_id` identifica de forma opaca o participante e permanece estável em um reload. `playback_instance_id` identifica de forma opaca a geração atual do documento/player e muda no reload; ele não autentica nem autoriza. Assim, uma nova instância pronta passa pelo warmup e por uma nova barreira, enquanto os polls comuns do mesmo documento não repetem a sincronização.
 

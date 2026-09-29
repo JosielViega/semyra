@@ -35,6 +35,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .home-hero-copy > p:not(.eyebrow) { max-width: 610px; margin: var(--space-6) 0 0; color: var(--color-text-soft); font-size: clamp(1.15rem, 1.45vw, 1.35rem); line-height: 1.5; }
 .home-create-form { margin-top: var(--space-8); }
 .home-create-form button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-3); min-width: 270px; min-height: 58px; padding: 0 var(--space-10); border-radius: var(--radius-lg); background: var(--gradient-brand); box-shadow: var(--shadow-brand); font-size: 1.05rem; }
+.home-room-lifetime { max-width: 34rem; margin: var(--space-3) 0 0; color: var(--color-text-muted); font-size: .875rem; }
 
 .home-brand-stage { position: relative; min-height: clamp(430px, 55vh, 610px); isolation: isolate; overflow: hidden; border-radius: 40% 12% 38% 18%; }
 .home-brand-stage::before { position: absolute; inset: 2% -4% -6% 0; z-index: -3; background: radial-gradient(circle at 67% 38%, rgb(22 199 255 / 24%) 0, rgb(40 100 255 / 12%) 18%, transparent 45%), radial-gradient(circle at 78% 70%, rgb(242 27 203 / 17%), transparent 36%), radial-gradient(ellipse at 35% 88%, rgb(123 60 255 / 14%), transparent 48%); filter: blur(10px); content: ""; }

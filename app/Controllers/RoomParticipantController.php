@@ -63,6 +63,7 @@ final class RoomParticipantController
             hash('sha256', $identity['participant_key']),
             $identity['display_name'],
         );
+        $this->rooms->touchActivity((int) $room['id']);
 
         return Response::redirect('/room/' . $room['code'], 303);
     }
@@ -148,6 +149,8 @@ final class RoomParticipantController
                 $observation['position_ms'],
             );
         }
+
+        $this->rooms->touchActivity((int) $room['id']);
 
         return Response::json([
             'participants' => $this->playbackTelemetry->presentParticipants(

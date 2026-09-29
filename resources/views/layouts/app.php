@@ -14,7 +14,7 @@ $currentUser = $currentUser ?? null;
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($title ?? 'Semyra') ?></title>
     <link rel="stylesheet" href="/assets/css/tokens.css?v=8b-identity">
-    <link rel="stylesheet" href="/assets/css/app.css?v=auth-1">
+    <link rel="stylesheet" href="/assets/css/app.css?v=rooms-1">
     <script src="/assets/js/app.js?v=8b-identity" defer></script>
 </head>
 <body>
