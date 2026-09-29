@@ -207,12 +207,12 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         </dialog>
     </main>
 
-    <script src="/assets/js/room-media.js?v=8b-identity" defer></script>
+    <script src="/assets/js/room-media.js?v=reload-sync-1" defer></script>
     <script src="/assets/js/room-player.js?v=8b-identity" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
-    <script src="/assets/js/room-playback.js?v=8b-identity" defer></script>
+    <script src="/assets/js/room-playback.js?v=reload-sync-1" defer></script>
     <script src="/assets/js/room-shell.js?v=8b-polish-2" defer></script>
     <script src="/assets/js/room-wake-lock.js?v=8b-identity" defer></script>
-    <script src="/assets/js/room-presence.js?v=8b-identity" defer></script>
+    <script src="/assets/js/room-presence.js?v=reload-sync-1" defer></script>
 <?php endif; ?>

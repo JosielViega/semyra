@@ -394,7 +394,7 @@
         }
 
         const revision = transmission.revision;
-        const coveredParticipantIds = participantSyncTracker?.readyParticipantIds() ?? [];
+        const coveredPlaybackInstanceIds = participantSyncTracker?.readyParticipantIds() ?? [];
         let snapshot = initialSnapshot;
         render();
         document.dispatchEvent(new CustomEvent('semyra:hud-interaction-start'));
@@ -426,7 +426,7 @@
         }
         if (result.ok) {
             if (transmission?.revision === revision && participantSyncRevision === revision) {
-                participantSyncTracker?.markSynchronized(coveredParticipantIds);
+                participantSyncTracker?.markSynchronized(coveredPlaybackInstanceIds);
                 persistParticipantSync();
             }
             setStatus('Sincronizado.');

@@ -213,7 +213,9 @@
             ready = new Set();
             if (Array.isArray(participants)) {
                 participants.forEach((participant) => {
-                    const id = participant?.public_id;
+                    const id = validId(participant?.playback_instance_id)
+                        ? participant.playback_instance_id
+                        : participant?.public_id;
                     if (!validId(id)) {
                         return;
                     }

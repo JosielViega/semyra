@@ -14,6 +14,28 @@ final class RoomParticipantRepository
     {
     }
 
+    public function registerPlayerInstance(
+        int $roomId,
+        string $participantKeyHash,
+        string $displayName,
+        string $playerInstanceKeyHash,
+    ): void {
+        $statement = $this->database->connection()->prepare(
+            'INSERT INTO room_participants '
+            . '(room_id, participant_key_hash, display_name, player_instance_key_hash) '
+            . 'VALUES (:room_id, :participant_key_hash, :display_name, :player_instance_key_hash) '
+            . 'ON DUPLICATE KEY UPDATE '
+            . 'display_name = VALUES(display_name), last_seen_at = CURRENT_TIMESTAMP, '
+            . 'player_instance_key_hash = VALUES(player_instance_key_hash)',
+        );
+        $statement->execute([
+            'room_id' => $roomId,
+            'participant_key_hash' => $participantKeyHash,
+            'display_name' => $displayName,
+            'player_instance_key_hash' => $playerInstanceKeyHash,
+        ]);
+    }
+
     /** @param null|array{state: int, position_ms: int, duration_ms: int} $playback */
     public function touch(
         int $roomId,
@@ -62,7 +84,7 @@ final class RoomParticipantRepository
     public function activeForRoom(int $roomId): array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT participant_key_hash, display_name, player_state, player_position_ms, '
+            'SELECT participant_key_hash, player_instance_key_hash, display_name, player_state, player_position_ms, '
             . 'player_duration_ms, '
             . 'CASE WHEN player_sampled_at IS NULL THEN NULL '
             . 'ELSE GREATEST(0, TIMESTAMPDIFF(MICROSECOND, player_sampled_at, CURRENT_TIMESTAMP(3)) DIV 1000) '

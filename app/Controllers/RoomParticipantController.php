@@ -85,6 +85,14 @@ final class RoomParticipantController
 
         $participantKeyHash = hash('sha256', $identity['participant_key']);
         try {
+            $playerInstanceId = $this->playbackTelemetry->normalizePlayerInstanceId(
+                $this->request->input('player_instance_id'),
+            );
+        } catch (\InvalidArgumentException) {
+            return Response::json(['error' => 'invalid_player_instance'], 422);
+        }
+
+        try {
             $playback = $this->playbackTelemetry->normalizePayload([
                 'player_state' => $this->request->input('player_state'),
                 'player_position_ms' => $this->request->input('player_position_ms'),
@@ -92,6 +100,15 @@ final class RoomParticipantController
             ]);
         } catch (\InvalidArgumentException) {
             return Response::json(['error' => 'invalid_telemetry'], 422);
+        }
+
+        if ($playerInstanceId !== null) {
+            $this->participants->registerPlayerInstance(
+                (int) $room['id'],
+                $participantKeyHash,
+                $identity['display_name'],
+                hash('sha256', $playerInstanceId),
+            );
         }
 
         $this->participants->touch(

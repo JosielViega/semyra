@@ -19,6 +19,13 @@
     let latestTransmission = null;
     let lastLiveEdgeObservationAt = 0;
     let hasActiveTransmission = false;
+    const playerInstanceBytes = new Uint8Array(16);
+    window.crypto.getRandomValues(playerInstanceBytes);
+    const playerInstanceId = Array.from(
+        playerInstanceBytes,
+        (byte) => byte.toString(16).padStart(2, '0'),
+    ).join('');
+    let playerInstanceRegistered = false;
     const liveEdgeObservationIntervalMs = 5000;
 
     if (!endpoint || !csrfToken || !participantList || !participantCount || !statusElement) {
@@ -146,6 +153,9 @@
             latestTelemetry = null;
             document.dispatchEvent(new CustomEvent('semyra:player-telemetry-request'));
             const body = new URLSearchParams({ _token: csrfToken });
+            if (!playerInstanceRegistered) {
+                body.set('player_instance_id', playerInstanceId);
+            }
             if (latestTelemetry !== null) {
                 body.set('player_state', String(latestTelemetry.state));
                 body.set('player_position_ms', String(latestTelemetry.positionMs));
@@ -189,7 +199,8 @@
             }
 
             if (response.status === 422
-                && ['invalid_telemetry', 'invalid_live_edge_observation'].includes(payload.error)) {
+                && ['invalid_player_instance', 'invalid_telemetry',
+                    'invalid_live_edge_observation'].includes(payload.error)) {
                 updateStatus('Não foi possível registrar os dados do player agora. Tentaremos novamente.', true);
                 return;
             }
@@ -198,6 +209,7 @@
                 throw new Error('Invalid presence response.');
             }
 
+            playerInstanceRegistered = true;
             renderParticipants(payload.participants);
             const transmission = normalizeTransmission(payload.transmission ?? null);
             latestTransmission = transmission;

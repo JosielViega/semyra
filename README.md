@@ -15,7 +15,7 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - estado oficial de Play/Pause/Seek controlado pelo proprietário da transmissão, com modo Vídeo/Ao vivo escolhido explicitamente;
 - YouTube VOD com duração convencional e YouTube Live com DVR, distância relativa e ação compartilhada `AO VIVO`;
 - ponto `AO VIVO` sincronizado aproximadamente 5 segundos atrás da borda física da Live, política ainda em validação para privilegiar assistir junto;
-- pulso experimental de sincronização Pause/Play, manual pelo owner e automático por nova coorte de participantes prontos ainda não cobertos;
+- pulso experimental de sincronização Pause/Play, manual pelo owner e automático por nova coorte ou nova instância de player pronta ainda não coberta;
 - página imersiva fullscreen com player responsivo, HUD temporário e overlays;
 - controles nativos do YouTube ocultos, com mute e fullscreen locais do Semyra;
 - compartilhamento da sala pela própria URL pública, com cópia automática quando a Clipboard API está disponível e seleção manual como fallback;
@@ -187,7 +187,9 @@ A tabela `rooms` contém somente:
 
 A tabela `room_transmissions` relaciona uma sala a zero ou uma transmissão ativa. Ela mantém fonte, video ID do YouTube, modo de mídia (`vod`/`live`, com `unknown` apenas como default técnico de migração), hash do proprietário temporário, revisão da transmissão e o estado oficial de playback (`playing`/`paused`, posição, indicador de borda ao vivo, revisão própria e instante-base). A posição pública e a âncora de borda são projetadas pelo relógio do MySQL. Live inicia na posição natural do YouTube e usa DVR; `getDuration()` não detecta Live nem define sua borda. Não existe histórico nesta etapa. A URL completa não é armazenada; o parser não consulta o YouTube nem confirma disponibilidade ou permissão de incorporação.
 
-A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Participantes são considerados ativos por 45 segundos após `last_seen_at`. A mesma linha mantém somente o último snapshot do player (`player_state`, posição e duração em milissegundos e o horário de recebimento no banco); não existe histórico de telemetria.
+A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Cada documento novo também cria em memória um nonce de 128 bits para a instância física do player e persiste somente seu hash. Participantes são considerados ativos por 45 segundos após `last_seen_at`. A mesma linha mantém somente o último snapshot do player (`player_state`, posição e duração em milissegundos e o horário de recebimento no banco); não existe histórico de telemetria.
+
+No payload público, `public_id` identifica de forma opaca o participante e permanece estável em um reload. `playback_instance_id` identifica de forma opaca a geração atual do documento/player e muda no reload; ele não autentica nem autoriza. Assim, uma nova instância pronta passa pelo warmup e por uma nova barreira, enquanto os polls comuns do mesmo documento não repetem a sincronização.
 
 ## Segurança
 

@@ -87,9 +87,14 @@ const simulate = async ({mediaMode, state, atLiveEdge, mutateDuringWait = null})
         b: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         c: 'cccccccccccccccccccccccccccccccc',
         d: 'dddddddddddddddddddddddddddddddd',
+        p1: '11111111111111111111111111111111',
+        p2: '22222222222222222222222222222222',
+        p3: '33333333333333333333333333333333',
+        q1: '44444444444444444444444444444444',
     };
-    const participant = (id, fresh = true, name = 'Pedro') => ({
+    const participant = (id, fresh = true, name = 'Pedro', playbackInstanceId = null) => ({
         public_id: id,
+        ...(playbackInstanceId === null ? {} : {playback_instance_id: playbackInstanceId}),
         name,
         playback: fresh ? {fresh: true} : {fresh: false},
     });
@@ -193,6 +198,58 @@ const simulate = async ({mediaMode, state, atLiveEdge, mutateDuringWait = null})
         officialState: 'playing'}).shouldResync, false);
     assert.equal(retry.observe({participants: ready(ids.a, ids.b), now: 9000,
         officialState: 'playing'}).shouldResync, true);
+
+    const reload = media.createParticipantSyncTracker({synchronizedIds: [ids.p1, ids.q1]});
+    const reloadParticipants = (viewerInstance) => [
+        participant(ids.a, true, 'Owner', ids.p1),
+        participant(ids.b, true, 'Viewer', viewerInstance),
+    ];
+    assert.equal(reload.observe({participants: reloadParticipants(ids.q1), now: 0,
+        officialState: 'playing'}).shouldResync, false, 'the synchronized instances remain covered');
+    assert.equal(reload.observe({participants: reloadParticipants(ids.p2), now: 100,
+        officialState: 'playing'}).shouldResync, false, 'a reloaded instance starts warmup');
+    assert.equal(reload.observe({participants: reloadParticipants(ids.p2), now: 4099,
+        officialState: 'playing'}).shouldResync, false, 'reload does not trigger before 4 seconds');
+    assert.equal(reload.observe({participants: reloadParticipants(ids.p2), now: 4100,
+        officialState: 'playing'}).shouldResync, true, 'the new viewer instance triggers one barrier');
+    reload.markSynchronized(reload.readyParticipantIds());
+    assert.equal(reload.observe({participants: reloadParticipants(ids.p2), now: 5000,
+        officialState: 'playing'}).shouldResync, false, 'the next poll does not repeat the barrier');
+    reload.observe({participants: reloadParticipants(ids.p3), now: 6000,
+        officialState: 'playing'});
+    assert.equal(reload.observe({participants: reloadParticipants(ids.p3), now: 10000,
+        officialState: 'playing'}).shouldResync, true, 'a second reload triggers exactly one new barrier');
+
+    const pausedReload = media.createParticipantSyncTracker({synchronizedIds: [ids.p1, ids.q1]});
+    pausedReload.observe({participants: reloadParticipants(ids.p2), now: 0,
+        officialState: 'paused'});
+    const pausedReloadStable = pausedReload.observe({participants: reloadParticipants(ids.p2), now: 4000,
+        officialState: 'paused'});
+    assert.equal(pausedReloadStable.shouldResync, false);
+    assert.ok(pausedReload.synchronizedParticipantIds().includes(ids.p2),
+        'a new instance is stabilized without starting playback while paused');
+
+    const legacyFallback = media.createParticipantSyncTracker({synchronizedIds: [ids.a, ids.b]});
+    assert.equal(legacyFallback.observe({participants: ready(ids.a, ids.b), now: 0,
+        officialState: 'playing'}).shouldResync, false,
+    'participants without instance IDs still use their public IDs');
+
+    const ownerReload = media.createParticipantSyncTracker({synchronizedIds: [ids.p1, ids.q1]});
+    ownerReload.observe({participants: [
+        participant(ids.a, true, 'Owner', ids.p2),
+        participant(ids.b, true, 'Viewer', ids.q1),
+    ], now: 0, officialState: 'playing'});
+    assert.equal(ownerReload.observe({participants: [
+        participant(ids.a, true, 'Owner', ids.p2),
+        participant(ids.b, true, 'Viewer', ids.q1),
+    ], now: 4000, officialState: 'playing'}).shouldResync, true,
+    'an owner reload also creates one new barrier when two players are ready');
+
+    const alone = media.createParticipantSyncTracker({synchronizedIds: [ids.p1]});
+    alone.observe({participants: [participant(ids.a, true, 'Owner', ids.p2)], now: 0,
+        officialState: 'playing'});
+    assert.equal(alone.observe({participants: [participant(ids.a, true, 'Owner', ids.p2)], now: 4000,
+        officialState: 'playing'}).shouldResync, false, 'one ready player never triggers a barrier');
 
     assert.notEqual(media.participantSyncStorageKey('/room/A/p', 4),
         media.participantSyncStorageKey('/room/A/p', 5));

@@ -80,6 +80,33 @@ final class RoomPlaybackTelemetryTest extends TestCase
         self::assertNull($this->telemetry->normalizePayload([]));
     }
 
+    public function testAcceptsOptionalValidPlayerInstanceId(): void
+    {
+        self::assertNull($this->telemetry->normalizePlayerInstanceId(null));
+        self::assertSame(
+            '0123456789abcdef0123456789abcdef',
+            $this->telemetry->normalizePlayerInstanceId('0123456789abcdef0123456789abcdef'),
+        );
+    }
+
+    #[DataProvider('invalidPlayerInstanceProvider')]
+    public function testRejectsInvalidPlayerInstanceId(mixed $value): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->telemetry->normalizePlayerInstanceId($value);
+    }
+
+    public static function invalidPlayerInstanceProvider(): array
+    {
+        return [
+            [''],
+            ['ABCDEF0123456789abcdef0123456789'],
+            ['0123456789abcdef0123456789abcde'],
+            ['0123456789abcdef0123456789abcdef0'],
+            [123],
+        ];
+    }
+
     public function testAcceptsRealLiveSnapshotWherePositionExceedsReportedDuration(): void
     {
         self::assertSame([
@@ -152,6 +179,44 @@ final class RoomPlaybackTelemetryTest extends TestCase
         self::assertStringNotContainsString('internal-hash-b', json_encode($first, JSON_THROW_ON_ERROR));
     }
 
+    public function testPresentsStablePlayerInstanceAndChangesItOnlyForNewNonce(): void
+    {
+        $participantHash = hash('sha256', 'participant-a');
+        $firstInstanceHash = hash('sha256', '0123456789abcdef0123456789abcdef');
+        $secondInstanceHash = hash('sha256', 'fedcba9876543210fedcba9876543210');
+
+        $first = $this->telemetry->presentParticipants([
+            $this->row($participantHash, 'Pedro', 1, 1_000, 10_000, 100, $firstInstanceHash),
+        ], $participantHash)[0];
+        $retry = $this->telemetry->presentParticipants([
+            $this->row($participantHash, 'Pedro', 1, 1_000, 10_000, 100, $firstInstanceHash),
+        ], $participantHash)[0];
+        $reload = $this->telemetry->presentParticipants([
+            $this->row($participantHash, 'Pedro', 1, 1_000, 10_000, 100, $secondInstanceHash),
+        ], $participantHash)[0];
+
+        self::assertSame($first['public_id'], $retry['public_id']);
+        self::assertSame($first['public_id'], $reload['public_id']);
+        self::assertSame($first['playback_instance_id'], $retry['playback_instance_id']);
+        self::assertNotSame($first['playback_instance_id'], $reload['playback_instance_id']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $first['playback_instance_id']);
+        self::assertArrayNotHasKey('player_instance_key_hash', $first);
+        self::assertStringNotContainsString($firstInstanceHash, json_encode($first, JSON_THROW_ON_ERROR));
+    }
+
+    public function testPlayerInstanceIsScopedToParticipantAndNullFallsBackToPublicId(): void
+    {
+        $sharedInstanceHash = hash('sha256', '0123456789abcdef0123456789abcdef');
+        $presented = $this->telemetry->presentParticipants([
+            $this->row('participant-a', 'Pedro', 1, 1_000, 10_000, 100, $sharedInstanceHash),
+            $this->row('participant-b', 'Ana', 1, 1_000, 10_000, 100, $sharedInstanceHash),
+            $this->row('legacy-participant', 'Bia', 1, 1_000, 10_000, 100, null),
+        ], 'participant-a');
+
+        self::assertNotSame($presented[0]['playback_instance_id'], $presented[1]['playback_instance_id']);
+        self::assertSame($presented[2]['public_id'], $presented[2]['playback_instance_id']);
+    }
+
     /** @return array<string, int|string> */
     private function row(
         string $key,
@@ -160,9 +225,11 @@ final class RoomPlaybackTelemetryTest extends TestCase
         int $positionMs,
         int $durationMs,
         int $ageMs,
+        ?string $playerInstanceKeyHash = null,
     ): array {
         return [
             'participant_key_hash' => $key,
+            'player_instance_key_hash' => $playerInstanceKeyHash,
             'display_name' => $name,
             'player_state' => (string) $state,
             'player_position_ms' => (string) $positionMs,

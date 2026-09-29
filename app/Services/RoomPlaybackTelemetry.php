@@ -12,6 +12,19 @@ final class RoomPlaybackTelemetry
     private const ALLOWED_STATES = [-1, 0, 1, 2, 3, 5];
     private const PLAYING_STATE = 1;
 
+    public function normalizePlayerInstanceId(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (!is_string($value) || preg_match('/^[a-f0-9]{32}$/', $value) !== 1) {
+            throw new \InvalidArgumentException('Player instance identifier is invalid.');
+        }
+
+        return $value;
+    }
+
     /**
      * @param array{player_state?: mixed, player_position_ms?: mixed, player_duration_ms?: mixed} $payload
      * @return null|array{state: int, position_ms: int, duration_ms: int}
@@ -57,18 +70,30 @@ final class RoomPlaybackTelemetry
 
     /**
      * @param list<array<string, mixed>> $participants
-     * @return list<array{public_id: string, name: string, is_you: bool, playback: null|array{state: int, position_ms: int, duration_ms: int, age_ms: int, fresh: bool, drift_ms: null|int}}>
+     * @return list<array{public_id: string, playback_instance_id: string, name: string, is_you: bool, playback: null|array{state: int, position_ms: int, duration_ms: int, age_ms: int, fresh: bool, drift_ms: null|int}}>
      */
     public function presentParticipants(array $participants, string $currentParticipantKeyHash): array
     {
         $presented = array_map(function (array $participant) use ($currentParticipantKeyHash): array {
             $participantKeyHash = (string) $participant['participant_key_hash'];
+            $publicId = substr(hash(
+                'sha256',
+                "semyra-public-participant\0" . $participantKeyHash,
+            ), 0, 32);
+            $playerInstanceKeyHash = $participant['player_instance_key_hash'] ?? null;
+            $playbackInstanceId = is_string($playerInstanceKeyHash) && $playerInstanceKeyHash !== ''
+                ? substr(hash(
+                    'sha256',
+                    "semyra-public-player-instance\0"
+                    . $participantKeyHash
+                    . "\0"
+                    . $playerInstanceKeyHash,
+                ), 0, 32)
+                : $publicId;
 
             return [
-                'public_id' => substr(hash(
-                    'sha256',
-                    "semyra-public-participant\0" . $participantKeyHash,
-                ), 0, 32),
+                'public_id' => $publicId,
+                'playback_instance_id' => $playbackInstanceId,
                 'name' => (string) $participant['display_name'],
                 'is_you' => hash_equals(
                     $currentParticipantKeyHash,

@@ -143,9 +143,9 @@ final class RoomViewTest extends TestCase
         foreach (['🔇', '🔊', '↗', '＋', '↻', '▶', 'Ⅱ', '⛶', '>×<'] as $legacyGlyph) {
             self::assertStringNotContainsString($legacyGlyph, $html);
         }
-        self::assertStringContainsString('/assets/js/room-media.js?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/js/room-playback.js?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/js/room-presence.js?v=8b-identity', $html);
+        self::assertStringContainsString('/assets/js/room-media.js?v=reload-sync-1', $html);
+        self::assertStringContainsString('/assets/js/room-playback.js?v=reload-sync-1', $html);
+        self::assertStringContainsString('/assets/js/room-presence.js?v=reload-sync-1', $html);
     }
 
     public function testEscapesRoomParticipantOwnerAndFlashValues(): void
