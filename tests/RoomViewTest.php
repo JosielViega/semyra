@@ -26,7 +26,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('7MKP3WQH', $html);
         self::assertStringContainsString('action="/room/7MKP3WQH/join"', $html);
         self::assertStringContainsString('name="display_name"', $html);
-        self::assertStringContainsString('src="/assets/images/logo_semyra.png?v=8a-polish-2"', $html);
+        self::assertStringContainsString('src="/assets/images/logo_semyra.png?v=8b-identity"', $html);
         self::assertStringContainsString('aria-label="Semyra — início"', $html);
         self::assertStringContainsString('alt="Semyra"', $html);
         self::assertStringNotContainsString('room-player-mount', $html);
@@ -48,10 +48,13 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('value="live"', $html);
         self::assertStringContainsString('id="room-player-mount"', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
-        self::assertStringContainsString('/assets/css/room.css?v=8a-polish-2', $html);
-        self::assertStringContainsString('/assets/js/room-shell.js?v=8a-polish-2', $html);
-        self::assertStringContainsString('/assets/js/room-wake-lock.js?v=8a-polish-2', $html);
+        self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
+        self::assertStringContainsString('/assets/css/room.css?v=8b-polish-2', $html);
+        self::assertStringContainsString('/assets/js/room-shell.js?v=8b-polish-2', $html);
+        self::assertStringContainsString('/assets/js/room-wake-lock.js?v=8b-identity', $html);
         self::assertStringContainsString('class="room-logo room-logo-empty"', $html);
+        self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
+        self::assertStringContainsString('e assista junto com seus amigos.', $html);
         self::assertStringContainsString('<use href="#room-icon-video-plus"></use>', $html);
     }
 
@@ -72,10 +75,11 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-playback-sync aria-label="Sincronizar reprodução" hidden', $html);
         self::assertStringContainsString('data-playback-url="/room/7MKP3WQH/transmission/playback"', $html);
         self::assertStringContainsString('/assets/js/room-playback.js', $html);
+        self::assertStringContainsString('class="room-player-bar"', $html);
         self::assertStringContainsString('/assets/js/room-media.js', $html);
         self::assertStringContainsString('data-volume-control', $html);
         self::assertStringContainsString('min="0" max="100" step="1" value="100"', $html);
-        self::assertStringContainsString('/assets/js/room-player.js?v=8a-polish-2', $html);
+        self::assertStringContainsString('/assets/js/room-player.js?v=8b-identity', $html);
         self::assertStringContainsString('data-initial-live-sync-position-ms=""', $html);
         self::assertStringContainsString('data-panel-toggle="participants"', $html);
         self::assertStringContainsString('<use href="#room-icon-users"></use>', $html);
@@ -121,7 +125,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-debug-local-drift', $debug);
         self::assertStringContainsString('data-debug-wake-lock', $debug);
         self::assertStringNotContainsString('data-debug-classification', $debug);
-        self::assertStringContainsString('/assets/js/room-telemetry.js?v=8a-polish-2', $debug);
+        self::assertStringContainsString('/assets/js/room-telemetry.js?v=8b-identity', $debug);
     }
 
     public function testRoomUsesLocalSvgIconSystemWithoutLegacyGlyphs(): void
@@ -139,9 +143,9 @@ final class RoomViewTest extends TestCase
         foreach (['🔇', '🔊', '↗', '＋', '↻', '▶', 'Ⅱ', '⛶', '>×<'] as $legacyGlyph) {
             self::assertStringNotContainsString($legacyGlyph, $html);
         }
-        self::assertStringContainsString('/assets/js/room-media.js?v=8a-polish-2', $html);
-        self::assertStringContainsString('/assets/js/room-playback.js?v=8a-polish-2', $html);
-        self::assertStringContainsString('/assets/js/room-presence.js?v=8a-polish-2', $html);
+        self::assertStringContainsString('/assets/js/room-media.js?v=8b-identity', $html);
+        self::assertStringContainsString('/assets/js/room-playback.js?v=8b-identity', $html);
+        self::assertStringContainsString('/assets/js/room-presence.js?v=8b-identity', $html);
     }
 
     public function testEscapesRoomParticipantOwnerAndFlashValues(): void
@@ -178,6 +182,7 @@ final class RoomViewTest extends TestCase
         self::assertStringNotContainsString('<script>alert(1)</script>', $html);
         self::assertStringNotContainsString('<svg onload=alert(3)>', $html);
         self::assertStringNotContainsString('<img src=x onerror=alert(4)>', $html);
+        self::assertStringContainsString('data-room-flash data-flash-type="error"', $html);
     }
 
     private function renderRoom(array $overrides = []): string

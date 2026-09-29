@@ -19,5 +19,9 @@ assert.match(shell, /audibleIcon\.toggleAttribute\('hidden', muted\)/);
 assert.match(shell, /muteButton\.setAttribute\('aria-pressed', String\(muted\)\)/);
 assert.match(shell, /maximizeIcon\.toggleAttribute\('hidden', fullscreen\)/);
 assert.match(shell, /minimizeIcon\.toggleAttribute\('hidden', !fullscreen\)/);
+assert.match(shell, /flash\.dataset\.flashType === 'error' \? 5000 : 2000/);
+assert.match(shell, /reducedMotion \? 0 : 200/);
+assert.match(shell, /flash\.classList\.add\('is-leaving'\)/);
+assert.match(shell, /flash\.remove\(\)/);
 
 console.log('room-icons tests passed');

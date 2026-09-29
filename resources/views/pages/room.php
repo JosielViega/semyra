@@ -31,13 +31,13 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
 <?php if ($identity === null): ?>
     <main class="room-shell room-shell-join">
         <section class="room-join-panel" aria-labelledby="room-join-title">
-            <a class="room-logo-link room-logo-link-join" href="/" aria-label="Semyra — início"><img class="room-logo room-logo-join" src="/assets/images/logo_semyra.png?v=8a-polish-2" alt="Semyra"></a>
+            <a class="room-logo-link room-logo-link-join" href="/" aria-label="Semyra — início"><img class="room-logo room-logo-join" src="/assets/images/logo_semyra.png?v=8b-identity" alt="Semyra"></a>
             <p class="room-kicker">Código da sala</p>
             <p class="room-code"><?= e($room['code']) ?></p>
 
             <?php foreach ($flashes as $type => $messages): ?>
                 <?php foreach ($messages as $message): ?>
-                    <p class="room-flash room-flash-<?= e($type) ?>" role="status"><?= e($message) ?></p>
+                    <p class="room-flash room-flash-<?= e($type) ?>" role="status" data-room-flash data-flash-type="<?= e($type) ?>"><?= e($message) ?></p>
                 <?php endforeach; ?>
             <?php endforeach; ?>
 
@@ -79,15 +79,16 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         </div>
 
         <section class="room-empty-state" data-room-empty-state<?= $transmission !== null ? ' hidden' : '' ?>>
-            <img class="room-logo room-logo-empty" src="/assets/images/logo_semyra.png?v=8a-polish-2" alt="Semyra">
-            <p>Nenhuma transmissão ativa</p>
+            <img class="room-logo room-logo-empty" src="/assets/images/logo_semyra_symbol.png?v=8b-polish-2" alt="Semyra">
+            <h1>Nenhuma transmissão ativa</h1>
+            <p>Seja o primeiro a iniciar uma transmissão<br>e assista junto com seus amigos.</p>
             <button type="button" class="room-text-button" data-open-transmission><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg><span>Iniciar transmissão</span></button>
         </section>
 
         <div class="room-hud" data-room-hud>
             <header class="room-hud-top">
-                <div>
-                    <a class="room-logo-link room-logo-link-hud" href="/" aria-label="Semyra — início"><img class="room-logo room-logo-hud" src="/assets/images/logo_semyra.png?v=8a-polish-2" alt="Semyra"></a>
+                <div class="room-hud-brand">
+                    <a class="room-logo-link room-logo-link-hud" href="/" aria-label="Semyra — início"><img class="room-logo room-logo-hud" src="/assets/images/logo_semyra_symbol.png?v=8b-polish-2" alt=""><strong>Semyra</strong></a>
                     <span class="room-code-compact">Sala <?= e($room['code']) ?></span>
                 </div>
                 <nav class="room-hud-actions" aria-label="Ações da sala">
@@ -102,6 +103,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     <span data-room-owner><?= $transmission !== null ? e(($transmission['is_owner'] ? 'Você' : $transmission['owner_name']) . ' está transmitindo') : 'Sem transmissão ativa' ?></span>
                     <span class="room-player-status" id="youtube-player-status" role="status" aria-live="polite"></span>
                 </div>
+                <div class="room-player-bar">
                 <div class="room-shared-playback" data-shared-playback-controls<?= $transmission === null ? ' hidden' : '' ?>>
                     <button type="button" class="room-icon-button" data-playback-sync aria-label="Sincronizar reprodução" hidden><svg class="room-icon" aria-hidden="true"><use href="#room-icon-sync"></use></svg></button>
                     <button type="button" class="room-icon-button" data-playback-toggle aria-label="<?= $initialPlaying ? 'Pausar' : 'Reproduzir' ?> transmissão" data-state="<?= $initialPlaying ? 'playing' : 'paused' ?>"><svg class="room-icon" data-icon-play aria-hidden="true"<?= $initialPlaying ? ' hidden' : '' ?>><use href="#room-icon-play"></use></svg><svg class="room-icon" data-icon-pause aria-hidden="true"<?= $initialPlaying ? '' : ' hidden' ?>><use href="#room-icon-pause"></use></svg></button>
@@ -116,6 +118,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     <input id="room-player-volume" class="room-volume-control" data-volume-control type="range" min="0" max="100" step="1" value="100" aria-label="Volume local" aria-valuetext="100%, sem som">
                     <button type="button" class="room-icon-button" data-mute-toggle data-state="muted" aria-label="Ativar som" aria-pressed="true"><svg class="room-icon" data-icon-muted aria-hidden="true"><use href="#room-icon-volume-x"></use></svg><svg class="room-icon" data-icon-audible aria-hidden="true" hidden><use href="#room-icon-volume"></use></svg></button>
                     <button type="button" class="room-icon-button" data-fullscreen-toggle data-state="windowed" aria-label="Entrar em tela cheia"><svg class="room-icon" data-icon-maximize aria-hidden="true"><use href="#room-icon-maximize"></use></svg><svg class="room-icon" data-icon-minimize aria-hidden="true" hidden><use href="#room-icon-minimize"></use></svg></button>
+                </div>
                 </div>
                 <form class="room-end-form" action="/room/<?= e($room['code']) ?>/transmission/end" method="post" data-end-transmission<?= !($transmission['is_owner'] ?? false) ? ' hidden' : '' ?>>
                     <?= $csrfField ?>
@@ -179,7 +182,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         <div class="room-flash-stack" aria-live="polite">
             <?php foreach ($flashes as $type => $messages): ?>
                 <?php foreach ($messages as $message): ?>
-                    <p class="room-flash room-flash-<?= e($type) ?>" role="status"><?= e($message) ?></p>
+                    <p class="room-flash room-flash-<?= e($type) ?>" role="status" data-room-flash data-flash-type="<?= e($type) ?>"><?= e($message) ?></p>
                 <?php endforeach; ?>
             <?php endforeach; ?>
         </div>
@@ -204,12 +207,12 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         </dialog>
     </main>
 
-    <script src="/assets/js/room-media.js?v=8a-polish-2" defer></script>
-    <script src="/assets/js/room-player.js?v=8a-polish-2" defer></script>
-    <script src="/assets/js/room-share.js?v=8a-polish-2" defer></script>
-    <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8a-polish-2" defer></script><?php endif; ?>
-    <script src="/assets/js/room-playback.js?v=8a-polish-2" defer></script>
-    <script src="/assets/js/room-shell.js?v=8a-polish-2" defer></script>
-    <script src="/assets/js/room-wake-lock.js?v=8a-polish-2" defer></script>
-    <script src="/assets/js/room-presence.js?v=8a-polish-2" defer></script>
+    <script src="/assets/js/room-media.js?v=8b-identity" defer></script>
+    <script src="/assets/js/room-player.js?v=8b-identity" defer></script>
+    <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
+    <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
+    <script src="/assets/js/room-playback.js?v=8b-identity" defer></script>
+    <script src="/assets/js/room-shell.js?v=8b-polish-2" defer></script>
+    <script src="/assets/js/room-wake-lock.js?v=8b-identity" defer></script>
+    <script src="/assets/js/room-presence.js?v=8b-identity" defer></script>
 <?php endif; ?>

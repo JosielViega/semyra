@@ -6,6 +6,16 @@
         return;
     }
 
+    const flashes = Array.from(shell.querySelectorAll('[data-room-flash]'));
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    flashes.forEach((flash) => {
+        const visibleFor = flash.dataset.flashType === 'error' ? 5000 : 2000;
+        window.setTimeout(() => {
+            flash.classList.add('is-leaving');
+            window.setTimeout(() => flash.remove(), reducedMotion ? 0 : 200);
+        }, visibleFor);
+    });
+
     const dialog = document.getElementById('room-transmission-dialog');
     const emptyState = shell.querySelector('[data-room-empty-state]');
     const ownerCopy = shell.querySelector('[data-room-owner]');

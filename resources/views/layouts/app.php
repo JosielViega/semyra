@@ -11,15 +11,20 @@ declare(strict_types=1);
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($title ?? 'Semyra') ?></title>
-    <link rel="stylesheet" href="/assets/css/app.css">
-    <script src="/assets/js/app.js" defer></script>
+    <link rel="stylesheet" href="/assets/css/tokens.css?v=8b-identity">
+    <link rel="stylesheet" href="/assets/css/app.css?v=8b-identity">
+    <script src="/assets/js/app.js?v=8b-identity" defer></script>
 </head>
 <body>
     <header class="site-header">
-        <a class="brand" href="/">Semyra</a>
-        <a class="health-link" href="/health">Status</a>
+        <div class="site-header-inner">
+            <a class="site-brand" href="/" aria-label="Semyra — início"><img src="/assets/images/logo_semyra_symbol.png?v=8b-polish-2" alt=""><strong>SEMYRA</strong></a>
+            <nav class="site-navigation" aria-label="Navegação principal">
+                <a class="health-link" href="/health"><span aria-hidden="true"></span>Status</a>
+            </nav>
+        </div>
     </header>
-    <main class="container">
+    <main class="site-main">
         <?= $content ?>
     </main>
 </body>
