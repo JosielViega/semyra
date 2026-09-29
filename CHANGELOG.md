@@ -6,6 +6,7 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Contas locais opcionais com cadastro, auto-login, login e logout seguro, sem restringir convidados ou vincular contas às salas nesta etapa.
 - Sinal de saída best-effort por instância do player, removendo presença no polling seguinte sem comprometer reloads.
 - Identidade efêmera e opaca por instância do player, para que reloads voltem a participar de uma única barreira automática de sincronização.
 - Controle local de volume persistido por navegador, com cada nova página iniciando sem som.

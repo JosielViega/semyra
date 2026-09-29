@@ -65,6 +65,21 @@ HTML
 
 Dependências são montadas explicitamente em `bootstrap/app.php` ou `routes/web.php`. Se o projeto crescer muito, um container pode ser avaliado, mas não é necessário no estado atual do Semyra.
 
+## Fluxo de autenticação opcional
+
+```text
+GET/POST /register, GET/POST /login, POST /logout
+    ↓
+AuthController
+    ├── Validator
+    ├── UserRepository → users
+    └── AuthSession → auth_user_id
+```
+
+O e-mail é aparado e normalizado para lowercase antes de consultas e inserções, enquanto a constraint `UNIQUE` case-insensitive do MySQL resolve corridas entre cadastros. A senha nunca é persistida em texto: o cadastro usa `password_hash(PASSWORD_DEFAULT)` e o login usa `password_verify()` com mensagem genérica para qualquer credencial inválida.
+
+`AuthSession` é deliberadamente separada de `RoomParticipantSession`. Login e logout regeneram o ID da sessão, mas alteram somente `auth_user_id`; chaves e apelidos anônimos por sala continuam intactos. Uma conta é opcional e ainda não possui relação com `rooms` ou `room_participants`. A criação de sala permanece idêntica para convidados e usuários autenticados; salas persistentes por usuário pertencem a uma etapa futura.
+
 ## Fluxo de salas
 
 A criação da sala segue:

@@ -16,6 +16,11 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .site-brand img { display: block; width: 52px; height: 42px; object-fit: contain; }
 .site-brand strong { font-size: clamp(1.45rem, 1.8vw, 1.8rem); font-weight: 850; letter-spacing: .025em; line-height: 1; }
 .site-navigation { display: flex; align-items: center; gap: var(--space-4); }
+.account-link, .account-logout button { display: inline-flex; align-items: center; min-height: 40px; padding: 0 var(--space-3); border-radius: var(--radius-sm); color: var(--color-text-soft); background: transparent; font-size: .875rem; font-weight: 700; text-decoration: none; }
+.account-link:hover, .account-logout button:hover { color: var(--color-text); background: var(--color-surface-hover); }
+.account-link-primary { border: 1px solid var(--color-border-strong); }
+.account-greeting { max-width: 220px; overflow: hidden; color: var(--color-text-soft); font-size: .9rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.account-logout { margin: 0; }
 .health-link { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-3); color: var(--color-text-soft); font-size: .875rem; font-weight: 650; text-decoration: none; }
 .health-link span { width: 8px; height: 8px; border-radius: 50%; background: var(--color-cyan); box-shadow: 0 0 12px rgb(22 199 255 / 48%); }
 .health-link:hover { color: var(--color-text); }
@@ -54,6 +59,22 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .card a { display: inline-flex; margin-top: var(--space-4); color: var(--color-cyan); font-weight: 700; }
 .card code { overflow-wrap: anywhere; color: var(--color-text-soft); }
 
+.auth-shell { display: grid; flex: 1; place-items: center; padding: clamp(var(--space-8), 8vh, var(--space-16)) 0; }
+.auth-card { width: min(100%, 520px); padding: clamp(var(--space-6), 5vw, var(--space-10)); border: 1px solid var(--color-border); border-radius: var(--radius-xl); background: linear-gradient(145deg, rgb(16 24 39 / 96%), rgb(10 16 32 / 96%)); box-shadow: var(--shadow-surface); }
+.auth-card h1 { margin: 0; font-size: clamp(2rem, 5vw, 3rem); line-height: 1.05; }
+.auth-intro { margin: var(--space-3) 0 var(--space-8); color: var(--color-text-muted); }
+.auth-form { display: grid; gap: var(--space-5); }
+.auth-field { display: grid; gap: var(--space-2); }
+.auth-field label { color: var(--color-text-soft); font-size: .9rem; font-weight: 750; }
+.auth-field input { width: 100%; padding: 0 var(--space-4); border: 1px solid var(--color-border-strong); color: var(--color-text); background: var(--color-bg-soft); }
+.auth-field input:hover { border-color: #385070; }
+.auth-submit { min-height: 52px; margin-top: var(--space-2); padding: 0 var(--space-6); background: var(--gradient-brand); box-shadow: var(--shadow-brand); }
+.auth-form-error, .field-error { color: #fecaca; }
+.auth-form-error { margin: 0 0 var(--space-5); padding: var(--space-3) var(--space-4); border: 1px solid rgb(248 113 113 / 45%); border-radius: var(--radius-md); background: rgb(127 29 29 / 15%); }
+.field-error { margin: 0; font-size: .84rem; }
+.auth-alternate { margin: var(--space-6) 0 0; color: var(--color-text-muted); text-align: center; }
+.auth-alternate a { color: var(--color-cyan); font-weight: 750; }
+
 @media (max-width: 800px) {
     .site-header-inner, .site-main { width: min(100% - 32px, 1380px); }
     .home-hero { grid-template-columns: 1fr; gap: var(--space-6); min-height: auto; padding-top: var(--space-12); }
@@ -64,6 +85,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
     .home-brand-stage img { left: 66%; width: min(82vw, 460px); opacity: .055; }
     .home-brand-orbit { inset: 12% -20% 3% 0; }
     .home-benefits { grid-template-columns: repeat(2, 1fr); }
+    .site-navigation { gap: var(--space-2); }
+    .health-link { display: none; }
 }
 
 @media (min-width: 801px) and (max-height: 700px) {
@@ -80,6 +103,9 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
     .site-brand { gap: var(--space-2); }
     .site-brand img { width: 42px; height: 34px; }
     .site-brand strong { font-size: 1.18rem; }
+    .account-greeting { max-width: 100px; }
+    .account-link, .account-logout button { padding: 0 var(--space-2); font-size: .8rem; }
+    .site-brand strong { display: none; }
     .home-hero { gap: var(--space-5); padding: var(--space-10) 0 var(--space-8); }
     .home-hero h1 { font-size: clamp(3.7rem, 19vw, 5rem); }
     .home-hero-copy > p:not(.eyebrow) { font-size: 1.05rem; }
