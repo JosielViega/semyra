@@ -145,7 +145,8 @@ final class RoomViewTest extends TestCase
         }
         self::assertStringContainsString('/assets/js/room-media.js?v=reload-sync-1', $html);
         self::assertStringContainsString('/assets/js/room-playback.js?v=reload-sync-1', $html);
-        self::assertStringContainsString('/assets/js/room-presence.js?v=reload-sync-1', $html);
+        self::assertStringContainsString('data-leave-url="/room/7MKP3WQH/leave"', $html);
+        self::assertStringContainsString('/assets/js/room-presence.js?v=presence-leave-1', $html);
     }
 
     public function testEscapesRoomParticipantOwnerAndFlashValues(): void

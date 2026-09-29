@@ -8,6 +8,7 @@
     }
 
     const endpoint = presenceContainer.dataset.presenceUrl ?? '';
+    const leaveEndpoint = presenceContainer.dataset.leaveUrl ?? '';
     const csrfToken = presenceContainer.dataset.csrfToken ?? '';
     const participantList = document.getElementById('room-participant-list');
     const participantCount = document.getElementById('room-participant-count');
@@ -26,6 +27,7 @@
         (byte) => byte.toString(16).padStart(2, '0'),
     ).join('');
     let playerInstanceRegistered = false;
+    let leaveSent = false;
     const liveEdgeObservationIntervalMs = 5000;
 
     if (!endpoint || !csrfToken || !participantList || !participantCount || !statusElement) {
@@ -131,6 +133,36 @@
             window.clearTimeout(timeoutId);
         }
         timeoutId = window.setTimeout(refreshPresence, hasActiveTransmission ? 1000 : 5000);
+    };
+
+    const sendLeave = () => {
+        if (leaveSent || !leaveEndpoint) {
+            return;
+        }
+        leaveSent = true;
+        const body = new URLSearchParams({
+            _token: csrfToken,
+            player_instance_id: playerInstanceId,
+        });
+
+        try {
+            if (typeof navigator.sendBeacon === 'function'
+                && navigator.sendBeacon(leaveEndpoint, body)) {
+                return;
+            }
+        } catch {
+            // The keepalive request below remains a best-effort fallback.
+        }
+
+        void fetch(leaveEndpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            },
+            body,
+            credentials: 'same-origin',
+            keepalive: true,
+        }).catch(() => {});
     };
 
     document.addEventListener('semyra:player-telemetry', (event) => {
@@ -245,5 +277,21 @@
             }
             refreshPresence();
         }
+    });
+
+    window.addEventListener('pagehide', sendLeave);
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted !== true) {
+            return;
+        }
+        leaveSent = false;
+        playerInstanceRegistered = false;
+        stopped = false;
+        requestInProgress = false;
+        if (timeoutId !== null) {
+            window.clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+        refreshPresence();
     });
 })();

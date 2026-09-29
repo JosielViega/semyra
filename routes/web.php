@@ -78,6 +78,7 @@ $router->post('/rooms', [$rooms, 'store']);
 $router->get('/room/{code}', [$rooms, 'show']);
 $router->post('/room/{code}/join', [$roomParticipants, 'join']);
 $router->post('/room/{code}/presence', [$roomParticipants, 'presence']);
+$router->post('/room/{code}/leave', [$roomParticipants, 'leave']);
 $router->post('/room/{code}/transmission', [$roomTransmissions, 'start']);
 $router->post('/room/{code}/transmission/end', [$roomTransmissions, 'end']);
 $router->post('/room/{code}/transmission/playback', [$roomTransmissions, 'playback']);

@@ -57,6 +57,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         data-room-shell
         data-room-presence
         data-presence-url="/room/<?= e($room['code']) ?>/presence"
+        data-leave-url="/room/<?= e($room['code']) ?>/leave"
         data-playback-url="/room/<?= e($room['code']) ?>/transmission/playback"
         data-csrf-token="<?= e($csrfToken) ?>"
         data-initial-source="<?= e($transmission['source'] ?? '') ?>"
@@ -214,5 +215,5 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
     <script src="/assets/js/room-playback.js?v=reload-sync-1" defer></script>
     <script src="/assets/js/room-shell.js?v=8b-polish-2" defer></script>
     <script src="/assets/js/room-wake-lock.js?v=8b-identity" defer></script>
-    <script src="/assets/js/room-presence.js?v=reload-sync-1" defer></script>
+    <script src="/assets/js/room-presence.js?v=presence-leave-1" defer></script>
 <?php endif; ?>

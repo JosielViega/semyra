@@ -36,6 +36,31 @@ final class RoomParticipantRepository
         ]);
     }
 
+    public function leavePlayerInstance(
+        int $roomId,
+        string $participantKeyHash,
+        string $playerInstanceKeyHash,
+    ): bool {
+        $inactiveSeconds = self::ACTIVE_WINDOW_SECONDS + 1;
+        $statement = $this->database->connection()->prepare(
+            'UPDATE room_participants SET '
+            . 'last_seen_at = CURRENT_TIMESTAMP - INTERVAL ' . $inactiveSeconds . ' SECOND, '
+            . 'player_state = NULL, player_position_ms = NULL, player_duration_ms = NULL, '
+            . 'player_sampled_at = NULL '
+            . 'WHERE room_id = :room_id '
+            . 'AND participant_key_hash = :participant_key_hash '
+            . 'AND (player_instance_key_hash = :player_instance_key_hash '
+            . 'OR player_instance_key_hash IS NULL)',
+        );
+        $statement->execute([
+            'room_id' => $roomId,
+            'participant_key_hash' => $participantKeyHash,
+            'player_instance_key_hash' => $playerInstanceKeyHash,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
     /** @param null|array{state: int, position_ms: int, duration_ms: int} $playback */
     public function touch(
         int $roomId,

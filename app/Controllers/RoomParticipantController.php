@@ -161,6 +161,42 @@ final class RoomParticipantController
         ]);
     }
 
+    public function leave(string $code): Response
+    {
+        if (!$this->csrf->verify($this->request->input('_token'))) {
+            return Response::json(['error' => 'invalid_csrf'], 419);
+        }
+
+        $room = $this->rooms->findByCode($code);
+        if ($room === null) {
+            return Response::json(['error' => 'room_not_found'], 404);
+        }
+
+        $identity = $this->participantSession->identityFor($room['code']);
+        if ($identity === null) {
+            return Response::json(['error' => 'join_required'], 403);
+        }
+
+        try {
+            $playerInstanceId = $this->playbackTelemetry->normalizePlayerInstanceId(
+                $this->request->input('player_instance_id'),
+            );
+        } catch (\InvalidArgumentException) {
+            return Response::json(['error' => 'invalid_player_instance'], 422);
+        }
+        if ($playerInstanceId === null) {
+            return Response::json(['error' => 'invalid_player_instance'], 422);
+        }
+
+        $left = $this->participants->leavePlayerInstance(
+            (int) $room['id'],
+            hash('sha256', $identity['participant_key']),
+            hash('sha256', $playerInstanceId),
+        );
+
+        return Response::json(['left' => $left]);
+    }
+
     private function invalidCsrfResponse(): Response
     {
         return Response::html($this->view->render('pages/error', [

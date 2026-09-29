@@ -21,7 +21,7 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - compartilhamento da sala pela própria URL pública, com cópia automática quando a Clipboard API está disponível e seleção manual como fallback;
 - Web Share API como melhoria progressiva em navegadores compatíveis;
 - entrada anônima por apelido, isolada por sala e sessão do navegador;
-- lista de participantes ativos, atualizada por polling a cada 5 segundos sem transmissão e a cada 1 segundo durante uma transmissão;
+- lista de participantes ativos, atualizada por polling a cada 5 segundos sem transmissão e a cada 1 segundo durante uma transmissão, com saída explícita best-effort ao deixar a página;
 - telemetria observacional do player, com estado, posição e duração transportados junto à presença;
 - diagnóstico do desvio entre a posição local e o playback oficial, sem correção automática;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
@@ -190,6 +190,8 @@ A tabela `room_transmissions` relaciona uma sala a zero ou uma transmissão ativ
 A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Cada documento novo também cria em memória um nonce de 128 bits para a instância física do player e persiste somente seu hash. Participantes são considerados ativos por 45 segundos após `last_seen_at`. A mesma linha mantém somente o último snapshot do player (`player_state`, posição e duração em milissegundos e o horário de recebimento no banco); não existe histórico de telemetria.
 
 No payload público, `public_id` identifica de forma opaca o participante e permanece estável em um reload. `playback_instance_id` identifica de forma opaca a geração atual do documento/player e muda no reload; ele não autentica nem autoriza. Assim, uma nova instância pronta passa pelo warmup e por uma nova barreira, enquanto os polls comuns do mesmo documento não repetem a sincronização.
+
+Ao sair da página, o navegador tenta enviar `POST /room/{code}/leave` por `sendBeacon`, com fallback `fetch keepalive`. O backend só inativa a presença quando participante e instância ainda correspondem, impedindo que um leave atrasado da página anterior remova a nova instância após reload. Esse sinal é apenas best-effort: a janela de 45 segundos continua sendo o fallback para perda de rede, crash ou beacon perdido.
 
 ## Segurança
 

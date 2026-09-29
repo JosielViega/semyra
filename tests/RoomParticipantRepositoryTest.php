@@ -58,6 +58,53 @@ final class RoomParticipantRepositoryTest extends TestCase
 
         self::assertStringContainsString('SELECT participant_key_hash, player_instance_key_hash', $this->pdo->lastQuery);
     }
+
+    public function testCurrentInstanceLeaveMakesParticipantInactiveAndClearsTelemetry(): void
+    {
+        $instanceHash = hash('sha256', 'current-instance');
+        $this->pdo->put($instanceHash, true);
+
+        self::assertTrue($this->repository->leavePlayerInstance(7, 'participant-hash', $instanceHash));
+        self::assertSame([], $this->repository->activeForRoom(7));
+        self::assertSame($instanceHash, $this->pdo->instanceHash());
+        self::assertFalse($this->pdo->hasTelemetry());
+    }
+
+    public function testWrongOrStaleInstanceCannotRemoveCurrentParticipant(): void
+    {
+        $oldHash = hash('sha256', 'old-instance');
+        $currentHash = hash('sha256', 'current-instance');
+        $this->pdo->put($currentHash, true);
+
+        self::assertFalse($this->repository->leavePlayerInstance(7, 'participant-hash', $oldHash));
+        self::assertCount(1, $this->repository->activeForRoom(7));
+        self::assertSame($currentHash, $this->pdo->instanceHash());
+        self::assertTrue($this->pdo->hasTelemetry());
+    }
+
+    public function testNewInstanceSurvivesDelayedLeaveFromPreviousReload(): void
+    {
+        $oldHash = hash('sha256', 'old-instance');
+        $currentHash = hash('sha256', 'current-instance');
+        $this->pdo->put($oldHash, true);
+        $this->repository->registerPlayerInstance(7, 'participant-hash', 'Pedro', $currentHash);
+
+        self::assertFalse($this->repository->leavePlayerInstance(7, 'participant-hash', $oldHash));
+        self::assertCount(1, $this->repository->activeForRoom(7));
+        self::assertSame($currentHash, $this->pdo->instanceHash());
+    }
+
+    public function testNullBootstrapInstanceCanLeaveSafelyBeforeRegistrationCompletes(): void
+    {
+        $this->pdo->put(null, false);
+
+        self::assertTrue($this->repository->leavePlayerInstance(
+            7,
+            'participant-hash',
+            hash('sha256', 'bootstrap-instance'),
+        ));
+        self::assertSame([], $this->repository->activeForRoom(7));
+    }
 }
 
 final class ParticipantPdo extends PDO
@@ -65,6 +112,8 @@ final class ParticipantPdo extends PDO
     public string $lastQuery = '';
     public int $registrationCount = 0;
     private ?string $playerInstanceKeyHash = null;
+    private bool $active = false;
+    private bool $telemetry = false;
     /** @var list<array<string, mixed>> */
     private array $executedParams = [];
 
@@ -78,18 +127,67 @@ final class ParticipantPdo extends PDO
         return new ParticipantStatement($this, $query);
     }
 
-    public function executeStatement(string $query, array $params): void
+    public function executeStatement(string $query, array $params): int
     {
         $this->executedParams[] = $params;
         if (array_key_exists('player_instance_key_hash', $params)) {
+            if (str_starts_with($query, 'UPDATE room_participants SET')) {
+                if (!$this->active
+                    || ($this->playerInstanceKeyHash !== null
+                        && $this->playerInstanceKeyHash !== $params['player_instance_key_hash'])) {
+                    return 0;
+                }
+                $this->active = false;
+                $this->telemetry = false;
+                return 1;
+            }
             ++$this->registrationCount;
             $this->playerInstanceKeyHash = (string) $params['player_instance_key_hash'];
+            $this->active = true;
+            return 1;
         }
+        if (str_starts_with($query, 'INSERT INTO room_participants')) {
+            $this->active = true;
+            $this->telemetry = array_key_exists('player_state', $params);
+            return 1;
+        }
+
+        return 0;
+    }
+
+    public function put(?string $instanceHash, bool $telemetry): void
+    {
+        $this->playerInstanceKeyHash = $instanceHash;
+        $this->active = true;
+        $this->telemetry = $telemetry;
     }
 
     public function instanceHash(): ?string
     {
         return $this->playerInstanceKeyHash;
+    }
+
+    public function hasTelemetry(): bool
+    {
+        return $this->telemetry;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function activeRows(): array
+    {
+        if (!$this->active) {
+            return [];
+        }
+
+        return [[
+            'participant_key_hash' => 'participant-hash',
+            'player_instance_key_hash' => $this->playerInstanceKeyHash,
+            'display_name' => 'Pedro',
+            'player_state' => $this->telemetry ? 1 : null,
+            'player_position_ms' => $this->telemetry ? 1_000 : null,
+            'player_duration_ms' => $this->telemetry ? 10_000 : null,
+            'player_sample_age_ms' => $this->telemetry ? 100 : null,
+        ]];
     }
 
     /** @return list<mixed> */
@@ -105,6 +203,8 @@ final class ParticipantPdo extends PDO
 
 final class ParticipantStatement extends PDOStatement
 {
+    private int $affectedRows = 0;
+
     public function __construct(
         private readonly ParticipantPdo $pdo,
         private readonly string $query,
@@ -113,12 +213,17 @@ final class ParticipantStatement extends PDOStatement
 
     public function execute(?array $params = null): bool
     {
-        $this->pdo->executeStatement($this->query, $params ?? []);
+        $this->affectedRows = $this->pdo->executeStatement($this->query, $params ?? []);
         return true;
     }
 
     public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
     {
-        return [];
+        return $this->pdo->activeRows();
+    }
+
+    public function rowCount(): int
+    {
+        return $this->affectedRows;
     }
 }

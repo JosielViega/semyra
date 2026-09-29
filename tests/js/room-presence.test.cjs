@@ -12,9 +12,13 @@ const source = fs.readFileSync(
 
 const scheduled = [];
 const requestBodies = [];
+const leaveFetches = [];
+const beaconRequests = [];
 let fetchAttempt = 0;
 let randomCalls = 0;
+let beaconSucceeds = true;
 const listeners = new Map();
+const windowListeners = new Map();
 const element = () => ({
     textContent: '',
     classList: {toggle() {}},
@@ -26,7 +30,11 @@ const elements = new Map([
     ['room-participant-count', element()],
     ['room-presence-status', element()],
 ]);
-const presenceContainer = {dataset: {presenceUrl: '/room/ABC/presence', csrfToken: 'csrf'}};
+const presenceContainer = {dataset: {
+    presenceUrl: '/room/ABC/presence',
+    leaveUrl: '/room/ABC/leave',
+    csrfToken: 'csrf',
+}};
 const document = {
     visibilityState: 'visible',
     querySelector: (selector) => selector === '[data-room-presence]' ? presenceContainer : null,
@@ -50,8 +58,19 @@ const window = {
         return scheduled.length;
     },
     clearTimeout() {},
+    addEventListener: (type, listener) => windowListeners.set(type, listener),
 };
-const fetch = async (_endpoint, options) => {
+const navigator = {
+    sendBeacon(endpoint, body) {
+        beaconRequests.push({endpoint, body: new URLSearchParams(body)});
+        return beaconSucceeds;
+    },
+};
+const fetch = async (endpoint, options) => {
+    if (endpoint.endsWith('/leave')) {
+        leaveFetches.push({endpoint, options, body: new URLSearchParams(options.body)});
+        return {ok: true, status: 200, json: async () => ({left: true})};
+    }
     requestBodies.push(new URLSearchParams(options.body));
     ++fetchAttempt;
     if (fetchAttempt === 1) {
@@ -75,6 +94,7 @@ vm.runInNewContext(source, {
     Uint8Array,
     document,
     fetch,
+    navigator,
     window,
 });
 
@@ -100,6 +120,36 @@ const flush = async () => {
     assert.equal(requestBodies[2].has('player_instance_id'), false,
         'a valid successful response completes registration');
     assert.equal(randomCalls, 1, 'ordinary polling does not create another instance');
+
+    document.visibilityState = 'hidden';
+    listeners.get('visibilitychange')();
+    assert.equal(beaconRequests.length, 0, 'hiding or switching tabs does not send leave');
+    assert.equal(leaveFetches.length, 0);
+
+    windowListeners.get('pagehide')({persisted: false});
+    windowListeners.get('pagehide')({persisted: false});
+    assert.equal(beaconRequests.length, 1, 'pagehide sends leave exactly once');
+    assert.equal(beaconRequests[0].endpoint, '/room/ABC/leave');
+    assert.equal(beaconRequests[0].body.get('_token'), 'csrf');
+    assert.equal(beaconRequests[0].body.get('player_instance_id'), firstNonce);
+    assert.equal(leaveFetches.length, 0, 'successful sendBeacon needs no fallback');
+
+    windowListeners.get('pageshow')({persisted: true});
+    await flush();
+    assert.equal(requestBodies.at(-1).get('player_instance_id'), firstNonce,
+        'BFCache restore re-registers the same document instance');
+    assert.equal(randomCalls, 1, 'BFCache restore does not generate a new nonce');
+
+    beaconSucceeds = false;
+    windowListeners.get('pagehide')({persisted: true});
+    await flush();
+    assert.equal(beaconRequests.length, 2);
+    assert.equal(leaveFetches.length, 1, 'failed sendBeacon falls back to fetch');
+    assert.equal(leaveFetches[0].options.method, 'POST');
+    assert.equal(leaveFetches[0].options.keepalive, true);
+    assert.equal(leaveFetches[0].options.credentials, 'same-origin');
+    assert.equal(leaveFetches[0].body.get('_token'), 'csrf');
+    assert.equal(leaveFetches[0].body.get('player_instance_id'), firstNonce);
 
     assert.equal(source.includes('localStorage'), false);
     assert.equal(source.includes('sessionStorage'), false);
