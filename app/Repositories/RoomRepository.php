@@ -54,6 +54,19 @@ final class RoomRepository
         return is_array($room) ? $room : null;
     }
 
+    /** @return list<array<string, mixed>> */
+    public function createdByUser(int $userId): array
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, code, created_by_user_id, created_at, last_activity_at '
+            . 'FROM rooms WHERE created_by_user_id = :user_id '
+            . 'ORDER BY last_activity_at DESC, id DESC',
+        );
+        $statement->execute(['user_id' => $userId]);
+
+        return $statement->fetchAll();
+    }
+
     public function touchActivity(int $roomId): bool
     {
         $statement = $this->database->connection()->prepare(

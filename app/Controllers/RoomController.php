@@ -13,6 +13,7 @@ use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
+use App\Repositories\UserRoomRepository;
 use App\Services\AuthSession;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
@@ -35,6 +36,7 @@ final class RoomController
         private readonly RoomCodeGenerator $codeGenerator,
         private readonly UserRepository $users,
         private readonly AuthSession $auth,
+        private readonly UserRoomRepository $userRooms,
     ) {
     }
 
@@ -75,6 +77,10 @@ final class RoomController
         }
 
         $identity = $this->participantSession->identityFor($room['code']);
+        $userId = $this->authenticatedUserId();
+        if ($identity !== null && $userId !== null) {
+            $this->userRooms->recordParticipation($userId, (int) $room['id']);
+        }
         $participants = [];
         $transmission = null;
         if ($identity !== null) {

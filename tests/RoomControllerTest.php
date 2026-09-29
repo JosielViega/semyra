@@ -14,6 +14,7 @@ use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
+use App\Repositories\UserRoomRepository;
 use App\Services\AuthSession;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
@@ -90,6 +91,67 @@ final class RoomControllerTest extends TestCase
         self::assertSame(7, $pdo->lastCreatorUserId);
     }
 
+    public function testShowRecordsParticipationForAuthenticatedUserWithIdentity(): void
+    {
+        [$controller, $pdo, $auth, $participants] = $this->controller(users: [7 => 'Josiel']);
+        $pdo->roomRow = $this->roomRow(createdBy: 7);
+        $participants->remember('ROOM1234', 'Josiel');
+        $auth->login(7);
+
+        self::assertSame(200, $controller->show('ROOM1234')->status());
+        self::assertSame([[7, 12]], $pdo->recordedParticipations);
+    }
+
+    public function testShowDoesNotRecordWithoutIdentityOrForGuest(): void
+    {
+        [$withoutIdentity, $identityPdo, $auth] = $this->controller(users: [7 => 'Josiel']);
+        $identityPdo->roomRow = $this->roomRow();
+        $auth->login(7);
+        self::assertSame(200, $withoutIdentity->show('ROOM1234')->status());
+        self::assertSame([], $identityPdo->recordedParticipations);
+
+        $_SESSION = [];
+        [$guest, $guestPdo, , $participants] = $this->controller();
+        $guestPdo->roomRow = $this->roomRow();
+        $participants->remember('ROOM1234', 'Guest');
+        self::assertSame(200, $guest->show('ROOM1234')->status());
+        self::assertSame([], $guestPdo->recordedParticipations);
+    }
+
+    public function testShowWithStaleAuthPreservesIdentityAndDoesNotRecord(): void
+    {
+        [$controller, $pdo, $auth, $participants] = $this->controller();
+        $pdo->roomRow = $this->roomRow();
+        $identity = $participants->remember('ROOM1234', 'Guest');
+        $auth->login(999);
+
+        self::assertSame(200, $controller->show('ROOM1234')->status());
+        self::assertNull($auth->userId());
+        self::assertSame($identity, $participants->identityFor('ROOM1234'));
+        self::assertSame([], $pdo->recordedParticipations);
+    }
+
+    public function testExpiredRoomDoesNotRecordParticipation(): void
+    {
+        [$controller, $pdo, $auth, $participants] = $this->controller(users: [7 => 'Josiel']);
+        $participants->remember('ROOM1234', 'Josiel');
+        $auth->login(7);
+
+        self::assertSame(404, $controller->show('ROOM1234')->status());
+        self::assertSame([], $pdo->recordedParticipations);
+    }
+
+    private function roomRow(?int $createdBy = null): array
+    {
+        return [
+            'id' => 12,
+            'code' => 'ROOM1234',
+            'created_by_user_id' => $createdBy,
+            'created_at' => '2026-09-29 12:00:00.000',
+            'last_activity_at' => '2026-09-29 13:00:00.000',
+        ];
+    }
+
     /** @return array{RoomController, RoomControllerPdo, AuthSession, RoomParticipantSession} */
     private function controller(bool $validCsrf = true, array $users = []): array
     {
@@ -115,6 +177,7 @@ final class RoomControllerTest extends TestCase
             new RoomCodeGenerator(),
             new UserRepository($database),
             $auth,
+            new UserRoomRepository($database),
         ), $pdo, $auth, $participantSession];
     }
 }
@@ -125,6 +188,9 @@ final class RoomControllerPdo extends PDO
     public int $roomInsertAttempts = 0;
     public int $duplicateRoomInsertsRemaining = 0;
     public int $cleanupCalls = 0;
+    public ?array $roomRow = null;
+    /** @var list<array{int, int}> */
+    public array $recordedParticipations = [];
 
     /** @param array<int, string> $users */
     public function __construct(public array $users)
@@ -161,6 +227,12 @@ final class RoomControllerStatement extends PDOStatement
             }
             $this->pdo->lastCreatorUserId = $this->params['created_by_user_id'];
             $this->affectedRows = 1;
+        } elseif (str_starts_with($this->query, 'INSERT INTO user_rooms')) {
+            $this->pdo->recordedParticipations[] = [
+                (int) $this->params['user_id'],
+                (int) $this->params['room_id'],
+            ];
+            $this->affectedRows = 1;
         } elseif (str_starts_with($this->query, 'DELETE FROM rooms')) {
             ++$this->pdo->cleanupCalls;
         }
@@ -182,7 +254,15 @@ final class RoomControllerStatement extends PDOStatement
                 'updated_at' => '2026-09-29 12:00:00.000',
             ];
         }
+        if (str_contains($this->query, 'FROM rooms WHERE code')) {
+            return $this->pdo->roomRow ?? false;
+        }
         return false;
+    }
+
+    public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
+    {
+        return [];
     }
 
     public function rowCount(): int

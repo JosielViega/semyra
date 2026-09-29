@@ -51,6 +51,19 @@ final class RoomRepositoryTest extends TestCase
         self::assertSame(7, $this->repository->findByCode('SAVED123')['created_by_user_id']);
     }
 
+    public function testCreatedByUserListsOnlyOwnPersistentRoomsByRecentActivity(): void
+    {
+        $this->pdo->put('OLDER123', 7, '-30 days');
+        $this->pdo->put('NEWER123', 7, '-2 hours');
+        $this->pdo->put('OTHER123', 8, '-1 hour');
+        $this->pdo->put('GUEST123', null, '-10 minutes');
+
+        $rooms = $this->repository->createdByUser(7);
+
+        self::assertSame(['NEWER123', 'OLDER123'], array_column($rooms, 'code'));
+        self::assertSame([7, 7], array_column($rooms, 'created_by_user_id'));
+    }
+
     public function testTouchActivityUsesSixtySecondThrottle(): void
     {
         $this->pdo->put('ROOM1234', null, '-61 seconds');
@@ -189,6 +202,24 @@ final class RoomPersistencePdo extends PDO
         return $room;
     }
 
+    /** @return list<array<string, mixed>> */
+    public function createdRoomsForUser(int $userId): array
+    {
+        $rooms = array_values(array_filter(
+            $this->rooms,
+            static fn (array $room): bool => $room['created_by_user_id'] === $userId,
+        ));
+        usort($rooms, static fn (array $left, array $right): int => [
+            $right['last_activity_at'],
+            $right['id'],
+        ] <=> [
+            $left['last_activity_at'],
+            $left['id'],
+        ]);
+
+        return $rooms;
+    }
+
     private function ageSeconds(array $room): int
     {
         return (new \DateTimeImmutable($room['last_activity_at']))->diff(
@@ -221,6 +252,15 @@ final class RoomPersistenceStatement extends PDOStatement
     public function fetch(int $mode = PDO::FETCH_DEFAULT, int $cursorOrientation = PDO::FETCH_ORI_NEXT, int $cursorOffset = 0): mixed
     {
         return $this->pdo->fetchRoom((string) ($this->params['code'] ?? ''));
+    }
+
+    public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
+    {
+        if (str_contains($this->query, 'WHERE created_by_user_id = :user_id')) {
+            return $this->pdo->createdRoomsForUser((int) $this->params['user_id']);
+        }
+
+        return [];
     }
 
     public function rowCount(): int

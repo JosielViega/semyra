@@ -24,7 +24,7 @@ final class HomeViewTest extends TestCase
         self::assertStringContainsString('Criar sala', $html);
         self::assertStringContainsString('name="_token" value="csrf-token"', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/css/app.css?v=rooms-1', $html);
+        self::assertStringContainsString('/assets/css/app.css?v=my-rooms-1', $html);
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
         self::assertStringContainsString('<strong>SEMYRA</strong>', $html);
         self::assertStringContainsString('tempo real', $html);
@@ -36,6 +36,7 @@ final class HomeViewTest extends TestCase
         self::assertStringContainsString('href="/login"', $html);
         self::assertStringContainsString('href="/register"', $html);
         self::assertStringContainsString('Salas criadas sem conta expiram após 24 horas sem atividade.', $html);
+        self::assertStringNotContainsString('href="/rooms">Minhas salas</a>', $html);
         self::assertStringNotContainsString('Minhas Salas', $html);
     }
 
@@ -54,6 +55,7 @@ final class HomeViewTest extends TestCase
         self::assertStringContainsString('<form class="account-logout" method="post" action="/logout">', $html);
         self::assertStringContainsString('name="_token" value="csrf-token"', $html);
         self::assertStringContainsString('>Sair</button>', $html);
+        self::assertStringContainsString('href="/rooms">Minhas salas</a>', $html);
         self::assertStringContainsString('As salas que você criar conectado ficam salvas.', $html);
         self::assertStringNotContainsString('Minhas Salas', $html);
     }

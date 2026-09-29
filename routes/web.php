@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Controllers\HealthController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
+use App\Controllers\MyRoomsController;
 use App\Controllers\RoomController;
 use App\Controllers\RoomParticipantController;
 use App\Controllers\RoomTransmissionController;
@@ -14,6 +15,7 @@ use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
+use App\Repositories\UserRoomRepository;
 use App\Services\AuthSession;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
@@ -42,6 +44,7 @@ $auth = new AuthController(
     $authSession,
 );
 $roomRepository = new RoomRepository($app['database']);
+$userRoomRepository = new UserRoomRepository($app['database']);
 $participantRepository = new RoomParticipantRepository($app['database']);
 $transmissionRepository = new RoomTransmissionRepository($app['database']);
 $participantSession = new RoomParticipantSession($app['session']);
@@ -59,6 +62,16 @@ $rooms = new RoomController(
     $participantSession,
     $transmissionPresenter,
     new RoomCodeGenerator(),
+    $userRepository,
+    $authSession,
+    $userRoomRepository,
+);
+$myRooms = new MyRoomsController(
+    $app['view'],
+    $app['session'],
+    $app['csrf'],
+    $roomRepository,
+    $userRoomRepository,
     $userRepository,
     $authSession,
 );
@@ -97,6 +110,7 @@ $router->post('/register', [$auth, 'register']);
 $router->get('/login', [$auth, 'showLogin']);
 $router->post('/login', [$auth, 'login']);
 $router->post('/logout', [$auth, 'logout']);
+$router->get('/rooms', [$myRooms, 'index']);
 $router->post('/rooms', [$rooms, 'store']);
 $router->get('/room/{code}', [$rooms, 'show']);
 $router->post('/room/{code}/join', [$roomParticipants, 'join']);

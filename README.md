@@ -26,6 +26,7 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - diagnóstico do desvio entre a posição local e o playback oficial, sem correção automática;
 - contas locais opcionais com cadastro, login e logout por e-mail e senha; convidados continuam com acesso integral às salas;
 - salas de convidados temporárias por 24 horas sem atividade e salas criadas por usuários autenticados persistentes;
+- área autenticada “Minhas salas”, com seções para salas criadas e outras salas em que a conta participou;
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
@@ -148,6 +149,7 @@ Para compreender a base técnica e revisar seus fluxos, consulte o [plano de est
 - `GET /register` e `POST /register` — formulário e criação de conta local com auto-login;
 - `GET /login` e `POST /login` — formulário e autenticação por e-mail e senha;
 - `POST /logout` — encerra somente a autenticação, preservando as identidades anônimas das salas;
+- `GET /rooms` — lista “Criadas por mim” e “Participei” para o usuário autenticado;
 - `POST /rooms` — gera o código e persiste uma nova sala vazia;
 - `GET /room/{code}` — exibe uma sala existente e carrega seu conteúdo no YouTube Player;
 - `POST /room/{code}/join` — valida o apelido e registra a identidade anônima da sessão na sala;
@@ -172,7 +174,9 @@ Controllers recebem a requisição, coordenam o caso HTTP e escolhem uma `Respon
 
 `AuthController` coordena cadastro, login e logout; `UserRepository` persiste contas e trata a constraint `UNIQUE` de e-mail como autoridade contra duplicidade concorrente. Senhas usam `password_hash()` com `PASSWORD_DEFAULT` e são verificadas por `password_verify()`. `AuthSession` mantém somente `auth_user_id`, separado de `RoomParticipantSession`, e regenera o ID da sessão no login e logout sem destruir apelidos ou chaves anônimas já existentes.
 
-Contas continuam opcionais. Salas criadas por convidados têm `created_by_user_id = NULL` e expiram logicamente após 24 horas sem join ou presence válidos; salas criadas por usuários autenticados guardam o ID do criador e não expiram por inatividade. Fazer login depois não reivindica uma sala temporária, e logout não altera uma sala persistente já criada. Ainda não existem vínculo entre `users` e `room_participants`, histórico ou “Minhas Salas”.
+Contas continuam opcionais. Salas criadas por convidados têm `created_by_user_id = NULL` e expiram logicamente após 24 horas sem join ou presence válidos; salas criadas por usuários autenticados guardam o ID do criador e não expiram por inatividade. Fazer login depois não reivindica uma sala temporária, e logout não altera uma sala persistente já criada.
+
+“Minhas salas” lista imediatamente as salas persistentes criadas pela conta e mantém, em `user_rooms`, o histórico de outras salas em que ela participou desde esta etapa. O vínculo só é registrado quando a conta autenticada abre uma sala para a qual a sessão já possui identidade de participante; não existe associação retroativa por nome, hash ou heurística. `room_participants` continua anônimo, e participação não concede ownership ou privilégios de playback. Temporárias expiradas são excluídas logicamente da listagem.
 
 A sala não possui dono. A transmissão ativa possui um proprietário temporário: quem iniciou a mídia vigente. Qualquer participante pode substituí-la e assumir automaticamente essa propriedade. Somente esse owner inicializa e envia Play/Pause/Seek/AO VIVO ao estado oficial; viewers aplicam as revisões confirmadas pelo servidor. Volume, mute, fullscreen e Wake Lock permanecem locais. Não existem host permanente, eleição ou correção contínua de drift.
 
@@ -203,6 +207,8 @@ A tabela `room_transmissions` relaciona uma sala a zero ou uma transmissão ativ
 A tabela `room_participants` associa uma identidade anônima a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão; o banco recebe somente o hash SHA-256 dessa chave, o apelido e os horários necessários para calcular presença. Cada documento novo também cria em memória um nonce de 128 bits para a instância física do player e persiste somente seu hash. Participantes são considerados ativos por 45 segundos após `last_seen_at`. A mesma linha mantém somente o último snapshot do player (`player_state`, posição e duração em milissegundos e o horário de recebimento no banco); não existe histórico de telemetria.
 
 A tabela `users` contém nome de exibição, e-mail normalizado e único, hash de senha e timestamps. `rooms.created_by_user_id` registra apenas quem criou uma sala persistente; isso não vincula a conta à identidade do participante nem concede controle sobre a transmissão.
+
+A tabela `user_rooms` associa uma conta a uma sala em que ela efetivamente participou, preservando `first_joined_at` e atualizando `last_joined_at` por UPSERT. As FKs removem o histórico quando usuário ou sala deixam de existir. A tabela não armazena owner, role ou permissões.
 
 No payload público, `public_id` identifica de forma opaca o participante e permanece estável em um reload. `playback_instance_id` identifica de forma opaca a geração atual do documento/player e muda no reload; ele não autentica nem autoriza. Assim, uma nova instância pronta passa pelo warmup e por uma nova barreira, enquanto os polls comuns do mesmo documento não repetem a sincronização.
 
