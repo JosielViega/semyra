@@ -69,6 +69,15 @@ final class UserRoomRepositoryTest extends TestCase
         self::assertCount(1, $this->repository->participatedByUser(8));
     }
 
+    public function testHasParticipationUsesExactUserAndRoomPair(): void
+    {
+        $this->repository->recordParticipation(7, 11);
+
+        self::assertTrue($this->repository->hasParticipation(7, 11));
+        self::assertFalse($this->repository->hasParticipation(7, 12));
+        self::assertFalse($this->repository->hasParticipation(8, 11));
+    }
+
     public function testMigrationDefinesCompositeKeyRecentIndexAndCascadeForeignKeysWithoutOwnership(): void
     {
         $migration = file_get_contents(
@@ -191,5 +200,11 @@ final class UserRoomStatement extends PDOStatement
     public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
     {
         return $this->pdo->participated((int) $this->params['user_id']);
+    }
+
+    public function fetchColumn(int $column = 0): mixed
+    {
+        $key = (int) $this->params['user_id'] . ':' . (int) $this->params['room_id'];
+        return isset($this->pdo->userRooms[$key]) ? 1 : false;
     }
 }

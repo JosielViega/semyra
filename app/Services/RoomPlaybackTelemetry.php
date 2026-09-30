@@ -72,13 +72,20 @@ final class RoomPlaybackTelemetry
      * @param list<array<string, mixed>> $participants
      * @return list<array{public_id: string, playback_instance_id: string, name: string, is_you: bool, playback: null|array{state: int, position_ms: int, duration_ms: int, age_ms: int, fresh: bool, drift_ms: null|int}}>
      */
-    public function presentParticipants(array $participants, string $currentParticipantKeyHash): array
+    public function presentParticipants(
+        array $participants,
+        string $currentParticipantKeyHash,
+        ?int $currentUserId = null,
+    ): array
     {
-        $presented = array_map(function (array $participant) use ($currentParticipantKeyHash): array {
+        $presented = array_map(function (array $participant) use ($currentParticipantKeyHash, $currentUserId): array {
             $participantKeyHash = (string) $participant['participant_key_hash'];
+            $participantUserId = isset($participant['user_id']) ? (int) $participant['user_id'] : null;
             $publicId = substr(hash(
                 'sha256',
-                "semyra-public-participant\0" . $participantKeyHash,
+                $participantUserId !== null
+                    ? "semyra-public-user\0" . $participantUserId
+                    : "semyra-public-participant\0" . $participantKeyHash,
             ), 0, 32);
             $playerInstanceKeyHash = $participant['player_instance_key_hash'] ?? null;
             $playbackInstanceId = is_string($playerInstanceKeyHash) && $playerInstanceKeyHash !== ''
@@ -95,10 +102,9 @@ final class RoomPlaybackTelemetry
                 'public_id' => $publicId,
                 'playback_instance_id' => $playbackInstanceId,
                 'name' => (string) $participant['display_name'],
-                'is_you' => hash_equals(
-                    $currentParticipantKeyHash,
-                    $participantKeyHash,
-                ),
+                'is_you' => $participantUserId !== null
+                    ? $currentUserId !== null && $participantUserId === $currentUserId
+                    : hash_equals($currentParticipantKeyHash, $participantKeyHash),
                 'playback' => $this->playbackFromRow($participant),
             ];
         }, $participants);

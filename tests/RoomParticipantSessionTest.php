@@ -49,4 +49,35 @@ final class RoomParticipantSessionTest extends TestCase
 
         self::assertNull($this->participants->identityFor('ABCDEFGH'));
     }
+
+    public function testGuestIdentityCanBeBoundToAccountWithoutChangingKey(): void
+    {
+        $guest = $this->participants->rememberGuest('ABCDEFGH', 'J');
+        $account = $this->participants->rememberAccount('ABCDEFGH', 7, 'Josiel');
+
+        self::assertSame($guest['participant_key'], $account['participant_key']);
+        self::assertSame(7, $account['user_id']);
+        self::assertSame('Josiel', $account['display_name']);
+    }
+
+    public function testSameAccountKeepsKeyAndRefreshesDisplayName(): void
+    {
+        $first = $this->participants->rememberAccount('ABCDEFGH', 7, 'Josiel');
+        $updated = $this->participants->rememberAccount('ABCDEFGH', 7, 'Josiel Vieira');
+
+        self::assertSame($first['participant_key'], $updated['participant_key']);
+        self::assertSame('Josiel Vieira', $updated['display_name']);
+    }
+
+    public function testDifferentAccountAndGuestDoNotReuseAccountBoundKey(): void
+    {
+        $accountA = $this->participants->rememberAccount('ABCDEFGH', 7, 'Conta A');
+        $accountB = $this->participants->rememberAccount('ABCDEFGH', 8, 'Conta B');
+        $guest = $this->participants->rememberGuest('ABCDEFGH', 'Guest');
+
+        self::assertNotSame($accountA['participant_key'], $accountB['participant_key']);
+        self::assertNotSame($accountB['participant_key'], $guest['participant_key']);
+        self::assertSame(8, $accountB['user_id']);
+        self::assertNull($guest['user_id']);
+    }
 }

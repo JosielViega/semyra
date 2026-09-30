@@ -81,4 +81,26 @@ final class RoomTransmissionPresenterTest extends TestCase
         self::assertNull($presented['playback']['live_sync_delay_ms']);
         self::assertFalse($presented['is_owner']);
     }
+
+    public function testAccountOwnershipUsesOnlyUserIdAndNeverFallsBackToHash(): void
+    {
+        $transmission = [
+            'owner_user_id' => 42,
+            'owner_participant_key_hash' => 'old-key',
+            'source_type' => 'youtube',
+            'youtube_video_id' => 'M7lc1UVf-VE',
+            'revision' => 1,
+            'media_mode' => 'vod',
+            'playback_state' => 'paused',
+            'playback_position_ms' => 0,
+            'playback_at_live_edge' => 0,
+            'playback_revision' => 1,
+            'playback_age_ms' => 0,
+            'projected_live_edge_position_ms' => null,
+        ];
+
+        self::assertTrue((new RoomTransmissionPresenter())->present($transmission, 'new-key', 42)['is_owner']);
+        self::assertFalse((new RoomTransmissionPresenter())->present($transmission, 'old-key', null)['is_owner']);
+        self::assertFalse((new RoomTransmissionPresenter())->present($transmission, 'old-key', 99)['is_owner']);
+    }
 }

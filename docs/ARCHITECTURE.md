@@ -78,7 +78,7 @@ AuthController
 
 O e-mail é aparado e normalizado para lowercase antes de consultas e inserções, enquanto a constraint `UNIQUE` case-insensitive do MySQL resolve corridas entre cadastros. A senha nunca é persistida em texto: o cadastro usa `password_hash(PASSWORD_DEFAULT)` e o login usa `password_verify()` com mensagem genérica para qualquer credencial inválida.
 
-`AuthSession` é deliberadamente separada de `RoomParticipantSession`. Login e logout regeneram o ID da sessão, mas alteram somente `auth_user_id`; chaves e apelidos anônimos por sala continuam intactos. Uma conta é opcional e não possui relação com `room_participants`. Ao criar uma sala, um usuário autenticado válido é registrado em `rooms.created_by_user_id`; convidados criam salas temporárias.
+`AuthSession` é deliberadamente separada de `RoomParticipantSession`. Login e logout regeneram o ID da sessão, mas alteram somente `auth_user_id`; identidades físicas por sala continuam intactas. `RoomParticipantSession` guarda `participant_key`, nome e `user_id` opcional. Uma identidade guest pode ser vinculada à conta preservando a chave; a mesma conta reutiliza sua chave, enquanto uma troca de conta sempre gera outra. Ao criar uma sala, um usuário autenticado válido é registrado em `rooms.created_by_user_id`; isso define persistência, não controle do player.
 
 `GET /rooms` usa `MyRoomsController` para exigir uma conta válida e carregar duas consultas sem N+1: `RoomRepository::createdByUser()` lista salas persistentes criadas pela conta, enquanto `UserRoomRepository::participatedByUser()` lista outras salas em que ela participou. `user_rooms` começa a ser preenchida nesta etapa, sem tentar associar registros anônimos antigos.
 
@@ -102,7 +102,7 @@ O gerador cria códigos públicos aleatórios e o repository tenta inserir cada 
 
 `RoomRepository::findByCode()` aplica a expiração lógica para todos os controllers. `touchActivity()` usa throttle atômico de 60 segundos no SQL, evitando uma escrita por poll. A limpeza física é oportunística na criação, na consulta direta de um código expirado e uma vez ao abrir “Minhas salas”; os relacionamentos existentes removem participantes, transmissão e histórico por cascade. Login posterior não reivindica sala temporária e logout não altera a persistência já definida.
 
-Depois que uma identidade de participante existe, `RoomController::show()` registra a combinação usuário/sala por UPSERT, preservando a primeira entrada e atualizando a última visita. Isso não toca `rooms.last_activity_at`: somente join e presence válidos renovam o TTL. Salas próprias podem ter registro técnico em `user_rooms`, mas a consulta de “Participei” as exclui, assim como temporárias logicamente expiradas.
+`RoomController::show()` restaura automaticamente a identidade autenticada quando a sala foi criada pela conta, consta em `user_rooms` ou já possui identidade guest/da mesma conta na sessão. O nome vem sempre de `users.display_name`; salas novas para a conta mostram apenas uma confirmação sem campo editável. A restauração registra a combinação usuário/sala por UPSERT, mas não toca `rooms.last_activity_at`: somente join e presence válidos renovam o TTL.
 
 ```text
 Room
@@ -166,7 +166,7 @@ Clipboard API / Web Share API
 
 `room-share.js` recebe somente o código público escapado para compor o título de compartilhamento. A URL é derivada de `window.location` como `/room/{code}`, sem query string ou fragment, e não é armazenada nem enviada a um endpoint próprio. A Clipboard API é opcional, com seleção manual do campo como fallback; a Web Share API é uma melhoria progressiva.
 
-Antes de entrar, a sala renderiza somente o formulário de apelido. O fluxo anônimo é separado por sala na sessão do navegador:
+Antes de entrar, guests recebem o formulário de apelido; contas recebem apenas a confirmação do nome fixo. O fluxo de identidade física continua separado por sala na sessão do navegador:
 
 ```text
 POST /room/{code}/join
@@ -180,7 +180,7 @@ RoomParticipantRepository
 room_participants
 ```
 
-A chave real nunca é enviada ao frontend nem persistida no banco. O repository grava apenas o hash, o apelido e `last_seen_at`; a constraint composta impede duplicação da mesma identidade na sala.
+A chave real nunca é enviada ao frontend nem persistida no banco. O repository grava apenas o hash, o nome, `user_id` opcional e `last_seen_at`; a constraint composta impede duplicação da mesma identidade física. Contas podem ter várias chaves/dispositivos, portanto `(room_id, user_id)` não é único. A listagem ativa deduplica contas no SQL pela linha mais recente e mantém guests distintos, sem N+1.
 
 Depois da entrada, a presença segue um polling simples e sem requisições sobrepostas:
 
@@ -196,7 +196,7 @@ JSON { participants, transmission }
 
 Na saída real da página, `room-presence.js` envia um leave best-effort no evento `pagehide`, preferindo `sendBeacon` e usando `fetch keepalive` como fallback. O `UPDATE` exige sala, participante e hash da instância atual; assim um leave atrasado da instância anterior não inativa a página nova após reload. O leave apenas antecipa `last_seen_at` e limpa a telemetria correspondente, sem apagar a identidade da sessão, encerrar transmissão ou alterar ownership. A janela de 45 segundos permanece como fallback obrigatório. Troca de aba não envia leave, e uma restauração via BFCache registra novamente a mesma instância do documento.
 
-A resposta pública não contém IDs internos, hashes, tokens de sessão ou timestamps. Cada participante recebe um `public_id` opaco de 128 bits, estável para sua identidade de sessão, e um `playback_instance_id` opaco de 128 bits para a geração atual do documento/player. No primeiro presence, cada documento envia uma única vez um nonce aleatório de 128 bits mantido apenas em memória; o backend valida o formato, persiste somente SHA-256 e deriva o identificador público com separação de domínio. Clientes antigos sem a nova coluna usam `public_id` como fallback. Nenhum desses IDs autentica ou autoriza. `transmission` contém fonte, video ID, revisão, nome do owner, `is_owner`, `media_mode` e playback oficial. Para Live, `live_edge_position_ms` é a borda física projetada, enquanto `live_sync_position_ms` é o target sincronizado derivado e `live_sync_delay_ms` explicita a política atual. O estado `playing` e a âncora da borda são projetados pelo relógio do MySQL. A mesma resposta atualiza o frontend sem polling adicional:
+A resposta pública não contém IDs internos, hashes, tokens de sessão ou timestamps. Contas recebem `public_id` opaco estável derivado com namespace interno do `user_id`; guests continuam derivados do hash da chave. `playback_instance_id` identifica a geração física atual do documento/player. Nenhum desses IDs autentica ou autoriza. `is_you` compara `user_id` para contas e hash somente para guests. `transmission` contém fonte, video ID, revisão, nome do owner, `is_owner`, `media_mode` e playback oficial.
 
 ```text
 room-presence.js
@@ -208,7 +208,7 @@ room-player.js
 live_edge_position_ms
 ```
 
-O owner envia comandos por `POST /room/{code}/transmission/playback`. O update usa compare-and-swap por `room_id`, hash do owner, revisão da transmissão e revisão do playback; sucesso incrementa somente `playback_revision`. A resposta imediata atualiza o owner, enquanto viewers recebem a mesma revisão pelo polling. Falhas de rede preservam o último estado confirmado. Não há `sendBeacon`, WebSocket ou SSE.
+O owner envia comandos por `POST /room/{code}/transmission/playback`. Cada mutação usa compare-and-swap por `room_id`, revisões e uma condição exclusiva: `owner_user_id = current_user_id` para contas, ou, somente quando `owner_user_id IS NULL`, o hash da identidade guest. Logout remove imediatamente a autorização da transmissão account-owned; novo login na mesma conta a restaura mesmo com outra chave. Live edge segue a mesma regra. Transmissões legacy podem receber `owner_user_id` apenas por um `UPDATE` condicionado ao hash owner exato ainda presente na sessão; criador da sala, histórico, nome e timestamps nunca autorizam claim.
 
 ```text
 room-playback.js

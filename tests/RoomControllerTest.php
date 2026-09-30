@@ -141,6 +141,44 @@ final class RoomControllerTest extends TestCase
         self::assertSame([], $pdo->recordedParticipations);
     }
 
+    public function testCreatorAndKnownParticipantRestoreAccountIdentityAutomatically(): void
+    {
+        [$creatorController, $creatorPdo, $creatorAuth, $creatorSession] = $this->controller(users: [7 => 'Josiel']);
+        $creatorPdo->roomRow = $this->roomRow(createdBy: 7);
+        $creatorAuth->login(7);
+
+        $creatorHtml = $creatorController->show('ROOM1234')->body();
+        self::assertSame(7, $creatorSession->identityFor('ROOM1234')['user_id']);
+        self::assertStringNotContainsString('name="display_name"', $creatorHtml);
+
+        $_SESSION = [];
+        [$knownController, $knownPdo, $knownAuth, $knownSession] = $this->controller(users: [7 => 'Josiel']);
+        $knownPdo->roomRow = $this->roomRow(createdBy: 8);
+        $knownPdo->existingParticipations[] = [7, 12];
+        $knownAuth->login(7);
+
+        $knownHtml = $knownController->show('ROOM1234')->body();
+        self::assertSame(7, $knownSession->identityFor('ROOM1234')['user_id']);
+        self::assertStringNotContainsString('name="display_name"', $knownHtml);
+    }
+
+    public function testNewAccountRoomUsesFixedNameAndAccountSwitchDoesNotReuseIdentity(): void
+    {
+        [$controller, $pdo, $auth, $participants] = $this->controller(users: [7 => 'Conta A', 8 => 'Conta B']);
+        $pdo->roomRow = $this->roomRow(createdBy: 99);
+        $identityA = $participants->rememberAccount('ROOM1234', 7, 'Conta A');
+        $auth->login(8);
+
+        $html = $controller->show('ROOM1234')->body();
+
+        self::assertStringContainsString('Você entrará como <strong>Conta B</strong>', $html);
+        self::assertStringNotContainsString('name="display_name"', $html);
+        self::assertSame($identityA['participant_key'], $participants->identityFor('ROOM1234')['participant_key']);
+
+        $identityB = $participants->rememberAccount('ROOM1234', 8, 'Conta B');
+        self::assertNotSame($identityA['participant_key'], $identityB['participant_key']);
+    }
+
     private function roomRow(?int $createdBy = null): array
     {
         return [
@@ -191,6 +229,8 @@ final class RoomControllerPdo extends PDO
     public ?array $roomRow = null;
     /** @var list<array{int, int}> */
     public array $recordedParticipations = [];
+    /** @var list<array{int, int}> */
+    public array $existingParticipations = [];
 
     /** @param array<int, string> $users */
     public function __construct(public array $users)
@@ -263,6 +303,14 @@ final class RoomControllerStatement extends PDOStatement
     public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
     {
         return [];
+    }
+
+    public function fetchColumn(int $column = 0): mixed
+    {
+        return in_array([
+            (int) ($this->params['user_id'] ?? 0),
+            (int) ($this->params['room_id'] ?? 0),
+        ], $this->pdo->existingParticipations, true) ? 1 : false;
     }
 
     public function rowCount(): int

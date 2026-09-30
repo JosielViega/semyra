@@ -56,7 +56,21 @@ final class RoomParticipantRepositoryTest extends TestCase
     {
         $this->repository->activeForRoom(7);
 
-        self::assertStringContainsString('SELECT participant_key_hash, player_instance_key_hash', $this->pdo->lastQuery);
+        self::assertStringContainsString(
+            'SELECT participant.user_id, participant.participant_key_hash, participant.player_instance_key_hash',
+            $this->pdo->lastQuery,
+        );
+        self::assertStringContainsString('participant.user_id IS NULL OR NOT EXISTS', $this->pdo->lastQuery);
+    }
+
+    public function testAuthenticatedTouchesPersistUserAndGuestTouchesPersistNull(): void
+    {
+        $this->repository->touch(7, 'account-hash', 'Josiel', null, 42);
+        self::assertSame(42, $this->pdo->lastParams()['user_id']);
+        self::assertStringContainsString('user_id = IF(user_id IS NULL', $this->pdo->lastQuery);
+
+        $this->repository->touch(7, 'guest-hash', 'Guest');
+        self::assertNull($this->pdo->lastParams()['user_id']);
     }
 
     public function testCurrentInstanceLeaveMakesParticipantInactiveAndClearsTelemetry(): void
@@ -104,6 +118,22 @@ final class RoomParticipantRepositoryTest extends TestCase
             hash('sha256', 'bootstrap-instance'),
         ));
         self::assertSame([], $this->repository->activeForRoom(7));
+    }
+
+    public function testAuthenticatedIdentityMigrationIsAdditiveAndNonUnique(): void
+    {
+        $migration = file_get_contents(
+            dirname(__DIR__) . '/database/migrations/2026_09_30_000010_add_authenticated_room_identity.sql',
+        );
+
+        self::assertStringContainsString('ADD COLUMN user_id BIGINT UNSIGNED NULL', $migration);
+        self::assertStringContainsString('(room_id, user_id)', $migration);
+        self::assertStringContainsString('REFERENCES users (id) ON DELETE SET NULL', $migration);
+        self::assertStringContainsString('ADD COLUMN owner_user_id BIGINT UNSIGNED NULL', $migration);
+        self::assertStringContainsString('owner_participant_key_hash', file_get_contents(
+            dirname(__DIR__) . '/database/migrations/2026_09_25_000004_extract_room_transmission.sql',
+        ));
+        self::assertStringNotContainsString('UNIQUE', $migration);
     }
 }
 
@@ -180,6 +210,7 @@ final class ParticipantPdo extends PDO
         }
 
         return [[
+            'user_id' => null,
             'participant_key_hash' => 'participant-hash',
             'player_instance_key_hash' => $this->playerInstanceKeyHash,
             'display_name' => 'Pedro',
@@ -198,6 +229,12 @@ final class ParticipantPdo extends PDO
             array_push($values, ...array_values($params));
         }
         return $values;
+    }
+
+    /** @return array<string, mixed> */
+    public function lastParams(): array
+    {
+        return $this->executedParams[array_key_last($this->executedParams)] ?? [];
     }
 }
 

@@ -3,13 +3,15 @@
 declare(strict_types=1);
 
 /** @var array $room */
-/** @var null|array{participant_key: string, display_name: string} $identity */
+/** @var null|array{participant_key: string, display_name: string, user_id: null|int} $identity */
+/** @var null|array{id: int, display_name: string} $currentUser */
 /** @var list<array{name: string, is_you: bool}> $participants */
 /** @var null|array{source: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool, media_mode: string, playback: array{state: string, position_ms: null|int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int, live_sync_position_ms: null|int, live_sync_delay_ms: null|int}} $transmission */
 /** @var bool $debug */
 /** @var array $flashes */
 /** @var string $csrfField */
 /** @var string $csrfToken */
+$currentUser = $currentUser ?? null;
 $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing';
 ?>
 <svg class="room-icon-sprite" aria-hidden="true" focusable="false">
@@ -42,12 +44,18 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
             <?php endforeach; ?>
 
             <h1 id="room-join-title">Entre na sala</h1>
-            <p>Escolha como as outras pessoas verão você nesta sessão.</p>
+            <?php if (is_array($currentUser)): ?>
+                <p>Você entrará como <strong><?= e($currentUser['display_name']) ?></strong>.</p>
+            <?php else: ?>
+                <p>Escolha como as outras pessoas verão você nesta sessão.</p>
+            <?php endif; ?>
             <form action="/room/<?= e($room['code']) ?>/join" method="post">
                 <?= $csrfField ?>
-                <label for="display-name">Seu apelido</label>
-                <input id="display-name" name="display_name" type="text" maxlength="30" autocomplete="nickname" required>
-                <button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-enter"></use></svg><span>Entrar na sala</span></button>
+                <?php if (!is_array($currentUser)): ?>
+                    <label for="display-name">Seu apelido</label>
+                    <input id="display-name" name="display_name" type="text" maxlength="30" autocomplete="nickname" required>
+                <?php endif; ?>
+                <button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-enter"></use></svg><span><?= is_array($currentUser) ? 'Entrar como ' . e($currentUser['display_name']) : 'Entrar na sala' ?></span></button>
             </form>
         </section>
     </main>

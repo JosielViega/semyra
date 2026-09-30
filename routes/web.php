@@ -88,6 +88,9 @@ $roomParticipants = new RoomParticipantController(
     $playbackTelemetry,
     $transmissionPresenter,
     $transmissionPlayback,
+    $userRepository,
+    $userRoomRepository,
+    $authSession,
 );
 $roomTransmissions = new RoomTransmissionController(
     $app['request'],
@@ -100,6 +103,8 @@ $roomTransmissions = new RoomTransmissionController(
     new YouTubeUrlParser(),
     $transmissionPlayback,
     $transmissionPresenter,
+    $userRepository,
+    $authSession,
 );
 $health = new HealthController();
 $router = $app['router'];

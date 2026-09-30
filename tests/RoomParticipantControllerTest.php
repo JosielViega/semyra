@@ -13,6 +13,9 @@ use App\Core\View;
 use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
+use App\Repositories\UserRepository;
+use App\Repositories\UserRoomRepository;
+use App\Services\AuthSession;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomTransmissionPlayback;
@@ -37,6 +40,41 @@ final class RoomParticipantControllerTest extends TestCase
 
         self::assertSame(303, $response->status());
         self::assertSame(1, $pdo->roomActivityTouches);
+        self::assertSame('Pedro', $pdo->lastParticipantName);
+        self::assertNull($pdo->lastParticipantUserId);
+    }
+
+    public function testAuthenticatedJoinIgnoresForgedNicknameAndUsesAccountIdentity(): void
+    {
+        [$controller, $pdo, $participants] = $this->controller(
+            null,
+            joined: false,
+            extraBody: ['display_name' => 'Forged'],
+            authUserId: 7,
+            users: [7 => 'Josiel'],
+        );
+
+        self::assertSame(303, $controller->join('ROOM1234')->status());
+        self::assertSame('Josiel', $pdo->lastParticipantName);
+        self::assertSame(7, $pdo->lastParticipantUserId);
+        self::assertSame(7, $participants->identityFor('ROOM1234')['user_id']);
+    }
+
+    public function testGuestIdentityIsBoundToLoggedAccountDuringPresence(): void
+    {
+        [$controller, $pdo, $participants] = $this->controller(
+            null,
+            authUserId: 7,
+            users: [7 => 'Josiel'],
+        );
+        $before = $participants->identityFor('ROOM1234');
+
+        self::assertSame(200, $controller->presence('ROOM1234')->status());
+        $after = $participants->identityFor('ROOM1234');
+        self::assertSame($before['participant_key'], $after['participant_key']);
+        self::assertSame('Josiel', $after['display_name']);
+        self::assertSame(7, $after['user_id']);
+        self::assertSame(7, $pdo->lastParticipantUserId);
     }
 
     public function testInvalidJoinAndInvalidCsrfDoNotTouchRoomActivity(): void
@@ -186,8 +224,10 @@ final class RoomParticipantControllerTest extends TestCase
         bool $joined = true,
         ?string $currentInstanceHash = null,
         array $extraBody = [],
+        ?int $authUserId = null,
+        array $users = [],
     ): array {
-        $pdo = new PresencePdo();
+        $pdo = new PresencePdo($users);
         $pdo->roomExists = $roomExists;
         $pdo->currentInstanceHash = $currentInstanceHash;
         $database = new Database([]);
@@ -196,6 +236,10 @@ final class RoomParticipantControllerTest extends TestCase
         $csrf = new Csrf($session);
         $csrfToken = $csrf->token();
         $participantSession = new RoomParticipantSession($session);
+        $auth = new AuthSession($session);
+        if ($authUserId !== null) {
+            $auth->login($authUserId);
+        }
         if ($joined) {
             $participantSession->remember('ROOM1234', 'Pedro');
         }
@@ -217,7 +261,10 @@ final class RoomParticipantControllerTest extends TestCase
             new RoomPlaybackTelemetry(),
             new RoomTransmissionPresenter($playback),
             $playback,
-        ), $pdo, $participantSession];
+            new UserRepository($database),
+            new UserRoomRepository($database),
+            $auth,
+        ), $pdo, $participantSession, $auth];
     }
 }
 
@@ -228,8 +275,11 @@ final class PresencePdo extends PDO
     public ?string $lastLeaveInstanceHash = null;
     public bool $roomExists = true;
     public int $roomActivityTouches = 0;
+    public ?string $lastParticipantName = null;
+    public ?int $lastParticipantUserId = null;
 
-    public function __construct()
+    /** @param array<int, string> $users */
+    public function __construct(public array $users = [])
     {
     }
 
@@ -272,6 +322,13 @@ final class PresenceStatement extends PDOStatement
                 $this->affectedRows = 1;
             }
         }
+        if (str_starts_with($this->query, 'INSERT INTO room_participants')) {
+            $this->pdo->lastParticipantName = (string) $this->params['display_name'];
+            $this->pdo->lastParticipantUserId = isset($this->params['user_id'])
+                ? (int) $this->params['user_id']
+                : null;
+            $this->affectedRows = 1;
+        }
         return true;
     }
 
@@ -281,6 +338,19 @@ final class PresenceStatement extends PDOStatement
             return $this->pdo->roomExists
                 ? ['id' => 7, 'code' => 'ROOM1234', 'created_at' => '2026-09-29 12:00:00']
                 : false;
+        }
+        if (str_contains($this->query, 'FROM users')) {
+            $id = (int) ($this->params['id'] ?? 0);
+            if (!isset($this->pdo->users[$id])) {
+                return false;
+            }
+            return [
+                'id' => $id,
+                'display_name' => $this->pdo->users[$id],
+                'email' => 'user' . $id . '@example.test',
+                'created_at' => '2026-09-30 10:00:00.000',
+                'updated_at' => '2026-09-30 10:00:00.000',
+            ];
         }
         return false;
     }

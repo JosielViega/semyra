@@ -35,6 +35,17 @@ final class RoomViewTest extends TestCase
         self::assertStringNotContainsString('class="container"', $html);
     }
 
+    public function testAuthenticatedJoinUsesFixedEscapedAccountNameWithoutInput(): void
+    {
+        $html = $this->renderRoom([
+            'currentUser' => ['id' => 7, 'display_name' => '<Josiel>'],
+        ]);
+
+        self::assertStringContainsString('Você entrará como <strong>&lt;Josiel&gt;</strong>', $html);
+        self::assertStringContainsString('Entrar como &lt;Josiel&gt;', $html);
+        self::assertStringNotContainsString('name="display_name"', $html);
+    }
+
     public function testJoinedParticipantWithoutTransmissionSeesEmptyStateAndStartAction(): void
     {
         $html = $this->renderRoom(['identity' => $this->identity()]);
@@ -192,6 +203,7 @@ final class RoomViewTest extends TestCase
             'title' => 'Sala 7MKP3WQH — Semyra',
             'room' => ['code' => '7MKP3WQH'],
             'identity' => null,
+            'currentUser' => null,
             'participants' => [],
             'transmission' => null,
             'debug' => false,
@@ -206,6 +218,7 @@ final class RoomViewTest extends TestCase
         return [
             'participant_key' => str_repeat('a', 64),
             'display_name' => 'Josiel',
+            'user_id' => null,
         ];
     }
 

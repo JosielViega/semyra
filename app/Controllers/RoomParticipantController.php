@@ -12,6 +12,9 @@ use App\Core\View;
 use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
+use App\Repositories\UserRepository;
+use App\Repositories\UserRoomRepository;
+use App\Services\AuthSession;
 use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPresenter;
@@ -33,6 +36,9 @@ final class RoomParticipantController
         private readonly RoomPlaybackTelemetry $playbackTelemetry,
         private readonly RoomTransmissionPresenter $transmissionPresenter,
         private readonly RoomTransmissionPlayback $transmissionPlayback,
+        private readonly UserRepository $users,
+        private readonly UserRoomRepository $userRooms,
+        private readonly AuthSession $auth,
     ) {
     }
 
@@ -47,22 +53,42 @@ final class RoomParticipantController
             return $this->roomNotFoundResponse($code);
         }
 
-        $submittedName = $this->request->input('display_name');
-        $displayName = is_string($submittedName) ? trim($submittedName) : $submittedName;
-        if (!$this->validator->validate(
-            ['display_name' => $displayName],
-            ['display_name' => 'required|string|max:30'],
-        )) {
-            $this->session->flash('error', 'Informe um apelido com até 30 caracteres.');
-            return Response::redirect('/room/' . $room['code'], 303);
+        $currentUser = $this->authenticatedUser();
+        if ($currentUser !== null) {
+            $identity = $this->participantSession->rememberAccount(
+                $room['code'],
+                $currentUser['id'],
+                $currentUser['display_name'],
+            );
+        } else {
+            $submittedName = $this->request->input('display_name');
+            $displayName = is_string($submittedName) ? trim($submittedName) : $submittedName;
+            if (!$this->validator->validate(
+                ['display_name' => $displayName],
+                ['display_name' => 'required|string|max:30'],
+            )) {
+                $this->session->flash('error', 'Informe um apelido com até 30 caracteres.');
+                return Response::redirect('/room/' . $room['code'], 303);
+            }
+            $identity = $this->participantSession->rememberGuest($room['code'], $displayName);
         }
 
-        $identity = $this->participantSession->remember($room['code'], $displayName);
+        $participantKeyHash = hash('sha256', $identity['participant_key']);
         $this->participants->touch(
             (int) $room['id'],
-            hash('sha256', $identity['participant_key']),
+            $participantKeyHash,
             $identity['display_name'],
+            null,
+            $identity['user_id'],
         );
+        if ($currentUser !== null) {
+            $this->userRooms->recordParticipation($currentUser['id'], (int) $room['id']);
+            $this->transmissions->claimOwnerAccount(
+                (int) $room['id'],
+                $participantKeyHash,
+                $currentUser['id'],
+            );
+        }
         $this->rooms->touchActivity((int) $room['id']);
 
         return Response::redirect('/room/' . $room['code'], 303);
@@ -84,7 +110,25 @@ final class RoomParticipantController
             return Response::json(['error' => 'join_required'], 403);
         }
 
+        $currentUser = $this->authenticatedUser();
+        if ($currentUser !== null) {
+            if ($identity['user_id'] !== null && $identity['user_id'] !== $currentUser['id']) {
+                return Response::json(['error' => 'join_required'], 403);
+            }
+            $identity = $this->participantSession->rememberAccount(
+                $room['code'],
+                $currentUser['id'],
+                $currentUser['display_name'],
+            );
+        }
         $participantKeyHash = hash('sha256', $identity['participant_key']);
+        if ($currentUser !== null) {
+            $this->transmissions->claimOwnerAccount(
+                (int) $room['id'],
+                $participantKeyHash,
+                $currentUser['id'],
+            );
+        }
         try {
             $playerInstanceId = $this->playbackTelemetry->normalizePlayerInstanceId(
                 $this->request->input('player_instance_id'),
@@ -109,6 +153,7 @@ final class RoomParticipantController
                 $participantKeyHash,
                 $identity['display_name'],
                 hash('sha256', $playerInstanceId),
+                $identity['user_id'],
             );
         }
 
@@ -117,6 +162,7 @@ final class RoomParticipantController
             $participantKeyHash,
             $identity['display_name'],
             $playback,
+            $identity['user_id'],
         );
 
         $liveEdgeValues = [
@@ -147,6 +193,7 @@ final class RoomParticipantController
                 $observation['transmission_revision'],
                 $observation['playback_revision'],
                 $observation['position_ms'],
+                $currentUser['id'] ?? null,
             );
         }
 
@@ -156,10 +203,12 @@ final class RoomParticipantController
             'participants' => $this->playbackTelemetry->presentParticipants(
                 $this->participants->activeForRoom((int) $room['id']),
                 $participantKeyHash,
+                $currentUser['id'] ?? null,
             ),
             'transmission' => $this->transmissionPresenter->present(
                 $this->transmissions->findByRoom((int) $room['id']),
                 $participantKeyHash,
+                $currentUser['id'] ?? null,
             ),
         ]);
     }
@@ -177,6 +226,13 @@ final class RoomParticipantController
 
         $identity = $this->participantSession->identityFor($room['code']);
         if ($identity === null) {
+            return Response::json(['error' => 'join_required'], 403);
+        }
+
+        $currentUser = $this->authenticatedUser();
+        if ($currentUser !== null
+            && $identity['user_id'] !== null
+            && $identity['user_id'] !== $currentUser['id']) {
             return Response::json(['error' => 'join_required'], 403);
         }
 
@@ -217,6 +273,23 @@ final class RoomParticipantController
             'message' => 'Não existe uma sala com o código informado.',
             'path' => '/room/' . $code,
         ]), 404);
+    }
+
+    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    private function authenticatedUser(): ?array
+    {
+        $userId = $this->auth->userId();
+        if ($userId === null) {
+            return null;
+        }
+
+        $user = $this->users->findById($userId);
+        if ($user === null) {
+            $this->auth->logout();
+            return null;
+        }
+
+        return $user;
     }
 
 }

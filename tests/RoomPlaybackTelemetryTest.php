@@ -217,6 +217,22 @@ final class RoomPlaybackTelemetryTest extends TestCase
         self::assertSame($presented[2]['public_id'], $presented[2]['playback_instance_id']);
     }
 
+    public function testAccountPublicIdAndIsYouAreStableAcrossParticipantKeys(): void
+    {
+        $firstRow = [...$this->row('old-key', 'Josiel', 1, 1_000, 10_000, 100), 'user_id' => 42];
+        $secondRow = [...$this->row('new-key', 'Josiel', 1, 1_000, 10_000, 100), 'user_id' => 42];
+
+        $first = $this->telemetry->presentParticipants([$firstRow], 'old-key', 42)[0];
+        $second = $this->telemetry->presentParticipants([$secondRow], 'new-key', 42)[0];
+        $loggedOut = $this->telemetry->presentParticipants([$firstRow], 'old-key', null)[0];
+
+        self::assertSame($first['public_id'], $second['public_id']);
+        self::assertTrue($first['is_you']);
+        self::assertTrue($second['is_you']);
+        self::assertFalse($loggedOut['is_you']);
+        self::assertArrayNotHasKey('user_id', $first);
+    }
+
     /** @return array<string, int|string> */
     private function row(
         string $key,

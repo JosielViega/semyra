@@ -26,6 +26,19 @@ final class UserRoomRepository
         ]);
     }
 
+    public function hasParticipation(int $userId, int $roomId): bool
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT 1 FROM user_rooms WHERE user_id = :user_id AND room_id = :room_id LIMIT 1',
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'room_id' => $roomId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
     /** @return list<array<string, mixed>> */
     public function participatedByUser(int $userId): array
     {

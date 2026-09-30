@@ -19,17 +19,20 @@ final class RoomParticipantRepository
         string $participantKeyHash,
         string $displayName,
         string $playerInstanceKeyHash,
+        ?int $userId = null,
     ): void {
         $statement = $this->database->connection()->prepare(
             'INSERT INTO room_participants '
-            . '(room_id, participant_key_hash, display_name, player_instance_key_hash) '
-            . 'VALUES (:room_id, :participant_key_hash, :display_name, :player_instance_key_hash) '
+            . '(room_id, user_id, participant_key_hash, display_name, player_instance_key_hash) '
+            . 'VALUES (:room_id, :user_id, :participant_key_hash, :display_name, :player_instance_key_hash) '
             . 'ON DUPLICATE KEY UPDATE '
-            . 'display_name = VALUES(display_name), last_seen_at = CURRENT_TIMESTAMP, '
+            . 'display_name = IF(user_id IS NULL OR user_id = VALUES(user_id), VALUES(display_name), display_name), '
+            . 'user_id = IF(user_id IS NULL, VALUES(user_id), user_id), last_seen_at = CURRENT_TIMESTAMP, '
             . 'player_instance_key_hash = VALUES(player_instance_key_hash)',
         );
         $statement->execute([
             'room_id' => $roomId,
+            'user_id' => $userId,
             'participant_key_hash' => $participantKeyHash,
             'display_name' => $displayName,
             'player_instance_key_hash' => $playerInstanceKeyHash,
@@ -67,22 +70,25 @@ final class RoomParticipantRepository
         string $participantKeyHash,
         string $displayName,
         ?array $playback = null,
+        ?int $userId = null,
     ): void
     {
         if ($playback !== null) {
             $statement = $this->database->connection()->prepare(
                 'INSERT INTO room_participants '
-                . '(room_id, participant_key_hash, display_name, player_state, player_position_ms, '
+                . '(room_id, user_id, participant_key_hash, display_name, player_state, player_position_ms, '
                 . 'player_duration_ms, player_sampled_at) '
-                . 'VALUES (:room_id, :participant_key_hash, :display_name, :player_state, '
+                . 'VALUES (:room_id, :user_id, :participant_key_hash, :display_name, :player_state, '
                 . ':player_position_ms, :player_duration_ms, CURRENT_TIMESTAMP(3)) '
                 . 'ON DUPLICATE KEY UPDATE '
-                . 'display_name = VALUES(display_name), last_seen_at = CURRENT_TIMESTAMP, '
+                . 'display_name = IF(user_id IS NULL OR user_id = VALUES(user_id), VALUES(display_name), display_name), '
+                . 'user_id = IF(user_id IS NULL, VALUES(user_id), user_id), last_seen_at = CURRENT_TIMESTAMP, '
                 . 'player_state = VALUES(player_state), player_position_ms = VALUES(player_position_ms), '
                 . 'player_duration_ms = VALUES(player_duration_ms), player_sampled_at = CURRENT_TIMESTAMP(3)',
             );
             $statement->execute([
                 'room_id' => $roomId,
+                'user_id' => $userId,
                 'participant_key_hash' => $participantKeyHash,
                 'display_name' => $displayName,
                 'player_state' => $playback['state'],
@@ -93,13 +99,15 @@ final class RoomParticipantRepository
         }
 
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO room_participants (room_id, participant_key_hash, display_name) '
-            . 'VALUES (:room_id, :participant_key_hash, :display_name) '
+            'INSERT INTO room_participants (room_id, user_id, participant_key_hash, display_name) '
+            . 'VALUES (:room_id, :user_id, :participant_key_hash, :display_name) '
             . 'ON DUPLICATE KEY UPDATE '
-            . 'display_name = VALUES(display_name), last_seen_at = CURRENT_TIMESTAMP',
+            . 'display_name = IF(user_id IS NULL OR user_id = VALUES(user_id), VALUES(display_name), display_name), '
+            . 'user_id = IF(user_id IS NULL, VALUES(user_id), user_id), last_seen_at = CURRENT_TIMESTAMP',
         );
         $statement->execute([
             'room_id' => $roomId,
+            'user_id' => $userId,
             'participant_key_hash' => $participantKeyHash,
             'display_name' => $displayName,
         ]);
@@ -109,15 +117,22 @@ final class RoomParticipantRepository
     public function activeForRoom(int $roomId): array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT participant_key_hash, player_instance_key_hash, display_name, player_state, player_position_ms, '
+            'SELECT participant.user_id, participant.participant_key_hash, participant.player_instance_key_hash, '
+            . 'participant.display_name, participant.player_state, participant.player_position_ms, '
             . 'player_duration_ms, '
             . 'CASE WHEN player_sampled_at IS NULL THEN NULL '
             . 'ELSE GREATEST(0, TIMESTAMPDIFF(MICROSECOND, player_sampled_at, CURRENT_TIMESTAMP(3)) DIV 1000) '
             . 'END AS player_sample_age_ms '
-            . 'FROM room_participants '
-            . 'WHERE room_id = :room_id '
-            . 'AND last_seen_at >= CURRENT_TIMESTAMP - INTERVAL ' . self::ACTIVE_WINDOW_SECONDS . ' SECOND '
-            . 'ORDER BY created_at ASC, id ASC',
+            . 'FROM room_participants participant '
+            . 'WHERE participant.room_id = :room_id '
+            . 'AND participant.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL ' . self::ACTIVE_WINDOW_SECONDS . ' SECOND '
+            . 'AND (participant.user_id IS NULL OR NOT EXISTS ('
+            . 'SELECT 1 FROM room_participants newer '
+            . 'WHERE newer.room_id = participant.room_id AND newer.user_id = participant.user_id '
+            . 'AND newer.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL ' . self::ACTIVE_WINDOW_SECONDS . ' SECOND '
+            . 'AND (newer.last_seen_at > participant.last_seen_at '
+            . 'OR (newer.last_seen_at = participant.last_seen_at AND newer.id > participant.id)))) '
+            . 'ORDER BY participant.created_at ASC, participant.id ASC',
         );
         $statement->execute(['room_id' => $roomId]);
 

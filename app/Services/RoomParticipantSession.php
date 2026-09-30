@@ -14,7 +14,7 @@ final class RoomParticipantSession
     {
     }
 
-    /** @return null|array{participant_key: string, display_name: string} */
+    /** @return null|array{participant_key: string, display_name: string, user_id: null|int} */
     public function identityFor(string $roomCode): ?array
     {
         $participants = $this->session->get(self::SESSION_KEY, []);
@@ -26,22 +26,31 @@ final class RoomParticipantSession
 
         $participantKey = $identity['participant_key'] ?? null;
         $displayName = $identity['display_name'] ?? null;
+        $userId = $identity['user_id'] ?? null;
 
         if (!is_string($participantKey)
             || preg_match('/^[a-f0-9]{64}$/', $participantKey) !== 1
             || !is_string($displayName)
-            || $displayName === '') {
+            || $displayName === ''
+            || ($userId !== null && (!is_int($userId) || $userId <= 0))) {
             return null;
         }
 
         return [
             'participant_key' => $participantKey,
             'display_name' => $displayName,
+            'user_id' => $userId,
         ];
     }
 
-    /** @return array{participant_key: string, display_name: string} */
+    /** @return array{participant_key: string, display_name: string, user_id: null|int} */
     public function remember(string $roomCode, string $displayName): array
+    {
+        return $this->rememberGuest($roomCode, $displayName);
+    }
+
+    /** @return array{participant_key: string, display_name: string, user_id: null} */
+    public function rememberGuest(string $roomCode, string $displayName): array
     {
         $participants = $this->session->get(self::SESSION_KEY, []);
         if (!is_array($participants)) {
@@ -50,8 +59,39 @@ final class RoomParticipantSession
 
         $existing = $this->identityFor($roomCode);
         $identity = [
-            'participant_key' => $existing['participant_key'] ?? bin2hex(random_bytes(32)),
+            'participant_key' => ($existing !== null && $existing['user_id'] === null)
+                ? $existing['participant_key']
+                : bin2hex(random_bytes(32)),
             'display_name' => $displayName,
+            'user_id' => null,
+        ];
+        $participants[$roomCode] = $identity;
+        $this->session->put(self::SESSION_KEY, $participants);
+
+        return $identity;
+    }
+
+    /** @return array{participant_key: string, display_name: string, user_id: int} */
+    public function rememberAccount(string $roomCode, int $userId, string $displayName): array
+    {
+        if ($userId <= 0) {
+            throw new \InvalidArgumentException('User ID must be positive.');
+        }
+
+        $participants = $this->session->get(self::SESSION_KEY, []);
+        if (!is_array($participants)) {
+            $participants = [];
+        }
+
+        $existing = $this->identityFor($roomCode);
+        $canReuse = $existing !== null
+            && ($existing['user_id'] === null || $existing['user_id'] === $userId);
+        $identity = [
+            'participant_key' => $canReuse
+                ? $existing['participant_key']
+                : bin2hex(random_bytes(32)),
+            'display_name' => $displayName,
+            'user_id' => $userId,
         ];
         $participants[$roomCode] = $identity;
         $this->session->put(self::SESSION_KEY, $participants);

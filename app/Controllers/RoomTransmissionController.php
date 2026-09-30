@@ -11,6 +11,8 @@ use App\Core\Session;
 use App\Core\View;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
+use App\Repositories\UserRepository;
+use App\Services\AuthSession;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPlayback;
 use App\Services\RoomTransmissionPresenter;
@@ -31,6 +33,8 @@ final class RoomTransmissionController
         private readonly YouTubeUrlParser $youtubeUrlParser,
         private readonly RoomTransmissionPlayback $playback,
         private readonly RoomTransmissionPresenter $transmissionPresenter,
+        private readonly UserRepository $users,
+        private readonly AuthSession $auth,
     ) {
     }
 
@@ -46,6 +50,12 @@ final class RoomTransmissionController
         }
 
         $identity = $this->participantSession->identityFor($room['code']);
+        if ($identity === null) {
+            return $this->errorResponse('Entrada necessária', 'Entre na sala antes de iniciar uma transmissão.', 403);
+        }
+
+        $currentUser = $this->authenticatedUser();
+        $identity = $this->identityForCurrentAccount($room['code'], $identity, $currentUser);
         if ($identity === null) {
             return $this->errorResponse('Entrada necessária', 'Entre na sala antes de iniciar uma transmissão.', 403);
         }
@@ -71,6 +81,7 @@ final class RoomTransmissionController
             'youtube',
             $videoId,
             $mediaMode,
+            $currentUser['id'] ?? null,
         );
         $this->session->flash('success', 'Transmissão iniciada.');
 
@@ -93,8 +104,19 @@ final class RoomTransmissionController
             return $this->errorResponse('Entrada necessária', 'Entre na sala antes de encerrar uma transmissão.', 403);
         }
 
+
+        $currentUser = $this->authenticatedUser();
+        $identity = $this->identityForCurrentAccount($room['code'], $identity, $currentUser);
+        if ($identity === null) {
+            return $this->errorResponse('Entrada necessária', 'Entre na sala antes de encerrar uma transmissão.', 403);
+        }
+
         $participantKeyHash = hash('sha256', $identity['participant_key']);
-        if (!$this->transmissions->end((int) $room['id'], $participantKeyHash)) {
+        if (!$this->transmissions->end(
+            (int) $room['id'],
+            $participantKeyHash,
+            $currentUser['id'] ?? null,
+        )) {
             return $this->errorResponse(
                 'Ação não permitida',
                 'Somente quem iniciou a transmissão atual pode encerrá-la.',
@@ -123,13 +145,20 @@ final class RoomTransmissionController
             return Response::json(['error' => 'join_required'], 403);
         }
 
+
+        $currentUser = $this->authenticatedUser();
+        $identity = $this->identityForCurrentAccount($room['code'], $identity, $currentUser);
+        if ($identity === null) {
+            return Response::json(['error' => 'join_required'], 403);
+        }
+
         $transmission = $this->transmissions->findByRoom((int) $room['id']);
         if ($transmission === null) {
             return Response::json(['error' => 'transmission_not_found'], 409);
         }
 
         $participantKeyHash = hash('sha256', $identity['participant_key']);
-        if (!hash_equals((string) $transmission['owner_participant_key_hash'], $participantKeyHash)) {
+        if (!$this->ownsTransmission($transmission, $participantKeyHash, $currentUser['id'] ?? null)) {
             return Response::json(['error' => 'owner_required'], 403);
         }
 
@@ -156,17 +185,26 @@ final class RoomTransmissionController
             $command['state'],
             $command['position_ms'],
             $command['at_live_edge'],
+            $currentUser['id'] ?? null,
         );
         $current = $this->transmissions->findByRoom((int) $room['id']);
         if (!$updated || $current === null) {
             return Response::json([
                 'error' => 'playback_conflict',
-                'transmission' => $this->transmissionPresenter->present($current, $participantKeyHash),
+                'transmission' => $this->transmissionPresenter->present(
+                    $current,
+                    $participantKeyHash,
+                    $currentUser['id'] ?? null,
+                ),
             ], 409);
         }
 
         return Response::json([
-            'transmission' => $this->transmissionPresenter->present($current, $participantKeyHash),
+            'transmission' => $this->transmissionPresenter->present(
+                $current,
+                $participantKeyHash,
+                $currentUser['id'] ?? null,
+            ),
         ]);
     }
 
@@ -177,5 +215,54 @@ final class RoomTransmissionController
             'heading' => $heading,
             'message' => $message,
         ]), $status);
+    }
+
+    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    private function authenticatedUser(): ?array
+    {
+        $userId = $this->auth->userId();
+        if ($userId === null) {
+            return null;
+        }
+
+        $user = $this->users->findById($userId);
+        if ($user === null) {
+            $this->auth->logout();
+            return null;
+        }
+
+        return $user;
+    }
+
+    /**
+     * @param array{participant_key: string, display_name: string, user_id: null|int} $identity
+     * @param null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} $currentUser
+     * @return null|array{participant_key: string, display_name: string, user_id: null|int}
+     */
+    private function identityForCurrentAccount(string $roomCode, array $identity, ?array $currentUser): ?array
+    {
+        if ($currentUser === null) {
+            return $identity;
+        }
+
+        if ($identity['user_id'] !== null && $identity['user_id'] !== $currentUser['id']) {
+            return null;
+        }
+
+        return $this->participantSession->rememberAccount(
+            $roomCode,
+            $currentUser['id'],
+            $currentUser['display_name'],
+        );
+    }
+
+    /** @param array<string, mixed> $transmission */
+    private function ownsTransmission(array $transmission, string $participantKeyHash, ?int $currentUserId): bool
+    {
+        if (($transmission['owner_user_id'] ?? null) !== null) {
+            return $currentUserId !== null && (int) $transmission['owner_user_id'] === $currentUserId;
+        }
+
+        return hash_equals((string) $transmission['owner_participant_key_hash'], $participantKeyHash);
     }
 }

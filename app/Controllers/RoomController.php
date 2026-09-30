@@ -50,7 +50,7 @@ final class RoomController
             ]), 419);
         }
 
-        $creatorUserId = $this->authenticatedUserId();
+        $creatorUserId = $this->authenticatedUser()['id'] ?? null;
         $this->rooms->deleteExpiredTemporaryRooms();
 
         for ($attempt = 0; $attempt < self::MAX_CODE_ATTEMPTS; ++$attempt) {
@@ -77,9 +77,32 @@ final class RoomController
         }
 
         $identity = $this->participantSession->identityFor($room['code']);
-        $userId = $this->authenticatedUserId();
-        if ($identity !== null && $userId !== null) {
-            $this->userRooms->recordParticipation($userId, (int) $room['id']);
+        $currentUser = $this->authenticatedUser();
+        $userId = $currentUser['id'] ?? null;
+        if ($currentUser !== null) {
+            $identityBelongsToUser = $identity !== null
+                && ($identity['user_id'] === null || $identity['user_id'] === $userId);
+            $knownRoom = (int) ($room['created_by_user_id'] ?? 0) === $userId
+                || $this->userRooms->hasParticipation($userId, (int) $room['id']);
+            if ($identityBelongsToUser || $knownRoom) {
+                $identity = $this->participantSession->rememberAccount(
+                    $room['code'],
+                    $userId,
+                    $currentUser['display_name'],
+                );
+                $participantKeyHash = hash('sha256', $identity['participant_key']);
+                $this->participants->touch(
+                    (int) $room['id'],
+                    $participantKeyHash,
+                    $identity['display_name'],
+                    null,
+                    $userId,
+                );
+                $this->transmissions->claimOwnerAccount((int) $room['id'], $participantKeyHash, $userId);
+                $this->userRooms->recordParticipation($userId, (int) $room['id']);
+            } elseif ($identity !== null) {
+                $identity = null;
+            }
         }
         $participants = [];
         $transmission = null;
@@ -88,13 +111,16 @@ final class RoomController
             $participants = array_map(
                 static fn (array $participant): array => [
                     'name' => $participant['display_name'],
-                    'is_you' => hash_equals($participantKeyHash, $participant['participant_key_hash']),
+                    'is_you' => ($participant['user_id'] ?? null) !== null
+                        ? $userId !== null && (int) $participant['user_id'] === $userId
+                        : hash_equals($participantKeyHash, $participant['participant_key_hash']),
                 ],
                 $this->participants->activeForRoom((int) $room['id']),
             );
             $transmission = $this->transmissionPresenter->present(
                 $this->transmissions->findByRoom((int) $room['id']),
                 $participantKeyHash,
+                $userId,
             );
         }
 
@@ -102,6 +128,7 @@ final class RoomController
             'title' => 'Sala ' . $room['code'] . ' — Semyra',
             'room' => $room,
             'identity' => $identity,
+            'currentUser' => $currentUser,
             'participants' => $participants,
             'transmission' => $transmission,
             'debug' => $this->request->query('debug') === '1',
@@ -111,18 +138,20 @@ final class RoomController
         ], 'layouts/room'));
     }
 
-    private function authenticatedUserId(): ?int
+    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    private function authenticatedUser(): ?array
     {
         $userId = $this->auth->userId();
         if ($userId === null) {
             return null;
         }
 
-        if ($this->users->findById($userId) === null) {
+        $user = $this->users->findById($userId);
+        if ($user === null) {
             $this->auth->logout();
             return null;
         }
 
-        return $userId;
+        return $user;
     }
 }
