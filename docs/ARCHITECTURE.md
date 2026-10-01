@@ -65,6 +65,27 @@ HTML
 
 Dependências são montadas explicitamente em `bootstrap/app.php` ou `routes/web.php`. Se o projeto crescer muito, um container pode ser avaliado, mas não é necessário no estado atual do Semyra.
 
+## Planos de controle e mídia LiveKit
+
+A fundação LiveKit separa responsabilidades sem mudar a fonte YouTube existente:
+
+```text
+Semyra / HostGator
+    control plane: sala, participação, transmissão e autorização de token
+            ↓ JWT curto subscribe-only
+LiveKit
+    realtime media plane
+            ↑ WHIP (etapa futura)
+bridge privado futuro
+    media ingest plane: provider → H.264/Opus
+```
+
+`source_type` descreve o conteúdo (`youtube` e, futuramente, `iptv`); LiveKit é transporte, nunca `source_type`. Nesta etapa, o backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv`/`live` e revisão atual antes de emitir uma credencial com dez minutos de validade. O frontend produtivo ainda não consome LiveKit, e nenhum Ingress ou bridge foi integrado.
+
+O nome da room LiveKit deriva deterministicamente de namespace e ID interno da sala. A publisher identity é vinculada à instância da transmissão e inclui room ID, revision e o `started_at` imutável: isso impede reuso após `end` seguido de novo `start`, mesmo quando a nova linha reinicia em revision 1. Viewer identities são aleatórias por emissão para permitir duas abas independentes. Nenhum desses identificadores cria owner, host, moderator ou hierarquia no Semyra. A autoridade temporária de playback continua pertencendo exclusivamente à transmissão vigente.
+
+O SDK PHP permanece resolvido em `agence104/livekit-server-sdk` 1.3.5. A auditoria da distribuição registra a inconsistência sem interpretação jurídica: Composer metadata declares MIT; distributed LICENSE file is Apache-2.0. O arquivo `LICENSE` acompanha o runtime no mirror de produção.
+
 ## Fluxo de autenticação opcional
 
 ```text

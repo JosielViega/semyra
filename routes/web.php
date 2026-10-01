@@ -8,6 +8,7 @@ use App\Controllers\HomeController;
 use App\Controllers\MyRoomsController;
 use App\Controllers\RoomController;
 use App\Controllers\RoomParticipantController;
+use App\Controllers\RoomLiveKitController;
 use App\Controllers\RoomTransmissionController;
 use App\Core\Request;
 use App\Core\Response;
@@ -18,6 +19,8 @@ use App\Repositories\UserRepository;
 use App\Repositories\UserRoomRepository;
 use App\Services\AuthSession;
 use App\Services\RoomCodeGenerator;
+use App\Services\LiveKitRoomContext;
+use App\Services\LiveKitViewerTokenService;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomTransmissionPresenter;
@@ -106,6 +109,17 @@ $roomTransmissions = new RoomTransmissionController(
     $userRepository,
     $authSession,
 );
+$roomLiveKit = new RoomLiveKitController(
+    $app['request'],
+    $app['csrf'],
+    $roomRepository,
+    $transmissionRepository,
+    $participantSession,
+    $userRepository,
+    $authSession,
+    new LiveKitRoomContext($app['livekit']['namespace']),
+    new LiveKitViewerTokenService($app['livekit']),
+);
 $health = new HealthController();
 $router = $app['router'];
 
@@ -124,6 +138,7 @@ $router->post('/room/{code}/leave', [$roomParticipants, 'leave']);
 $router->post('/room/{code}/transmission', [$roomTransmissions, 'start']);
 $router->post('/room/{code}/transmission/end', [$roomTransmissions, 'end']);
 $router->post('/room/{code}/transmission/playback', [$roomTransmissions, 'playback']);
+$router->post('/room/{code}/livekit/viewer-token', [$roomLiveKit, 'viewerToken']);
 $router->get('/health', [$health, 'index']);
 $router->fallback(static function (Request $request) use ($app): Response {
     return Response::html($app['view']->render('pages/404', [

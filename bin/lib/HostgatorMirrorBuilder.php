@@ -37,6 +37,8 @@ final class HostgatorMirrorBuilder
             fwrite(STDOUT, 'Application files copied.' . PHP_EOL);
             $composerVersion = $this->installProductionDependencies();
             fwrite(STDOUT, 'Production Composer dependencies installed.' . PHP_EOL);
+            $this->pruneProductionVendorMetadata();
+            fwrite(STDOUT, 'Third-party development metadata excluded.' . PHP_EOL);
 
             $this->validate();
             fwrite(STDOUT, 'Protected server files excluded.' . PHP_EOL);
@@ -176,6 +178,78 @@ final class HostgatorMirrorBuilder
         }
 
         return $matches[1];
+    }
+
+    private function pruneProductionVendorMetadata(): void
+    {
+        $vendor = $this->mirror . '/vendor';
+        if (!is_dir($vendor)) {
+            return;
+        }
+
+        $targets = [];
+        $filesToRemove = [];
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($vendor, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::SELF_FIRST,
+        );
+        foreach ($iterator as $item) {
+            if ($item->isLink()) {
+                continue;
+            }
+            $filename = strtolower($item->getFilename());
+            if ($item->isFile()
+                && (str_starts_with($filename, '.env') || str_ends_with($filename, '.env'))) {
+                $filesToRemove[] = $item->getPathname();
+                continue;
+            }
+            if ($item->isDir()
+                && in_array(strtolower($item->getFilename()), ['.git', '.github', 'tests'], true)) {
+                $targets[] = $item->getPathname();
+            }
+        }
+
+        usort($targets, static fn (string $left, string $right): int => strlen($left) <=> strlen($right));
+        $removed = [];
+        foreach ($targets as $target) {
+            $normalized = str_replace('\\', '/', $target);
+            if (count(array_filter(
+                $removed,
+                static fn (string $parent): bool => str_starts_with($normalized . '/', $parent . '/'),
+            )) > 0) {
+                continue;
+            }
+            $this->removeDirectory($target);
+            $removed[] = $normalized;
+        }
+        foreach ($filesToRemove as $file) {
+            if (is_file($file) && !unlink($file)) {
+                throw new RuntimeException('Unable to prune third-party environment metadata.');
+            }
+        }
+    }
+
+    private function removeDirectory(string $directory): void
+    {
+        $vendorPrefix = str_replace('\\', '/', $this->mirror . '/vendor') . '/';
+        $normalized = str_replace('\\', '/', $directory) . '/';
+        if (!str_starts_with($normalized, $vendorPrefix) || !is_dir($directory) || is_link($directory)) {
+            throw new RuntimeException('Refusing to prune an unexpected vendor directory.');
+        }
+
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($iterator as $item) {
+            $removed = $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+            if (!$removed) {
+                throw new RuntimeException('Unable to prune third-party development metadata.');
+            }
+        }
+        if (!rmdir($directory)) {
+            throw new RuntimeException('Unable to prune third-party development directory.');
+        }
     }
 
     private function composerCommand(): string

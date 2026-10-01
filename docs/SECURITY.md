@@ -39,6 +39,14 @@ A infraestrutura inicial apenas prepara `public/uploads` e bloqueia extensões P
 
 Tarefas críticas não devem rodar durante uma visita HTTP. Use cron chamando script CLI dedicado quando esse requisito surgir.
 
+## LiveKit
+
+O LiveKit é uma integração opcional e fica desabilitado por padrão. `LIVEKIT_API_SECRET` existe somente no backend; nunca deve ser enviado ao browser, persistido no banco ou registrado em logs. O endpoint de viewer emite JWT curto, com dez minutos de validade, `roomJoin` e `canSubscribe`, negando publicação de mídia e dados. As respostas usam `no-store`, `no-cache` e `nosniff`.
+
+Room names e participant identities são opacos, sem código público de sala, e-mail, nome, user ID ou participant key em claro. O acesso exige CSRF, participação vigente na sala, identidade autenticada compatível e uma transmissão IPTV Live na mesma revisão solicitada. Cada emissão recebe viewer identity aleatória; a identidade esperada do publisher deriva de room, revision e timestamp imutável de início, mudando também quando uma nova linha reinicia a revision após o encerramento anterior.
+
+Tokens permanecem somente em memória durante a requisição. Credenciais do provider IPTV e endpoints/chaves WHIP continuam fora da aplicação nesta etapa. O API key aparece como issuer dentro do JWT pelo contrato LiveKit, mas não é retornado como campo explícito.
+
 ## Mirror de produção
 
 O builder HostGator usa allowlist e falha se detectar configurações do servidor, secrets, certificados ou diretórios de dados no mirror. `.env`, `.htaccess`, uploads, logs e cache permanecem próprios de cada instalação. O builder não transmite arquivos e não executa migrations.

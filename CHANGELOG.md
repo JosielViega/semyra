@@ -6,6 +6,7 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Fundação backend opcional do LiveKit, com configuração segura e emissão de credenciais curtas subscribe-only vinculadas à revisão da transmissão, ainda sem player IPTV produtivo.
 - Identidade persistente de contas nas salas, com nickname fixo, participantes lógicos deduplicados e ownership de transmissão durável por usuário autenticado.
 - Área autenticada “Minhas salas”, separando salas criadas pelo usuário do histórico de outras salas em que participou.
 - Salas temporárias para convidados, com expiração após 24 horas sem atividade, e salas persistentes vinculadas ao usuário que as cria autenticado.

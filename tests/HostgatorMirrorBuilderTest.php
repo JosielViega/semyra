@@ -96,6 +96,27 @@ final class HostgatorMirrorBuilderTest extends TestCase
         $this->builder()->validate();
     }
 
+    public function testPrunesThirdPartyDevelopmentMetadataFromProductionVendor(): void
+    {
+        $this->write('vendor/example/package/.github/workflows/ci.yml', 'metadata');
+        $this->write('vendor/example/package/tests/PackageTest.php', 'test');
+        $this->write('vendor/example/package/.envrc', 'development environment');
+        $this->write('vendor/example/package/example.env', 'example environment');
+        $this->write('vendor/example/package/LICENSE', 'license text');
+        $this->write('vendor/example/package/src/Runtime.php', 'runtime');
+        $builder = $this->builder();
+        $method = new \ReflectionMethod($builder, 'pruneProductionVendorMetadata');
+
+        $method->invoke($builder);
+
+        self::assertDirectoryDoesNotExist($this->mirror . '/vendor/example/package/.github');
+        self::assertDirectoryDoesNotExist($this->mirror . '/vendor/example/package/tests');
+        self::assertFileDoesNotExist($this->mirror . '/vendor/example/package/.envrc');
+        self::assertFileDoesNotExist($this->mirror . '/vendor/example/package/example.env');
+        self::assertFileExists($this->mirror . '/vendor/example/package/LICENSE');
+        self::assertFileExists($this->mirror . '/vendor/example/package/src/Runtime.php');
+    }
+
     private function builder(): HostgatorMirrorBuilder
     {
         return new HostgatorMirrorBuilder($this->root, $this->manifest, 'composer');
