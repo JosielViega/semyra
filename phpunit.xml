@@ -7,6 +7,7 @@
     <testsuites>
         <testsuite name="Application">
             <directory>tests</directory>
+            <exclude>tests/manual</exclude>
         </testsuite>
     </testsuites>
 </phpunit>

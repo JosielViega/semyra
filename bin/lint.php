@@ -15,7 +15,12 @@ foreach ($directories as $directory) {
 
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path));
     foreach ($iterator as $file) {
-        if (!$file->isFile() || $file->getExtension() !== 'php') {
+        $vendorSegment = DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR;
+        if (
+            !$file->isFile()
+            || $file->getExtension() !== 'php'
+            || str_contains($file->getPathname(), $vendorSegment)
+        ) {
             continue;
         }
 

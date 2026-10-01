@@ -1,6 +1,9 @@
 .env
 .env.docker
 /vendor/
+/tests/manual/iptv-spike/vendor/
+/tests/manual/livekit-spike/vendor/
+/tests/manual/livekit-spike/vendor-js/
 /composer.phar
 /composer-setup.php
 /composer-installer.sig
