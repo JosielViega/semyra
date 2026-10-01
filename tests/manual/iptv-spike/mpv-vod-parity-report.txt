@@ -1,0 +1,58 @@
+YNOTV / MPV VOD PARITY REPORT
+
+Runtime:
+ynoTV v2.5.6 bundled mpv
+Installation located: yes
+MPV sidecar located: yes
+Filename: mpv.exe
+Binary size: 120773120 bytes
+Binary SHA-256: B08419D2748BE4DCB63A9778F9287A0CC8A7A622C46A5C241B3702F19623A913
+MPV version: v0.41.0-1050-ge76a35ec9
+FFmpeg version: N-126733-gfddc59cf3
+Architecture: x86-64
+ynoTV installation modified: no
+Implementation code reused: no
+
+VOD_1:
+M3U EXTINF: negative
+Provider catalog duration: not tested
+Browser duration: Infinity
+MPV duration @ load: finite, 2.112 seconds
+MPV duration @ 2s: finite, 21.041 seconds
+MPV duration @ 5s: finite, 24.111 seconds
+MPV duration @ 10s: finite, 27.514 seconds
+MPV duration @ 30s: finite, 47.634 seconds
+Duration discovery time: load
+Duration interpretation: finite but growing; not a stable total-media duration
+
+File format: mpegts
+Video format: h264
+Video codec: H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10
+Audio codec: AAC (Advanced Audio Coding)
+Resolution: 1920x1080
+Container FPS: 29.970030
+Estimated video FPS: 29.970030
+
+Seekable: no
+Partially seekable: no
+HTTP Accept-Ranges: no
+Content-Length: absent
+
+Playback: success in primary run; time-pos advanced from 0.554 to 30.551 seconds
+Playback repeat: failed; the source stalled at 0.260 seconds
+Pause/resume: success in primary run; failed in stalled repeat
+Seek +30: fail
+Seek +30 latency: 12106 ms before failure
+Midpoint seek: not attempted; duration @ 30s was not greater than 60 seconds
+Midpoint latency: not applicable
+Backward seek: not attempted; no preceding seek succeeded in the final protocol
+Backward latency: not applicable
+Seek mechanism: unknown
+
+Comparison:
+The browser pipeline reported Infinity while mpv exposed a finite value immediately. The mpv value increased as data arrived and did not represent a stable total VOD duration. Both pipelines lacked usable forward seeking for this source. Native playback was possible in one run but was not reproducible in the immediate repeat.
+
+CONCLUSION:
+The bundled mpv can demux the same VOD_1 as MPEG-TS and identify H.264/AAC at 1920x1080. It does not establish a reliable total duration or seekable VOD timeline for this source: the reported duration grows with the received stream, both seekability properties are false, and absolute seek +30 failed. The repeat also exposed source/runtime instability. This does not demonstrate feature parity with a catalog-backed ynoTV VOD flow and does not justify a web implementation decision.
+
+No URLs/secrets.

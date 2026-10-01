@@ -1,0 +1,144 @@
+LOCAL IPTV PLAYLIST ANALYSIS
+
+File: playlist_venlomxo1402_plus.m3u
+File size: 95218406 bytes
+SHA-256: 7c91feb7bea97b1098d956a03043a104c832c53b406df3f8d953a969e8efe09b
+Entries: 315248
+Total groups: 104
+Unique provider hosts: 1
+Explicit non-standard port: no
+
+Protocols:
+HTTP: 315248
+HTTPS: 0
+Other: 0
+
+EXTINF durations:
+Positive: 0
+Zero: 0
+Negative: 315248
+Absent: 0
+VOD_1 EXTINF duration: negative
+
+Xtream-style:
+Live: no (0)
+Movies: no (0)
+Series: no (0)
+Group-structural Live candidates: 991
+Group-structural Movie candidates: 100
+Group-structural Series candidates: 66941
+
+Credential pattern:
+Embedded: no
+Location: unknown
+Shared pattern: no
+
+URL extensions:
+m3u8: 0
+ts: 0
+mp4: 0
+mkv: 0
+avi: 0
+m4v: 0
+webm: 0
+none: 315248
+other: 0
+
+Top groups:
+1. ♦️ Novelas: 43513
+2. ♦️ Legendadas: 36216
+3. ♦️ Netflix: 31697
+4. ♦️ Outras Produtoras: 24724
+5. ♦️ Prime Video: 21054
+6. ♦️ Globoplay: 17499
+7. ♦️ HBO Max: 16353
+8. ♦️ Disney+: 15463
+9. ♦️ Doramas Legendados: 14555
+10. ♦️ Legendados ✔️: 10912
+11. ♦️ Adultos ❌❤️ [+18]: 10375
+12. ♦️ Paramount+: 8958
+13. ♦️ Discovery+: 7404
+14. ♦️ Crunchyroll: 6891
+15. ♦️ Novelas Turcas: 6344
+16. ♦️ Apple TV+: 6188
+17. ♦️ Star+: 4062
+18. ♦️ Drama ✔️: 3459
+19. ♦️ DirecTV: 3096
+20. ♦️ Comedia ✔️: 2849
+
+Metadata hints (metadata hint; codec not verified):
+H264: 31
+H265_HEVC: 85
+4K: 1737
+UHD: 1703
+FHD: 485
+HD: 552
+SD: 290
+
+Network candidates:
+
+LIVE_H264_1
+Declared type: none
+HTTP status: 200
+Redirect count: 1
+Content-Type: video/mp2t
+Content-Length: unknown
+Accept-Ranges: unknown
+Final protocol: http
+Approximate time: 1115 ms
+Detected payload: mpeg-ts
+CORS: *
+Result: download-limited
+
+LIVE_H264_2
+Declared type: none
+HTTP status: 200
+Redirect count: 1
+Content-Type: video/mp2t
+Content-Length: unknown
+Accept-Ranges: unknown
+Final protocol: http
+Approximate time: 1088 ms
+Detected payload: mpeg-ts
+CORS: *
+Result: download-limited
+
+LIVE_H265_1
+Declared type: none
+HTTP status: 200
+Redirect count: 1
+Content-Type: video/mp2t
+Content-Length: unknown
+Accept-Ranges: unknown
+Final protocol: http
+Approximate time: 1602 ms
+Detected payload: mpeg-ts
+CORS: *
+Result: download-limited
+
+VOD_1
+Declared type: none
+HTTP status: 200
+Redirect count: 1
+Content-Type: video/mp2t
+Content-Length: unknown
+Accept-Ranges: unknown
+Final protocol: http
+Approximate time: 1591 ms
+Detected payload: mpeg-ts
+CORS: *
+Result: download-limited
+
+HLS:
+Manifest detected: no
+
+Provider HTTPS probe: fail
+TLS: fail
+
+BROWSER IMPLICATION:
+HLS.js path: unlikely
+Direct MPEG-TS in Chrome: likely unsupported
+MP4 VOD: unknown
+Production HTTPS risk: risk
+
+No credentials, hosts, stream IDs, query strings, or raw URLs are included.

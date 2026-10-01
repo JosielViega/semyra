@@ -1,0 +1,81 @@
+MPEGTS.JS PLAYBACK REPORT
+
+Library: mpegts.js 1.8.2
+Browser: Chrome 150 on Windows
+Test mode: LOCAL HTTP TEST
+
+Features:
+mpegts.isSupported: yes
+msePlayback: yes
+mseLivePlayback: yes
+mseH265Playback: yes
+networkStreamIO: yes
+networkLoaderName: fetch-stream-loader
+nativeMP4H264Playback: yes
+nativeMP4H265Playback: yes
+
+LIVE_H264_1
+Payload: MPEG-TS
+Playback: technical success
+Video codec: avc1.640028
+Audio codec: mp4a.40.2
+Resolution: 1920x1080
+Visible video: user confirmation required
+Audible audio: user confirmation required
+60s stability: success
+Observed buffer behind live edge: approximately 16.5 to 24.5 seconds
+Pause/resume: success; resumed near paused point
+Reconnect: success; approximately 1.5 seconds
+Seek: success inside local MSE buffer window
+Provider DVR: unconfirmed
+CORS: success observed
+Fatal error: none
+
+LIVE_H264_2
+Payload: MPEG-TS
+Playback: fail
+Media info: unavailable
+Error: MediaError/FormatUnsupported
+CORS network probe: available
+
+LIVE_H265_1
+Payload: MPEG-TS
+Feature supported: yes
+Playback: technical success
+Codec detected: hvc1.1.1.L120.B0
+Audio codec: mp4a.40.2
+Resolution: 1920x1080
+Visible video: user confirmation required
+Audible audio: user confirmation required
+30s stability: success
+Observed buffer behind live edge: approximately 24.6 seconds
+CORS: success observed
+Fatal error: none
+
+VOD_1
+Payload: MPEG-TS
+Playback: technical success
+Video codec: avc1.640028
+Audio codec: mp4a.40.2
+Resolution: 1920x1080
+Visible video: user confirmation required
+Audible audio: user confirmation required
+Duration: unknown/infinite
+Pause/resume: success; resumed near paused point
+Seek +30 seconds: unavailable
+Random seek: unavailable
+HTTP Range support: no
+CORS: success observed
+Fatal error: none
+
+LOCAL CONCLUSION
+Continuous MPEG-TS Live: possible for compatible streams, not uniform
+Continuous MPEG-TS VOD: limited
+
+PRODUCTION CONCLUSION
+Direct browser media: HTTP only
+HTTPS provider: unavailable
+Mixed content: blocking risk
+Credentials exposure in browser network: possible
+
+No URLs/secrets.

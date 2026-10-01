@@ -1,0 +1,59 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0a0d14;
+  color: #edf2ff;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #182541, #0a0d14 55%); }
+
+.shell { width: min(880px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0; }
+
+.eyebrow { color: #78a6ff; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+
+h1 { margin-bottom: 8px; }
+
+h2 { margin-top: 32px; font-size: 1.1rem; }
+
+.diagnostics-note { color: #b9c6db; }
+
+.table-wrap { overflow-x: auto; border: 1px solid #2c3952; border-radius: 12px; }
+
+table { width: 100%; border-collapse: collapse; background: #080b11cc; font-size: .88rem; }
+
+th, td { padding: 10px 12px; border-bottom: 1px solid #202c42; text-align: left; white-space: nowrap; }
+
+tbody tr:last-child td { border-bottom: 0; }
+
+label { display: block; margin: 22px 0 8px; font-weight: 700; }
+
+textarea { width: 100%; resize: vertical; border: 1px solid #2c3952; border-radius: 12px; padding: 14px; background: #080b11cc; color: #dce7fb; font: .82rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 28px 0; }
+
+.status-grid article { min-width: 0; padding: 16px; border: 1px solid #2c3952; border-radius: 12px; background: #111827cc; }
+
+.status-grid span { display: block; margin-bottom: 6px; color: #99a8c3; font-size: .85rem; }
+
+.status-grid strong { overflow-wrap: anywhere; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px; }
+
+button { border: 1px solid #4776cf; border-radius: 9px; padding: 11px 16px; background: #1f4fa8; color: white; font: inherit; font-weight: 700; cursor: pointer; }
+
+button:disabled { opacity: .45; cursor: not-allowed; }
+
+button[hidden] { display: none; }
+
+.events { min-height: 160px; max-height: 280px; overflow: auto; padding: 16px 16px 16px 40px; border: 1px solid #2c3952; border-radius: 12px; background: #080b11cc; color: #b9c6db; }
+
+.events li + li { margin-top: 6px; }
+
+#remote-audio { display: none; }
+
+@media (max-width: 520px) {
+  .shell { width: min(100% - 20px, 880px); padding: 28px 0; }
+  .controls button { flex: 1 1 46%; }
+}

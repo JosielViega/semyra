@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Semyra — IPTV Ingress Viewer</title>
+  <link rel="stylesheet" href="/livekit-spike.css">
+  <link rel="stylesheet" href="/iptv-viewer.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">Semyra · experimento local</p>
+      <h1>IPTV / Ingress Viewer</h1>
+      <p>Viewer LiveKit subscribe-only, sem acesso a microfone ou câmera.</p>
+    </header>
+
+    <section class="status-grid" aria-label="Estado do viewer">
+      <article><span>Status</span><strong id="viewer-status">Desconectado</strong></article>
+      <article><span>Participante ingress</span><strong id="ingress-status">Aguardando</strong></article>
+      <article><span>Vídeo</span><strong id="video-status">Aguardando</strong></article>
+      <article><span>Áudio</span><strong id="audio-status">Aguardando</strong></article>
+      <article><span>Tempo conectado</span><strong id="viewer-minutes">0,00 min</strong></article>
+    </section>
+
+    <section class="controls" aria-label="Controles">
+      <button id="viewer-connect" type="button">Conectar viewer</button>
+      <button id="viewer-disconnect" type="button" disabled>Desconectar</button>
+      <button id="viewer-enable-audio" type="button" hidden>Ativar áudio</button>
+    </section>
+
+    <section>
+      <h2>Mídia remota</h2>
+      <div id="viewer-video" class="viewer-video" aria-label="Vídeo remoto"></div>
+      <div id="viewer-audio" hidden aria-label="Áudio remoto"></div>
+    </section>
+
+    <section>
+      <h2>WebRTC diagnostics</h2>
+      <div class="status-grid">
+        <article><span>Video codec</span><strong id="video-codec">unavailable</strong></article>
+        <article><span>Audio codec</span><strong id="audio-codec">unavailable</strong></article>
+        <article><span>Resolution</span><strong id="video-resolution">unavailable</strong></article>
+        <article><span>FPS</span><strong id="video-fps">unavailable</strong></article>
+        <article><span>Approx bitrate</span><strong id="video-bitrate">unavailable</strong></article>
+        <article><span>Packet loss</span><strong id="video-loss">unavailable</strong></article>
+        <article><span>Jitter</span><strong id="video-jitter">unavailable</strong></article>
+        <article><span>Connection quality</span><strong id="viewer-quality">unknown</strong></article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Eventos sanitizados</h2>
+      <ol id="viewer-events" class="events" aria-live="polite"></ol>
+    </section>
+  </main>
+
+  <script src="/vendor-js/livekit-client.umd.js"></script>
+  <script src="/livekit-diagnostics.js"></script>
+  <script src="/iptv-viewer.js"></script>
+</body>
+</html>

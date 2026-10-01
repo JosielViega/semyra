@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Semyra — LiveKit voice spike</title>
+  <link rel="stylesheet" href="/livekit-spike.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">Semyra · experimento local</p>
+      <h1>LiveKit Cloud + chat de voz</h1>
+      <p>Abra esta página em duas abas e use fones de ouvido para evitar eco.</p>
+    </header>
+
+    <section class="status-grid" aria-label="Estado da sessão">
+      <article><span>Status</span><strong id="connection-status">Desconectado</strong></article>
+      <article><span>Identidade</span><strong id="identity">—</strong></article>
+      <article><span>Participantes</span><strong id="participant-count">0</strong></article>
+      <article><span>Microfone</span><strong id="microphone-status">Desligado</strong></article>
+      <article><span>Áudio publicado</span><strong id="published-count">0</strong></article>
+      <article><span>Áudio recebido</span><strong id="subscribed-count">0</strong></article>
+      <article><span>Tempo conectado</span><strong id="participant-minutes">0,00 min</strong></article>
+    </section>
+
+    <section class="controls" aria-label="Controles">
+      <button id="connect" type="button">Conectar</button>
+      <button id="disconnect" type="button" disabled>Desconectar</button>
+      <button id="reconnect" type="button" disabled>Reconectar</button>
+      <button id="microphone" type="button" disabled>Ativar microfone</button>
+      <button id="enable-audio" type="button" hidden>Ativar áudio</button>
+    </section>
+
+    <section>
+      <h2>WebRTC diagnostics</h2>
+      <p class="diagnostics-note">Amostras sanitizadas em aproximadamente 10, 30 e 60 segundos após os dois áudios ficarem ativos.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Amostra</th>
+              <th>Sentido</th>
+              <th>RTT</th>
+              <th>Jitter</th>
+              <th>Packet loss</th>
+              <th>Jitter buffer</th>
+              <th>Quality</th>
+            </tr>
+          </thead>
+          <tbody id="diagnostics-samples">
+            <tr><td colspan="7">Aguardando áudio bidirecional.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Protocol / candidate type:</strong> <span id="safe-transport">unavailable</span></p>
+      <p><strong>LiveKit media region:</strong> not directly exposed by current spike</p>
+      <label for="validation-block">LIVEKIT VOICE VALIDATION</label>
+      <textarea id="validation-block" rows="20" readonly spellcheck="false"></textarea>
+    </section>
+
+    <section>
+      <h2>Eventos sanitizados</h2>
+      <ol id="events" class="events" aria-live="polite"></ol>
+    </section>
+
+    <div id="remote-audio" aria-label="Áudio remoto"></div>
+  </main>
+
+  <script src="/vendor-js/livekit-client.umd.js"></script>
+  <script src="/livekit-diagnostics.js"></script>
+  <script src="/livekit-spike.js"></script>
+</body>
+</html>

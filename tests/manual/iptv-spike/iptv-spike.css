@@ -1,0 +1,81 @@
+:root {
+    color-scheme: dark;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    background: #07111f;
+    color: #e5eefb;
+    --surface: #0e1b2d;
+    --surface-2: #14243a;
+    --border: #29405e;
+    --accent: #67e8f9;
+    --danger: #fb7185;
+    --muted: #9fb0c7;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 280px; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+
+.page-header, main { width: min(1120px, calc(100% - 32px)); margin-inline: auto; }
+.page-header { display: flex; justify-content: space-between; gap: 24px; align-items: center; padding: 36px 0 20px; }
+.page-header h1 { margin: 4px 0 8px; font-size: clamp(1.7rem, 4vw, 2.7rem); }
+.page-header p { margin: 0; color: var(--muted); }
+.eyebrow { color: var(--accent) !important; font-size: .8rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+
+main { padding-bottom: 48px; }
+.panel, .notice { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 20px; margin: 16px 0; }
+.notice { background: #13283a; color: #d8f6ff; }
+.panel h2 { margin-top: 0; }
+.panel h3 { margin-bottom: 8px; }
+
+.mode-picker { display: flex; flex-wrap: wrap; gap: 14px 24px; border: 0; padding: 0; margin: 0 0 20px; }
+.mode-picker legend { width: 100%; font-weight: 700; margin-bottom: 8px; }
+.mode-picker label { display: flex; gap: 8px; align-items: center; }
+.mode-panel { border-top: 1px solid var(--border); padding-top: 20px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.form-grid label { display: grid; gap: 7px; color: var(--muted); }
+.form-grid .wide { grid-column: 1 / -1; }
+input, select, textarea { width: 100%; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; background: #071321; color: #fff; }
+textarea { resize: vertical; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.actions, .field-actions, .section-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.actions { margin-top: 16px; }
+.section-heading { justify-content: space-between; }
+button { border: 1px solid #208ca3; border-radius: 9px; padding: 9px 14px; background: #0e7490; color: #fff; font-weight: 700; }
+button:hover:not(:disabled) { background: #0891b2; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.secondary { background: var(--surface-2); border-color: var(--border); }
+button.danger { background: transparent; color: var(--danger); border-color: #7f1d36; flex: none; }
+
+.warning { padding: 12px; border-left: 4px solid #fbbf24; background: #382d12; }
+.technical-banner { padding: 12px; border: 1px solid #f59e0b; border-radius: 9px; background: #451a03; color: #fef3c7; }
+.input-status { min-height: 1.4em; color: var(--accent); }
+.diagnostics { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); gap: 8px 18px; margin: 0; }
+.diagnostics dt { color: var(--muted); }
+.diagnostics dd { margin: 0; overflow-wrap: anywhere; }
+
+.catalog { display: grid; gap: 8px; margin-top: 16px; }
+.catalog-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: #0a1728; }
+.catalog-item span { min-width: 0; overflow-wrap: anywhere; }
+.catalog-actions { display: flex; gap: 8px; flex: none; }
+
+video { width: 100%; max-height: 62vh; background: #000; border-radius: 10px; }
+.player-panel .diagnostics { margin-top: 16px; }
+.event-log { max-height: 230px; overflow: auto; padding-left: 28px; color: var(--muted); }
+.event-log li { margin: 5px 0; overflow-wrap: anywhere; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border-bottom: 1px solid var(--border); padding: 9px; text-align: left; }
+th:last-child, td:last-child { width: 180px; font-weight: 800; }
+.report { margin-top: 16px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .86rem; }
+
+@media (max-width: 680px) {
+    .page-header { align-items: flex-start; flex-direction: column; }
+    .form-grid { grid-template-columns: 1fr; }
+    .form-grid .wide { grid-column: auto; }
+    .diagnostics { grid-template-columns: 1fr; gap: 3px; }
+    .diagnostics dd { margin-bottom: 8px; }
+    .catalog-item { align-items: flex-start; flex-direction: column; }
+}

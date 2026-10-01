@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Semyra — laboratório IPTV no navegador</title>
+    <link rel="stylesheet" href="iptv-spike.css">
+</head>
+<body>
+    <header class="page-header">
+        <div>
+            <p class="eyebrow">Semyra · Etapa 10A</p>
+            <h1>Laboratório IPTV no navegador</h1>
+            <p>Diagnóstico local de compatibilidade. Nenhum dado é enviado ao backend do Semyra.</p>
+        </div>
+        <button id="clear-data" class="danger" type="button">Limpar dados</button>
+    </header>
+
+    <main>
+        <aside class="notice">
+            Use apenas fontes IPTV às quais você tenha acesso autorizado. O Semyra não fornece listas, canais ou assinaturas.
+        </aside>
+
+        <section class="panel">
+            <h2>1. Diagnóstico do navegador</h2>
+            <dl id="browser-diagnostics" class="diagnostics"></dl>
+        </section>
+
+        <section class="panel">
+            <h2>2. Fonte para teste</h2>
+            <fieldset class="mode-picker">
+                <legend>Modo</legend>
+                <label><input type="radio" name="source-mode" value="xtream" checked> Xtream-compatible</label>
+                <label><input type="radio" name="source-mode" value="m3u"> M3U</label>
+                <label><input type="radio" name="source-mode" value="direct"> URL de mídia direta</label>
+                <label><input type="radio" name="source-mode" value="mpegts"> MPEG-TS real</label>
+            </fieldset>
+
+            <div id="mode-xtream" class="mode-panel">
+                <div class="form-grid">
+                    <label>Servidor/Base URL
+                        <input id="xtream-base-url" type="url" placeholder="http://servidor:porta" autocomplete="off" spellcheck="false">
+                    </label>
+                    <label>Username
+                        <input id="xtream-username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
+                    </label>
+                    <label>Password
+                        <input id="xtream-password" type="password" autocomplete="new-password" spellcheck="false">
+                    </label>
+                </div>
+                <div class="actions">
+                    <button id="xtream-auth" type="button">Testar conexão</button>
+                    <button id="xtream-live" type="button" disabled>Carregar Live</button>
+                    <button id="xtream-vod" type="button" disabled>Carregar VOD</button>
+                </div>
+                <p id="xtream-input-status" class="input-status" role="status"></p>
+                <p id="xtream-credential-warning" class="warning" hidden>
+                    Na reprodução direta pelo navegador, as credenciais podem aparecer na URL/rede do próprio navegador.
+                    Este laboratório não tenta escondê-las.
+                </p>
+                <dl id="xtream-summary" class="diagnostics"></dl>
+                <div id="xtream-catalog" class="catalog" aria-live="polite"></div>
+            </div>
+
+            <div id="mode-m3u" class="mode-panel" hidden>
+                <div class="form-grid">
+                    <label>URL remota da playlist
+                        <input id="m3u-url" type="url" autocomplete="off" spellcheck="false">
+                    </label>
+                    <div class="field-actions">
+                        <button id="m3u-fetch" type="button">Buscar por URL</button>
+                    </div>
+                    <label>Arquivo local .m3u/.m3u8
+                        <input id="m3u-file" type="file" accept=".m3u,.m3u8,audio/x-mpegurl,application/vnd.apple.mpegurl">
+                    </label>
+                    <label class="wide">Texto M3U
+                        <textarea id="m3u-text" rows="7" placeholder="#EXTM3U&#10;#EXTINF:-1,Canal autorizado&#10;https://exemplo.invalid/live.m3u8"></textarea>
+                    </label>
+                </div>
+                <button id="m3u-parse" type="button">Analisar texto</button>
+                <p id="m3u-input-status" class="input-status" role="status"></p>
+                <div id="m3u-catalog" class="catalog" aria-live="polite"></div>
+            </div>
+
+            <div id="mode-direct" class="mode-panel" hidden>
+                <div class="form-grid">
+                    <label class="wide">URL de mídia
+                        <input id="direct-url" type="url" autocomplete="off" spellcheck="false">
+                    </label>
+                    <label>Tipo
+                        <select id="direct-type">
+                            <option value="auto">Auto</option>
+                            <option value="hls">HLS (.m3u8)</option>
+                            <option value="mp4">MP4/VOD</option>
+                            <option value="ts">MPEG-TS bruto (.ts)</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="actions">
+                    <button id="direct-play" type="button">Testar mídia</button>
+                    <button id="public-hls-test" type="button" class="secondary">Usar HLS público de teste</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="mode-mpegts" class="panel mode-panel" hidden>
+            <h2>3. MPEG-TS real com mpegts.js</h2>
+            <p class="technical-banner"><strong>LOCAL HTTP TEST</strong><br>
+                PRODUCTION HTTPS DIRECT PLAYBACK: currently blocked/risk
+            </p>
+            <p>
+                O endpoint local entrega somente a URL do candidato selecionado. Os bytes de mídia seguem diretamente
+                do navegador para o provider; nenhuma mídia passa pelo PHP.
+            </p>
+            <dl id="mpegts-features" class="diagnostics"></dl>
+            <div class="form-grid">
+                <label>Candidato efêmero
+                    <select id="mpegts-candidate"></select>
+                </label>
+                <div class="field-actions">
+                    <button id="mpegts-refresh" type="button" class="secondary">Atualizar candidatos</button>
+                </div>
+            </div>
+            <div class="actions">
+                <button id="mpegts-play" type="button">Testar candidato</button>
+                <button id="mpegts-pause-resume" type="button" class="secondary">Pausar 5s / retomar</button>
+                <button id="mpegts-reconnect" type="button" class="secondary">Reconectar</button>
+                <button id="mpegts-seek-30" type="button" class="secondary">Seek +30s</button>
+                <button id="mpegts-seek-random" type="button" class="secondary">Seek para metade</button>
+            </div>
+            <p id="mpegts-status" class="input-status" role="status"></p>
+            <p id="mpegts-active-state" class="input-status" role="status"></p>
+            <p id="mpegts-statistics" class="input-status"></p>
+            <h3>Eventos MPEG-TS recentes</h3>
+            <ol id="mpegts-event-log" class="event-log" aria-live="polite"></ol>
+            <label class="wide">MPEGTS.JS PLAYBACK REPORT
+                <textarea id="mpegts-report" class="report" rows="34" readonly></textarea>
+            </label>
+        </section>
+
+        <section class="panel player-panel">
+            <h2>3. Reprodução e eventos</h2>
+            <video id="video" controls playsinline></video>
+            <dl id="video-state" class="diagnostics"></dl>
+            <h3>Eventos recentes</h3>
+            <ol id="event-log" class="event-log" aria-live="polite"></ol>
+        </section>
+
+        <section class="panel">
+            <div class="section-heading">
+                <h2>4. Resultado sanitizado</h2>
+                <button id="copy-report" type="button">Copiar relatório sanitizado</button>
+            </div>
+            <p class="warning">Não envie screenshots contendo os campos antes de eles serem limpos.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Teste</th><th>Resultado</th></tr></thead>
+                    <tbody id="result-matrix"></tbody>
+                </table>
+            </div>
+            <textarea id="sanitized-report" class="report" rows="25" readonly></textarea>
+            <p id="copy-status" role="status"></p>
+        </section>
+    </main>
+
+    <script src="vendor/hls.min.js"></script>
+    <script src="vendor/mpegts.js"></script>
+    <script src="iptv-spike.js"></script>
+    <script src="mpegts-spike.js"></script>
+</body>
+</html>
