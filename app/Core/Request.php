@@ -29,6 +29,21 @@ final class Request
         return $this->queryParams[$key] ?? $default;
     }
 
+    public function header(string $name, ?string $default = null): ?string
+    {
+        $normalized = strtoupper(str_replace('-', '_', trim($name)));
+        if ($normalized === '') {
+            return $default;
+        }
+
+        $serverKey = in_array($normalized, ['CONTENT_TYPE', 'CONTENT_LENGTH'], true)
+            ? $normalized
+            : 'HTTP_' . $normalized;
+        $value = $this->server[$serverKey] ?? null;
+
+        return is_string($value) ? $value : $default;
+    }
+
     public function file(string $key): ?array
     {
         $file = $this->files[$key] ?? null;

@@ -80,7 +80,7 @@ bridge privado futuro
     media ingest plane: provider → H.264/Opus
 ```
 
-`source_type` descreve o conteúdo (`youtube` ou `iptv`); LiveKit é transporte, nunca `source_type`. O backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv`/`live`, `instance_id` e revisão atuais antes de emitir uma credencial com dez minutos de validade. Nenhum Ingress ou lifecycle de bridge foi integrado ao fluxo produtivo.
+`source_type` descreve o conteúdo (`youtube` ou `iptv`); LiveKit é transporte, nunca `source_type`. O backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv`/`live`, `instance_id` e revisão atuais antes de emitir uma credencial com dez minutos de validade.
 
 Na Etapa 10B.2, o polling continua sendo o plano de controle e o browser passa a ser consumidor do plano de mídia:
 
@@ -99,6 +99,28 @@ O SDK `livekit-client` 2.22.3 é distribuído localmente e carregado apenas para
 O nome da room LiveKit deriva deterministicamente de namespace e ID interno da sala. A publisher identity é vinculada à instância da transmissão e deriva de namespace, room ID e `instance_id`; `started_at` continua somente como timestamp observacional. Isso impede reuso após `end` seguido de novo `start`, mesmo quando a nova linha reinicia em revision 1. Viewer identities são aleatórias por emissão para permitir duas abas independentes. Nenhum desses identificadores cria owner, host, moderator ou hierarquia no Semyra. A autoridade temporária de playback continua pertencendo exclusivamente à transmissão vigente.
 
 O SDK PHP permanece resolvido em `agence104/livekit-server-sdk` 1.3.5. A auditoria da distribuição registra a inconsistência sem interpretação jurídica: Composer metadata declares MIT; distributed LICENSE file is Apache-2.0. O arquivo `LICENSE` acompanha o runtime no mirror de produção.
+
+### Control plane do bridge IPTV
+
+Na Etapa 10B.3A, o aplicativo PHP/MySQL da HostGator é o control plane e mantém somente desired state, estado do job, lease hash e `ingress_id`. O LiveKit continua sendo o media plane. Um bridge worker externo usa protocolo pull por HTTPS; a HostGator nunca chama o worker e o worker não abre API pública.
+
+```text
+bridge worker externo
+    → claim autenticado por X-Semyra-Worker-Token
+Semyra control plane
+    → LiveKit CreateIngress (WHIP, bypassTranscoding=true)
+    → endpoint WHIP efêmero
+bridge worker
+    → heartbeat/report com lease fencing
+```
+
+O Semyra deriva room, nome do Ingress e publisher pelos serviços existentes, cria e remove o WHIP Ingress com `bypassTranscoding=true` e persiste somente seu ID. Antes de cada criação, o control plane usa `ListIngress` naquela room e remove todos os recursos que correspondem exatamente a room, nome, publisher e input WHIP. Isso recupera o efeito externo de um crash ocorrido depois de `CreateIngress` e antes de persistir `ingress_id`; o ID persistido é uma otimização/handle, não a única fonte para cleanup. O `room_id` do job é um snapshot operacional sem FK e sobrevive à exclusão da sala, permitindo refazer o mesmo contexto determinístico no stop e na reconciliação.
+
+O contrato futuro do feeder é entregar H.264/Opus compatível para passthrough; a 10B.3A não executa mídia. A credencial WHIP e o lease token bruto permanecem em memória; o banco guarda apenas SHA-256 do lease. O worker nunca recebe `LIVEKIT_API_KEY` ou `LIVEKIT_API_SECRET`, e credenciais/origens do provider permanecem exclusivamente do lado do worker. `source_ref` é um identificador opaco de catálogo privado, não uma URL ou credencial.
+
+Jobs usam `transmission_instance_id` como fence principal. Claim, heartbeat, report, renew e mutations do ingress exigem worker, job, instância e lease atual. Uma lease expirada pode ser reclamada até o limite configurado; todos os Ingresses determinísticos anteriores são removidos antes da criação do próximo. Se listing ou qualquer delete falhar, o job fica em `ingress_cleanup_pending` e nenhuma nova criação é permitida. End, replacement, mudança para uma fonte que não seja IPTV Live ou exclusão da sala levam o job a `stopping`; o mesmo discovery determinístico encontra órfãos mesmo quando `ingress_id` está nulo.
+
+O diretório `bridge-worker/` é um artefato de implantação separado e não entra no mirror HostGator. Nesta etapa ele executa somente `--dry-run` para provar claim, heartbeat e report: não há GStreamer produtivo, loop daemon, provider, seleção IPTV ou publicação real de mídia.
 
 ## Fluxo de autenticação opcional
 

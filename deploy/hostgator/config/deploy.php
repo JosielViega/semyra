@@ -23,6 +23,7 @@ return [
         '.github',
         '.phpunit.cache',
         'bin',
+        'bridge-worker',
         'deploy',
         'docs',
         'tests',

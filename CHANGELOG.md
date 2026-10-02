@@ -10,6 +10,7 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Fundação do lifecycle externo do bridge IPTV por control plane pull, jobs persistentes, leases com fencing por `instance_id` e gerenciamento de WHIP Ingress; o worker desta etapa opera somente em dry-run, sem provider ou mídia produtiva.
 - Viewer browser LiveKit para transmissões `iptv`/`live`, com bundle local lazy-loaded, token subscribe-only vinculado à revisão e filtro do publisher esperado; a criação e seleção IPTV pelo usuário ainda não fazem parte do produto.
 - Fundação backend opcional do LiveKit, com configuração segura e emissão de credenciais curtas subscribe-only vinculadas à revisão da transmissão.
 - Identidade persistente de contas nas salas, com nickname fixo, participantes lógicos deduplicados e ownership de transmissão durável por usuário autenticado.

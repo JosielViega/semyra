@@ -4,6 +4,8 @@
 
 Este laboratório experimental valida voz WebRTC (Etapa 10A.4A), o bridge IPTV MPEG-TS → WHIP → LiveKit (Etapa 10A.4B) e prepara o smoke test local do viewer real das salas Semyra (Etapa 10B.2). O harness não cria fluxo produtivo de seleção IPTV nem lifecycle de bridge.
 
+Para a fundação 10B.3A, `media-bridge-job-fixture.php create|stop` cria ou solicita parada de um job local usando `MEDIA_BRIDGE_SOURCE_REF` fornecido apenas pelo ambiente privado. `media-bridge-cleanup.php` solicita stop e encerra a fixture com CAS de instância. O cliente separado `bridge-worker/worker.php --dry-run` prova o protocolo pull sem publicar mídia e sem exibir ou salvar a credencial WHIP.
+
 ## Viewer real Semyra (10B.2)
 
 Use somente com `APP_ENV=local` ou `testing` e banco local. O harness recusa outros ambientes:

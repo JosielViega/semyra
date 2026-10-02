@@ -28,7 +28,7 @@ final class HostgatorDeployManifestTest extends TestCase
             self::assertContains($item, $this->manifest['protected_names']);
         }
 
-        foreach (['tests', 'public/uploads', 'storage/logs', 'storage/cache', 'vendor'] as $item) {
+        foreach (['tests', 'bridge-worker', 'public/uploads', 'storage/logs', 'storage/cache', 'vendor'] as $item) {
             self::assertContains($item, $this->manifest['ignore']);
         }
     }

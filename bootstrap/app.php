@@ -28,6 +28,7 @@ Dotenv::createImmutable($root)->safeLoad();
 $appConfig = require $root . '/config/app.php';
 $databaseConfig = require $root . '/config/database.php';
 $liveKitConfig = require $root . '/config/livekit.php';
+$mediaBridgeConfig = require $root . '/config/media_bridge.php';
 $logger = new Logger($root . '/storage/logs');
 (new ErrorHandler($logger, $appConfig['debug']))->register();
 
@@ -54,6 +55,7 @@ $session->start([
 return [
     'config' => $appConfig,
     'livekit' => $liveKitConfig,
+    'media_bridge' => $mediaBridgeConfig,
     'request' => Request::capture(),
     'router' => new Router(),
     'view' => new View($root . '/resources/views'),

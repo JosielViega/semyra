@@ -49,7 +49,13 @@ O `instance_id` é um valor público opaco, imutável por execução e não func
 
 Tokens permanecem somente em memória durante a requisição e a conexão; não entram em DOM, URL, cookie, logs, `localStorage`, `sessionStorage` ou IndexedDB. O browser conecta com `autoSubscribe=false` e aceita para playback somente tracks cuja participant identity corresponda exatamente ao publisher esperado retornado pelo backend. Esse binding funcional reduz exposição acidental no player, mas não substitui autorização server-side.
 
-Credenciais do provider IPTV, origem MPEG-TS e endpoints/chaves WHIP continuam fora do browser e da aplicação produtiva nesta etapa. O API key aparece como issuer dentro do JWT pelo contrato LiveKit, mas não é retornado como campo explícito.
+O worker do bridge autentica-se por um machine secret independente de 64 caracteres hexadecimais no header `X-Semyra-Worker-Token`. Esse segredo não é uma API key LiveKit, lease, credencial WHIP ou credencial de provider. A API interna não usa sessão nem CSRF porque é machine-to-machine; em produção exige HTTPS, enquanto HTTP é aceito somente em `localhost`/`127.0.0.1` para `local` ou `testing`.
+
+Cada claim emite um lease token aleatório de 256 bits. O valor bruto fica somente na memória do worker e o MySQL armazena apenas seu SHA-256. Worker ID, job ID, `transmission_instance_id` e lease vigente formam o fence das operações seguintes. `instance_id` é público e opaco, mas não autentica sem machine secret e lease. Leases expiradas ou substituídas não podem renovar, publicar estado ou alterar Ingress.
+
+`LIVEKIT_API_SECRET` e a API key permanecem exclusivamente no control plane. O Semyra entrega ao worker somente a conexão WHIP efêmera da instância e nunca a persiste, registra ou inclui em documentação. Somente `ingress_id` pode permanecer no banco para cleanup. O retorno potencialmente sensível de `ListIngress` é filtrado dentro do gateway: a aplicação recebe apenas IDs de recursos com match exato de room, nome, publisher e input WHIP; URL, stream key e o objeto `IngressInfo` não atravessam essa abstração. Um erro Twirp estruturado `not_found` no delete é tratado como recurso já ausente, sem parsing da mensagem.
+
+Efeitos externos permanecem recuperáveis pelo ownership determinístico e pela reconciliação via `ListIngress`, inclusive após crash antes de persistir o ID ou exclusão da sala. Para isso, `room_id` é mantido como snapshot operacional no job, sem FK para `rooms`; ele não concede acesso nem substitui validação de lease. Credenciais e URLs do provider IPTV permanecem worker-side; o Semyra guarda apenas `source_ref` opaco e não secreto. O API key pode aparecer como issuer em JWTs de viewer pelo contrato LiveKit, mas não é retornado como campo explícito da API do bridge.
 
 ## Mirror de produção
 
