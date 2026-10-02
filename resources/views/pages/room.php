@@ -67,6 +67,8 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         data-presence-url="/room/<?= e($room['code']) ?>/presence"
         data-leave-url="/room/<?= e($room['code']) ?>/leave"
         data-playback-url="/room/<?= e($room['code']) ?>/transmission/playback"
+        data-livekit-viewer-token-url="/room/<?= e($room['code']) ?>/livekit/viewer-token"
+        data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"
         data-csrf-token="<?= e($csrfToken) ?>"
         data-initial-source="<?= e($transmission['source'] ?? '') ?>"
         data-initial-video-id="<?= e($transmission['youtube_video_id'] ?? '') ?>"
@@ -83,7 +85,10 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         data-initial-live-sync-delay-ms="<?= e((string) ($transmission['playback']['live_sync_delay_ms'] ?? '')) ?>"
     >
         <div class="room-stage" aria-hidden="true">
-            <div id="room-player-mount" class="room-player-frame"></div>
+            <div id="room-player-mount" class="room-player-frame">
+                <div class="room-player-source" data-youtube-player-mount></div>
+                <div class="room-player-source" data-livekit-player-mount hidden></div>
+            </div>
             <div class="room-stage-shade"></div>
         </div>
 
@@ -111,9 +116,10 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                 <div class="room-owner-copy" aria-live="polite">
                     <span data-room-owner><?= $transmission !== null ? e(($transmission['is_owner'] ? 'Você' : $transmission['owner_name']) . ' está transmitindo') : 'Sem transmissão ativa' ?></span>
                     <span class="room-player-status" id="youtube-player-status" role="status" aria-live="polite"></span>
+                    <span class="room-player-status" id="livekit-player-status" role="status" aria-live="polite" hidden></span>
                 </div>
                 <div class="room-player-bar">
-                <div class="room-shared-playback" data-shared-playback-controls<?= $transmission === null ? ' hidden' : '' ?>>
+                <div class="room-shared-playback" data-shared-playback-controls<?= ($transmission['source'] ?? null) !== 'youtube' ? ' hidden' : '' ?>>
                     <button type="button" class="room-icon-button" data-playback-sync aria-label="Sincronizar reprodução" hidden><svg class="room-icon" aria-hidden="true"><use href="#room-icon-sync"></use></svg></button>
                     <button type="button" class="room-icon-button" data-playback-toggle aria-label="<?= $initialPlaying ? 'Pausar' : 'Reproduzir' ?> transmissão" data-state="<?= $initialPlaying ? 'playing' : 'paused' ?>"><svg class="room-icon" data-icon-play aria-hidden="true"<?= $initialPlaying ? ' hidden' : '' ?>><use href="#room-icon-play"></use></svg><svg class="room-icon" data-icon-pause aria-hidden="true"<?= $initialPlaying ? '' : ' hidden' ?>><use href="#room-icon-pause"></use></svg></button>
                     <label class="room-visually-hidden" for="room-playback-seek">Posição da transmissão</label>
@@ -218,6 +224,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
 
     <script src="/assets/js/room-media.js?v=reload-sync-1" defer></script>
     <script src="/assets/js/room-player.js?v=8b-identity" defer></script>
+    <script src="/assets/js/room-livekit-player.js?v=10b2-livekit-viewer" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
     <script src="/assets/js/room-playback.js?v=reload-sync-1" defer></script>

@@ -218,7 +218,8 @@
             && left.videoId === right.videoId
             && left.revision === right.revision
             && left.ownerName === right.ownerName
-            && left.isOwner === right.isOwner);
+            && left.isOwner === right.isOwner
+            && left.mediaMode === right.mediaMode);
 
     const applyTransmission = (transmission) => {
         if (hasAppliedTransmission && sameTransmission(currentTransmission, transmission)) {
@@ -256,7 +257,9 @@
     const initialTransmission = Number.isSafeInteger(initialRevision) && initialRevision > 0
         ? {
             source: shell.dataset.initialSource ?? '',
-            videoId: shell.dataset.initialVideoId ?? '',
+            videoId: shell.dataset.initialSource === 'youtube'
+                ? (shell.dataset.initialVideoId ?? '')
+                : null,
             revision: initialRevision,
             ownerName: shell.dataset.initialOwnerName || 'Participante',
             isOwner: shell.dataset.initialIsOwner === '1',

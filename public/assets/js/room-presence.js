@@ -66,6 +66,38 @@
             return null;
         }
         const playback = transmission?.playback;
+        if (!Number.isSafeInteger(transmission?.revision)
+            || transmission.revision < 1
+            || typeof transmission.owner_name !== 'string'
+            || typeof transmission.is_owner !== 'boolean') {
+            return null;
+        }
+        if (transmission.source === 'iptv') {
+            if (transmission.media_mode !== 'live'
+                || (transmission.youtube_video_id !== null
+                    && transmission.youtube_video_id !== undefined)) {
+                return null;
+            }
+            return {
+                source: 'iptv',
+                videoId: null,
+                revision: transmission.revision,
+                ownerName: transmission.owner_name,
+                isOwner: transmission.is_owner,
+                mediaMode: 'live',
+                playback: {
+                    state: ['playing', 'paused'].includes(playback?.state)
+                        ? playback.state : 'playing',
+                    positionMs: null,
+                    revision: Number.isSafeInteger(playback?.revision) && playback.revision > 0
+                        ? playback.revision : 1,
+                    atLiveEdge: false,
+                    liveEdgePositionMs: null,
+                    liveSyncPositionMs: null,
+                    liveSyncDelayMs: null,
+                },
+            };
+        }
         const liveEdgePositionMs = playback?.live_edge_position_ms === null
             ? null
             : Number(playback?.live_edge_position_ms);
@@ -78,10 +110,6 @@
         if (transmission?.source !== 'youtube'
             || typeof transmission.youtube_video_id !== 'string'
             || !/^[A-Za-z0-9_-]{11}$/.test(transmission.youtube_video_id)
-            || !Number.isSafeInteger(transmission.revision)
-            || transmission.revision < 1
-            || typeof transmission.owner_name !== 'string'
-            || typeof transmission.is_owner !== 'boolean'
             || !['unknown', 'vod', 'live'].includes(transmission.media_mode)
             || !['playing', 'paused'].includes(playback?.state)
             || (playback?.position_ms !== null

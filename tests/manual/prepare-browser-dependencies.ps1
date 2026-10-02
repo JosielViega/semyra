@@ -71,6 +71,18 @@ try {
         -LicenseSource 'LICENSE' `
         -LicenseDestination 'livekit-spike/vendor-js/LICENSE-livekit-client.txt' `
         -ExpectedSha256 '7FA17E37AF5E996D8A25F15A637DCC0620215BC01B394E5D209F726AFE7DC04D'
+
+    $projectRoot = Resolve-Path (Join-Path $manualRoot '..\..')
+    $productionRoot = Join-Path $projectRoot 'public\assets\vendor\livekit'
+    New-Item -ItemType Directory -Path $productionRoot -Force | Out-Null
+    $preparedBundle = Join-Path $manualRoot 'livekit-spike\vendor-js\livekit-client.umd.js'
+    $preparedLicense = Join-Path $manualRoot 'livekit-spike\vendor-js\LICENSE-livekit-client.txt'
+    if ((Get-FileHash -LiteralPath $preparedBundle -Algorithm SHA256).Hash `
+        -ne '7FA17E37AF5E996D8A25F15A637DCC0620215BC01B394E5D209F726AFE7DC04D') {
+        throw 'Prepared livekit-client bundle failed the production integrity check.'
+    }
+    Copy-Item -LiteralPath $preparedBundle -Destination (Join-Path $productionRoot 'livekit-client.umd.js') -Force
+    Copy-Item -LiteralPath $preparedLicense -Destination (Join-Path $productionRoot 'LICENSE-livekit-client.txt') -Force
 } finally {
     if (Test-Path -LiteralPath $temporaryRoot) {
         Remove-Item -LiteralPath $temporaryRoot -Recurse -Force

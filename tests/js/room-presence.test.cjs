@@ -19,6 +19,8 @@ let randomCalls = 0;
 let beaconSucceeds = true;
 const listeners = new Map();
 const windowListeners = new Map();
+const dispatched = [];
+let responsePayload = {participants: [], transmission: null};
 const element = () => ({
     textContent: '',
     classList: {toggle() {}},
@@ -42,7 +44,7 @@ const document = {
     createDocumentFragment: element,
     createElement: element,
     addEventListener: (type, listener) => listeners.set(type, listener),
-    dispatchEvent() {},
+    dispatchEvent(event) { dispatched.push(event); },
 };
 const window = {
     SemyraMedia: {shouldBootstrapLiveEdge: () => false},
@@ -79,7 +81,7 @@ const fetch = async (endpoint, options) => {
     return {
         ok: true,
         status: 200,
-        json: async () => ({participants: [], transmission: null}),
+        json: async () => responsePayload,
     };
 };
 
@@ -150,6 +152,26 @@ const flush = async () => {
     assert.equal(leaveFetches[0].options.credentials, 'same-origin');
     assert.equal(leaveFetches[0].body.get('_token'), 'csrf');
     assert.equal(leaveFetches[0].body.get('player_instance_id'), firstNonce);
+
+    responsePayload = {participants: [], transmission: {
+        source: 'iptv', youtube_video_id: null, revision: 8,
+        owner_name: 'Bridge local', is_owner: false, media_mode: 'live',
+        playback: {state: 'playing', position_ms: 0, revision: 1,
+            at_live_edge: false, live_edge_position_ms: null,
+            live_sync_position_ms: null, live_sync_delay_ms: null},
+    }};
+    scheduled.shift()();
+    await flush();
+    const iptvEvent = dispatched.filter((event) => event.type === 'semyra:presence-updated').at(-1);
+    assert.equal(iptvEvent.detail.transmission.source, 'iptv');
+    assert.equal(iptvEvent.detail.transmission.videoId, null);
+    assert.equal(iptvEvent.detail.transmission.mediaMode, 'live');
+
+    responsePayload.transmission.media_mode = 'vod';
+    scheduled.shift()();
+    await flush();
+    const vodEvent = dispatched.filter((event) => event.type === 'semyra:presence-updated').at(-1);
+    assert.equal(vodEvent.detail.transmission, null, 'IPTV VOD is not applicable in this stage');
 
     assert.equal(source.includes('localStorage'), false);
     assert.equal(source.includes('sessionStorage'), false);

@@ -1,7 +1,7 @@
 'use strict';
 
 (() => {
-    const mount = document.getElementById('room-player-mount');
+    const mount = document.querySelector('[data-youtube-player-mount]');
     if (!mount) {
         return;
     }
@@ -50,6 +50,7 @@
         if (!statusElement) {
             return;
         }
+        statusElement.hidden = message === '';
         statusElement.textContent = message;
         statusElement.classList.toggle('is-error', isError);
     };
@@ -355,7 +356,7 @@
     };
 
     const applyTransmission = async (transmission) => {
-        if (transmission === null) {
+        if (transmission === null || transmission.source !== 'youtube') {
             pendingTransmission = null;
             pendingSharedPlayback = null;
             currentRevision = null;
@@ -364,16 +365,17 @@
             appliedAnchorReady = false;
             currentIsOwner = false;
             destroyPlayer();
+            mount.hidden = true;
             updateStatus('');
             return;
         }
-        if (transmission.source !== 'youtube'
-            || !videoIdPattern.test(transmission.videoId)
+        if (!videoIdPattern.test(transmission.videoId)
             || !Number.isSafeInteger(transmission.revision)
             || transmission.revision < 1) {
             return;
         }
 
+        mount.hidden = false;
         currentIsOwner = transmission.isOwner === true;
         receiveSharedPlayback({
             transmissionRevision: transmission.revision,

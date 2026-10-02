@@ -2,7 +2,26 @@
 
 ## Objetivo
 
-Este laboratório experimental valida, de forma isolada, voz WebRTC (Etapa 10A.4A) e o bridge IPTV MPEG-TS → WHIP → LiveKit (Etapa 10A.4B). Ele não está integrado às salas do Semyra.
+Este laboratório experimental valida voz WebRTC (Etapa 10A.4A), o bridge IPTV MPEG-TS → WHIP → LiveKit (Etapa 10A.4B) e prepara o smoke test local do viewer real das salas Semyra (Etapa 10B.2). O harness não cria fluxo produtivo de seleção IPTV nem lifecycle de bridge.
+
+## Viewer real Semyra (10B.2)
+
+Use somente com `APP_ENV=local` ou `testing` e banco local. O harness recusa outros ambientes:
+
+```powershell
+php tests/manual/livekit-spike/semyra-room-fixture.php start ROOMCODE
+php tests/manual/livekit-spike/create-semyra-whip-ingress.php
+powershell -ExecutionPolicy Bypass -File tests/manual/livekit-spike/run-semyra-local.ps1
+```
+
+Publique primeiro o pipeline sintético no endpoint WHIP privado já preparado e abra a mesma sala em dois browsers. A fixture grava room name e publisher identity somente em `.private`; o servidor recebe credenciais LiveKit apenas no environment do processo. Para troca controlada, execute novamente `start ROOMCODE`, recrie o Ingress e confirme a nova revisão. Para cleanup:
+
+```powershell
+php tests/manual/livekit-spike/delete-whip-ingress.php
+php tests/manual/livekit-spike/semyra-room-fixture.php end
+```
+
+O `DELETE` da fixture exige sala, revisão, timestamp, fonte e owner sintético originais, portanto não remove uma transmissão posterior. Feche os viewers, pare feeder/GStreamer e o servidor local. Nunca execute esse fluxo contra HostGator ou produção.
 
 ## Arquitetura
 

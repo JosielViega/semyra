@@ -45,7 +45,9 @@ O LiveKit é uma integração opcional e fica desabilitado por padrão. `LIVEKIT
 
 Room names e participant identities são opacos, sem código público de sala, e-mail, nome, user ID ou participant key em claro. O acesso exige CSRF, participação vigente na sala, identidade autenticada compatível e uma transmissão IPTV Live na mesma revisão solicitada. Cada emissão recebe viewer identity aleatória; a identidade esperada do publisher deriva de room, revision e timestamp imutável de início, mudando também quando uma nova linha reinicia a revision após o encerramento anterior.
 
-Tokens permanecem somente em memória durante a requisição. Credenciais do provider IPTV e endpoints/chaves WHIP continuam fora da aplicação nesta etapa. O API key aparece como issuer dentro do JWT pelo contrato LiveKit, mas não é retornado como campo explícito.
+Tokens permanecem somente em memória durante a requisição e a conexão; não entram em DOM, URL, cookie, logs, `localStorage`, `sessionStorage` ou IndexedDB. O browser conecta com `autoSubscribe=false` e aceita para playback somente tracks cuja participant identity corresponda exatamente ao publisher esperado retornado pelo backend. Esse binding funcional reduz exposição acidental no player, mas não substitui autorização server-side.
+
+Credenciais do provider IPTV, origem MPEG-TS e endpoints/chaves WHIP continuam fora do browser e da aplicação produtiva nesta etapa. O API key aparece como issuer dentro do JWT pelo contrato LiveKit, mas não é retornado como campo explícito.
 
 ## Mirror de produção
 

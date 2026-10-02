@@ -80,7 +80,21 @@ bridge privado futuro
     media ingest plane: provider → H.264/Opus
 ```
 
-`source_type` descreve o conteúdo (`youtube` e, futuramente, `iptv`); LiveKit é transporte, nunca `source_type`. Nesta etapa, o backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv`/`live` e revisão atual antes de emitir uma credencial com dez minutos de validade. O frontend produtivo ainda não consome LiveKit, e nenhum Ingress ou bridge foi integrado.
+`source_type` descreve o conteúdo (`youtube` ou `iptv`); LiveKit é transporte, nunca `source_type`. O backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv`/`live` e revisão atual antes de emitir uma credencial com dez minutos de validade. Nenhum Ingress ou lifecycle de bridge foi integrado ao fluxo produtivo.
+
+Na Etapa 10B.2, o polling continua sendo o plano de controle e o browser passa a ser consumidor do plano de mídia:
+
+```text
+room-presence.js
+    → transmission iptv/live + revision
+POST /room/{code}/livekit/viewer-token
+    → URL + JWT efêmero + publisher esperado
+room-livekit-player.js
+    → LiveKit WebRTC, autoSubscribe=false
+tracks somente do publisher esperado
+```
+
+O SDK `livekit-client` 2.22.3 é distribuído localmente e carregado apenas para `iptv`/`live`. YouTube e LiveKit possuem mounts e status independentes. Mudança de fonte, revisão ou encerramento incrementa uma geração local, desconecta a room anterior e descarta token, publisher e tracks antigos. IPTV Live não participa de Play/Pause/Seek, DVR, live edge ou resync compartilhado nesta etapa; volume, mute e fullscreen permanecem locais.
 
 O nome da room LiveKit deriva deterministicamente de namespace e ID interno da sala. A publisher identity é vinculada à instância da transmissão e inclui room ID, revision e o `started_at` imutável: isso impede reuso após `end` seguido de novo `start`, mesmo quando a nova linha reinicia em revision 1. Viewer identities são aleatórias por emissão para permitir duas abas independentes. Nenhum desses identificadores cria owner, host, moderator ou hierarquia no Semyra. A autoridade temporária de playback continua pertencendo exclusivamente à transmissão vigente.
 

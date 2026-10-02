@@ -58,6 +58,11 @@ final class RoomViewTest extends TestCase
         self::assertMatchesRegularExpression('/value="vod"\s+checked/', $html);
         self::assertStringContainsString('value="live"', $html);
         self::assertStringContainsString('id="room-player-mount"', $html);
+        self::assertStringContainsString('data-youtube-player-mount', $html);
+        self::assertStringContainsString('data-livekit-player-mount hidden', $html);
+        self::assertStringContainsString('data-livekit-viewer-token-url="/room/7MKP3WQH/livekit/viewer-token"', $html);
+        self::assertStringContainsString('data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"', $html);
+        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=10b2-livekit-viewer', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
         self::assertStringContainsString('/assets/css/room.css?v=8b-polish-2', $html);
@@ -116,6 +121,26 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-end-transmission hidden', $html);
         self::assertStringContainsString('Iniciar minha transmissão', $html);
         self::assertMatchesRegularExpression('/data-shared-playback-controls>/', $html);
+    }
+
+    public function testIptvLiveStartsWithoutYouTubeIdAndHidesSharedPlaybackControls(): void
+    {
+        $transmission = $this->transmission(false);
+        $transmission['source'] = 'iptv';
+        $transmission['youtube_video_id'] = null;
+        $transmission['media_mode'] = 'live';
+
+        $html = $this->renderRoom([
+            'identity' => $this->identity(),
+            'transmission' => $transmission,
+        ]);
+
+        self::assertStringContainsString('data-initial-source="iptv"', $html);
+        self::assertStringContainsString('data-initial-video-id=""', $html);
+        self::assertStringContainsString('data-shared-playback-controls hidden', $html);
+        self::assertStringNotContainsString('participant_token', $html);
+        self::assertStringNotContainsString('publisher_identity', $html);
+        self::assertStringNotContainsString('LIVEKIT_API_KEY', $html);
     }
 
     public function testTelemetryIsRenderedOnlyInDebugMode(): void
