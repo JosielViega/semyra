@@ -6,6 +6,7 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- Ingresses externos do bridge agora recebem uma geração por attempt, impedindo cleanup de lease expirada de atingir o recurso de uma lease posterior.
 - Comandos, encerramento, observações de live edge e viewers agora são vinculados a um `instance_id` imutável por transmissão, evitando colisões após `end` seguido de novo `start` com revision reutilizada.
 
 ### Added

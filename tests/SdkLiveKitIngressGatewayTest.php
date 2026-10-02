@@ -19,7 +19,7 @@ final class SdkLiveKitIngressGatewayTest extends TestCase
     {
         $client = new RecordingIngressClient();
         $gateway = new SdkLiveKitIngressGateway($this->config(), $client);
-        $result = $gateway->createWhipIngress('smy_b_' . str_repeat('a', 32), 'smy_r_room', 'smy_i_publisher');
+        $result = $gateway->createWhipIngress('smy_b_' . str_repeat('a', 32) . '_a1', 'smy_r_room', 'smy_i_publisher');
 
         self::assertSame('https://unit-test.invalid', $gateway->apiUrl());
         self::assertSame(IngressInput::WHIP_INPUT, $client->createArgs[0]);

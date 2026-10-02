@@ -79,7 +79,7 @@ final class MediaBridgeJobRepository implements MediaBridgeJobStore
     public function staleJobsForCleanup(): array
     {
         $statement = $this->database->connection()->query(
-            'SELECT id, room_id, transmission_instance_id, ingress_id FROM media_bridge_jobs '
+            'SELECT id, room_id, transmission_instance_id, attempt_count, ingress_id FROM media_bridge_jobs '
             . "WHERE desired_state = 'stopped' AND "
             . "(status = 'stopping' OR last_error_code = 'ingress_cleanup_pending')",
         );

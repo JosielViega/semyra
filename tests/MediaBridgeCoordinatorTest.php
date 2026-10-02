@@ -29,7 +29,7 @@ final class MediaBridgeCoordinatorTest extends TestCase
         self::assertSame(hash('sha256', $claim['lease_token']), $store->job['lease_token_hash']);
         self::assertSame('INGRESS_NEW', $store->job['ingress_id']);
         self::assertArrayNotHasKey('whip_endpoint', $store->job);
-        self::assertSame('smy_b_' . self::INSTANCE, $gateway->created[0]['name']);
+        self::assertSame('smy_b_' . self::INSTANCE . '_a1', $gateway->created[0]['name']);
         self::assertMatchesRegularExpression('/^smy_r_[a-f0-9]{32}$/', $gateway->created[0]['room']);
         self::assertMatchesRegularExpression('/^smy_i_[a-f0-9]{32}$/', $gateway->created[0]['publisher']);
     }
@@ -56,7 +56,7 @@ final class MediaBridgeCoordinatorTest extends TestCase
     {
         [$coordinator, $store, $gateway] = $this->system();
         $store->job['ingress_id'] = 'INGRESS_OLD';
-        $gateway->addOwnedIngress('INGRESS_OLD', 11, self::INSTANCE);
+        $gateway->addOwnedIngress('INGRESS_OLD', 11, self::INSTANCE, 1);
         $coordinator->claim(self::WORKER);
 
         self::assertSame(['delete:INGRESS_OLD', 'create:INGRESS_NEW'], $gateway->events);
@@ -66,13 +66,17 @@ final class MediaBridgeCoordinatorTest extends TestCase
     public function testCreateRaceDeletesNewIngressAndNeverReturnsCredential(): void
     {
         [$coordinator, $store, $gateway] = $this->system();
-        $gateway->afterCreate = static function () use ($store): void { $store->leaseActive = false; };
+        $gateway->afterCreate = static function () use ($store, $gateway): void {
+            $store->leaseActive = false;
+            $gateway->addOwnedIngress('INGRESS_FUTURE', 11, self::INSTANCE, 2);
+        };
 
         $this->expectExceptionObject(new MediaBridgeProtocolException('lease_lost', 409));
         try {
             $coordinator->claim(self::WORKER);
         } finally {
             self::assertContains('INGRESS_NEW', $gateway->deleted);
+            self::assertArrayHasKey('INGRESS_FUTURE', $gateway->ingresses);
         }
     }
 
@@ -123,6 +127,24 @@ final class MediaBridgeCoordinatorTest extends TestCase
         self::assertSame(['action' => 'keep', 'lease_seconds' => 20], $coordinator->heartbeat(
             7, self::INSTANCE, self::WORKER, $leaseB['lease_token'], 'running',
         ));
+    }
+
+    public function testEachClaimUsesItsAttemptGenerationAndReclaimCleansOnlyThroughCurrentAttempt(): void
+    {
+        [$coordinator, , $gateway] = $this->system();
+        $coordinator->claim(self::WORKER);
+        $gateway->findNames = [];
+
+        $coordinator->claim(self::WORKER);
+
+        self::assertSame([
+            'smy_b_' . self::INSTANCE . '_a1',
+            'smy_b_' . self::INSTANCE . '_a2',
+        ], $gateway->findNames);
+        self::assertSame([
+            'smy_b_' . self::INSTANCE . '_a1',
+            'smy_b_' . self::INSTANCE . '_a2',
+        ], array_column($gateway->created, 'name'));
     }
 
     public function testReplacementOrEndReturnsStopWithoutRenewingLease(): void
@@ -201,9 +223,10 @@ final class MediaBridgeCoordinatorTest extends TestCase
             'id' => 99,
             'room_id' => 11,
             'transmission_instance_id' => self::INSTANCE,
+            'attempt_count' => 1,
             'ingress_id' => 'INGRESS_STALE',
         ]];
-        $gateway->addOwnedIngress('INGRESS_STALE', 11, self::INSTANCE);
+        $gateway->addOwnedIngress('INGRESS_STALE', 11, self::INSTANCE, 1);
         $store->claimable = false;
 
         self::assertNull($coordinator->claim(self::WORKER));
@@ -214,7 +237,7 @@ final class MediaBridgeCoordinatorTest extends TestCase
     public function testNullStoredIdOrphanIsDeletedBeforeNewIngress(): void
     {
         [$coordinator, $store, $gateway] = $this->system();
-        $gateway->addOwnedIngress('INGRESS_ORPHAN', 11, self::INSTANCE);
+        $gateway->addOwnedIngress('INGRESS_ORPHAN', 11, self::INSTANCE, 1);
 
         $coordinator->claim(self::WORKER);
 
@@ -243,14 +266,18 @@ final class MediaBridgeCoordinatorTest extends TestCase
         self::assertContains('INGRESS_X', $gateway->deleted);
         self::assertSame(['INGRESS_Y'], array_keys($gateway->ingresses));
         self::assertSame('INGRESS_Y', $store->job['ingress_id']);
+        self::assertSame([
+            'smy_b_' . self::INSTANCE . '_a1',
+            'smy_b_' . self::INSTANCE . '_a2',
+        ], array_column($gateway->created, 'name'));
     }
 
     public function testStrictOwnershipLeavesAnotherInstanceInSameRoomUntouched(): void
     {
         [$coordinator, , $gateway] = $this->system();
         $other = 'cccccccccccccccccccccccccccccccc';
-        $gateway->addOwnedIngress('INGRESS_AAA', 11, self::INSTANCE);
-        $gateway->addOwnedIngress('INGRESS_BBB', 11, $other);
+        $gateway->addOwnedIngress('INGRESS_AAA', 11, self::INSTANCE, 1);
+        $gateway->addOwnedIngress('INGRESS_BBB', 11, $other, 1);
 
         $coordinator->claim(self::WORKER);
 
@@ -262,8 +289,8 @@ final class MediaBridgeCoordinatorTest extends TestCase
     public function testAllExactMatchesAreDeletedBeforeCreate(): void
     {
         [$coordinator, , $gateway] = $this->system();
-        $gateway->addOwnedIngress('INGRESS_OLD_A', 11, self::INSTANCE);
-        $gateway->addOwnedIngress('INGRESS_OLD_B', 11, self::INSTANCE);
+        $gateway->addOwnedIngress('INGRESS_OLD_A', 11, self::INSTANCE, 1);
+        $gateway->addOwnedIngress('INGRESS_OLD_B', 11, self::INSTANCE, 1);
 
         $coordinator->claim(self::WORKER);
 
@@ -288,7 +315,7 @@ final class MediaBridgeCoordinatorTest extends TestCase
         self::assertSame('ingress_cleanup_pending', $store->job['last_error_code']);
 
         [$coordinator, $store, $gateway] = $this->system();
-        $gateway->addOwnedIngress('INGRESS_ORPHAN', 11, self::INSTANCE);
+        $gateway->addOwnedIngress('INGRESS_ORPHAN', 11, self::INSTANCE, 1);
         $gateway->failDelete = true;
         try {
             $coordinator->claim(self::WORKER);
@@ -308,7 +335,7 @@ final class MediaBridgeCoordinatorTest extends TestCase
         $store->job['ingress_id'] = null;
         $gateway->ingresses = [];
         $gateway->events = [];
-        $gateway->addOwnedIngress('INGRESS_ORPHAN', 11, self::INSTANCE);
+        $gateway->addOwnedIngress('INGRESS_ORPHAN', 11, self::INSTANCE, 1);
         $store->eligible = false;
 
         self::assertSame(['action' => 'stop'], $coordinator->heartbeat(
@@ -317,6 +344,79 @@ final class MediaBridgeCoordinatorTest extends TestCase
         self::assertSame(11, $store->job['room_id'], 'room_id remains the operational snapshot.');
         self::assertContains('INGRESS_ORPHAN', $gateway->deleted);
         self::assertSame([], $gateway->ingresses);
+    }
+
+    public function testOutOfOrderAttemptOneCleanupCannotDeleteAttemptTwo(): void
+    {
+        [$coordinator, $store, $gateway] = $this->system();
+        $claim = $coordinator->claim(self::WORKER);
+        $gateway->findNames = [];
+        $gateway->afterFind = static function () use ($gateway): void {
+            $gateway->addOwnedIngress('INGRESS_ATTEMPT_2', 11, self::INSTANCE, 2);
+        };
+        $store->eligible = false;
+
+        self::assertSame(['action' => 'stop'], $coordinator->heartbeat(
+            7, self::INSTANCE, self::WORKER, $claim['lease_token'], 'running',
+        ));
+
+        self::assertSame(['smy_b_' . self::INSTANCE . '_a1'], $gateway->findNames);
+        self::assertArrayHasKey('INGRESS_ATTEMPT_2', $gateway->ingresses);
+        self::assertNotContains('INGRESS_ATTEMPT_2', $gateway->deleted);
+    }
+
+    public function testStoppedReconciliationCleansEveryHistoricalAttemptThroughSnapshot(): void
+    {
+        [$coordinator, $store, $gateway] = $this->system();
+        $store->staleRows = [[
+            'id' => 99,
+            'room_id' => 11,
+            'transmission_instance_id' => self::INSTANCE,
+            'attempt_count' => 3,
+            'ingress_id' => null,
+        ]];
+        $store->claimable = false;
+        foreach ([1, 2, 3] as $attempt) {
+            $gateway->addOwnedIngress('INGRESS_' . $attempt, 11, self::INSTANCE, $attempt);
+        }
+
+        self::assertNull($coordinator->claim(self::WORKER));
+
+        self::assertSame(['INGRESS_1', 'INGRESS_2', 'INGRESS_3'], $gateway->deleted);
+        self::assertSame([99], $store->reconciledCleared);
+    }
+
+    public function testStoppedJobBeforeFirstClaimNeedsNoExternalGenerationCleanup(): void
+    {
+        [$coordinator, $store, $gateway] = $this->system();
+        $store->staleRows = [[
+            'id' => 99,
+            'room_id' => 11,
+            'transmission_instance_id' => self::INSTANCE,
+            'attempt_count' => 0,
+            'ingress_id' => null,
+        ]];
+        $store->claimable = false;
+
+        self::assertNull($coordinator->claim(self::WORKER));
+
+        self::assertSame([], $gateway->findNames);
+        self::assertSame([99], $store->reconciledCleared);
+    }
+
+    public function testFailedJobRetryUsesNextGeneration(): void
+    {
+        [$coordinator, $store, $gateway] = $this->system();
+        $first = $coordinator->claim(self::WORKER);
+        $coordinator->report(7, self::INSTANCE, self::WORKER, $first['lease_token'], 'failed', 'source_failed');
+
+        $coordinator->claim(self::WORKER);
+
+        self::assertSame(2, $store->job['attempt_count']);
+        self::assertSame([
+            'smy_b_' . self::INSTANCE . '_a1',
+            'smy_b_' . self::INSTANCE . '_a2',
+        ], array_column($gateway->created, 'name'));
     }
 
     public function testMaxAttemptsPreventsAnotherClaim(): void
@@ -399,9 +499,11 @@ final class FakeIngressGateway implements LiveKitIngressGateway
     /** @var array<string, array{id: string, name: string, roomName: string, publisherIdentity: string, inputType: int}> */
     public array $ingresses=[];
     public array $createIds=['INGRESS_NEW'];
+    public array $findNames=[];
     public bool $failList=false;
     public bool $failDelete=false;
     public $afterCreate=null;
+    public $afterFind=null;
     public function createWhipIngress(string $name,string $roomName,string $publisherIdentity): array
     {
         $id = array_shift($this->createIds) ?? 'INGRESS_NEW';
@@ -415,13 +517,18 @@ final class FakeIngressGateway implements LiveKitIngressGateway
     public function findOwnedIngressIds(string $roomName,string $ingressName,string $publisherIdentity): array
     {
         if ($this->failList) throw new \RuntimeException('safe test list failure');
-        return array_values(array_map(
+        $this->findNames[]=$ingressName;
+        $ids = array_values(array_map(
             static fn(array $ingress): string => $ingress['id'],
             array_filter($this->ingresses, static fn(array $ingress): bool =>
                 $ingress['roomName']===$roomName && $ingress['name']===$ingressName
                 && $ingress['publisherIdentity']===$publisherIdentity
                 && $ingress['inputType']===\Livekit\IngressInput::WHIP_INPUT),
         ));
+        if (is_callable($this->afterFind)) {
+            $callback=$this->afterFind; $this->afterFind=null; $callback();
+        }
+        return $ids;
     }
     public function deleteIngress(string $ingressId): void
     {
@@ -429,10 +536,10 @@ final class FakeIngressGateway implements LiveKitIngressGateway
         if ($this->failDelete) throw new \RuntimeException('safe test failure');
         $this->deleted[]=$ingressId; unset($this->ingresses[$ingressId]);
     }
-    public function addOwnedIngress(string $id,int $roomId,string $instanceId): void
+    public function addOwnedIngress(string $id,int $roomId,string $instanceId,int $attempt): void
     {
         $context = new LiveKitRoomContext('testing');
-        $this->ingresses[$id]=['id'=>$id,'name'=>'smy_b_'.$instanceId,'roomName'=>$context->roomName($roomId),
+        $this->ingresses[$id]=['id'=>$id,'name'=>'smy_b_'.$instanceId.'_a'.$attempt,'roomName'=>$context->roomName($roomId),
             'publisherIdentity'=>$context->publisherIdentity($roomId,$instanceId),
             'inputType'=>\Livekit\IngressInput::WHIP_INPUT];
     }

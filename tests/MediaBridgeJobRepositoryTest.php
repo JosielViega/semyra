@@ -72,7 +72,10 @@ final class MediaBridgeJobRepositoryTest extends TestCase
     public function testCleanupDiscoveryIncludesSnapshotContextEvenWithoutStoredIngressId(): void
     {
         self::assertSame([], $this->repository->staleJobsForCleanup());
-        self::assertStringContainsString('room_id, transmission_instance_id, ingress_id', $this->pdo->lastQuery);
+        self::assertStringContainsString(
+            'room_id, transmission_instance_id, attempt_count, ingress_id',
+            $this->pdo->lastQuery,
+        );
         self::assertStringContainsString("status = 'stopping'", $this->pdo->lastQuery);
         self::assertStringContainsString("last_error_code = 'ingress_cleanup_pending'", $this->pdo->lastQuery);
         self::assertStringNotContainsString('ingress_id IS NOT NULL', $this->pdo->lastQuery);

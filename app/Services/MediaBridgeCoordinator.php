@@ -35,12 +35,16 @@ final class MediaBridgeCoordinator
         }
         $jobId = (int) $job['id'];
         $instanceId = (string) $job['transmission_instance_id'];
+        $attempt = (int) ($job['attempt_count'] ?? 0);
+        if ($attempt < 1 || $attempt > $this->maxAttempts) {
+            throw new MediaBridgeProtocolException('bridge_unavailable', 503);
+        }
         if (!$this->jobs->currentTransmissionIsEligible($job)) {
             $this->jobs->requestStop($instanceId);
             throw new MediaBridgeProtocolException('transmission_changed', 409);
         }
 
-        if (!$this->cleanupOwnedIngresses($job)) {
+        if (!$this->cleanupOwnedIngresses($job, true)) {
             $this->jobs->recordCleanupPending($jobId);
             throw new MediaBridgeProtocolException('ingress_cleanup_pending', 503);
         }
@@ -53,7 +57,7 @@ final class MediaBridgeCoordinator
 
         try {
             $created = $this->ingress->createWhipIngress(
-                'smy_b_' . $instanceId,
+                MediaBridgeIngressIdentity::name($instanceId, $attempt),
                 $this->roomContext->roomName((int) $job['room_id']),
                 $this->roomContext->publisherIdentity((int) $job['room_id'], $instanceId),
             );
@@ -205,7 +209,7 @@ final class MediaBridgeCoordinator
 
     private function cleanupLeasedIngress(array $job, string $workerId, string $leaseHash): bool
     {
-        if (!$this->cleanupOwnedIngresses($job)) {
+        if (!$this->cleanupOwnedIngresses($job, true)) {
             $this->jobs->recordCleanupPending((int) $job['id']);
             return false;
         }
@@ -223,24 +227,33 @@ final class MediaBridgeCoordinator
         );
     }
 
-    private function cleanupOwnedIngresses(array $job): bool
+    private function cleanupOwnedIngresses(array $job, bool $leaseBound = false): bool
     {
         $roomId = (int) ($job['room_id'] ?? 0);
         $instanceId = (string) ($job['transmission_instance_id'] ?? '');
-        if ($roomId < 1 || preg_match(self::INSTANCE_PATTERN, $instanceId) !== 1) {
+        $attemptCount = (int) ($job['attempt_count'] ?? 0);
+        if ($roomId < 1 || preg_match(self::INSTANCE_PATTERN, $instanceId) !== 1
+            || $attemptCount < 0 || ($leaseBound && ($attemptCount < 1 || $attemptCount > $this->maxAttempts))) {
             return false;
+        }
+        if ($attemptCount === 0) {
+            return true;
         }
 
         try {
-            $ids = $this->ingress->findOwnedIngressIds(
-                $this->roomContext->roomName($roomId),
-                'smy_b_' . $instanceId,
-                $this->roomContext->publisherIdentity($roomId, $instanceId),
-            );
-            foreach ($ids as $ingressId) {
-                if (!is_string($ingressId) || preg_match(self::INGRESS_PATTERN, $ingressId) !== 1
-                    || !$this->deleteIngress($ingressId)) {
-                    return false;
+            $roomName = $this->roomContext->roomName($roomId);
+            $publisherIdentity = $this->roomContext->publisherIdentity($roomId, $instanceId);
+            for ($attempt = 1; $attempt <= $attemptCount; ++$attempt) {
+                $ids = $this->ingress->findOwnedIngressIds(
+                    $roomName,
+                    MediaBridgeIngressIdentity::name($instanceId, $attempt),
+                    $publisherIdentity,
+                );
+                foreach ($ids as $ingressId) {
+                    if (!is_string($ingressId) || preg_match(self::INGRESS_PATTERN, $ingressId) !== 1
+                        || !$this->deleteIngress($ingressId)) {
+                        return false;
+                    }
                 }
             }
         } catch (Throwable) {
