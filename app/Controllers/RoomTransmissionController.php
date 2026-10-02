@@ -112,15 +112,39 @@ final class RoomTransmissionController
         }
 
         $participantKeyHash = hash('sha256', $identity['participant_key']);
-        if (!$this->transmissions->end(
-            (int) $room['id'],
-            $participantKeyHash,
-            $currentUser['id'] ?? null,
-        )) {
+        $transmission = $this->transmissions->findByRoom((int) $room['id']);
+        if ($transmission === null) {
+            return $this->errorResponse('Transmissão alterada', 'A transmissão já foi encerrada ou substituída.', 409);
+        }
+        if (!$this->ownsTransmission($transmission, $participantKeyHash, $currentUser['id'] ?? null)) {
             return $this->errorResponse(
                 'Ação não permitida',
                 'Somente quem iniciou a transmissão atual pode encerrá-la.',
                 403,
+            );
+        }
+
+        $instanceId = $this->instanceId($this->request->input('transmission_instance_id'));
+        $revision = $this->positiveInteger($this->request->input('transmission_revision'));
+        if ($instanceId === null || $revision === null) {
+            return $this->errorResponse('Solicitação inválida', 'Recarregue a página e tente novamente.', 422);
+        }
+        if (!hash_equals((string) $transmission['instance_id'], $instanceId)
+            || (int) $transmission['revision'] !== $revision) {
+            return $this->errorResponse('Transmissão alterada', 'A transmissão foi substituída. Recarregue a página.', 409);
+        }
+
+        if (!$this->transmissions->end(
+            (int) $room['id'],
+            $participantKeyHash,
+            $instanceId,
+            $revision,
+            $currentUser['id'] ?? null,
+        )) {
+            return $this->errorResponse(
+                'Transmissão alterada',
+                'A transmissão foi substituída. Recarregue a página.',
+                409,
             );
         }
 
@@ -166,6 +190,7 @@ final class RoomTransmissionController
             $command = $this->playback->normalizeCommand([
                 'action' => $this->request->input('action'),
                 'position_ms' => $this->request->input('position_ms'),
+                'transmission_instance_id' => $this->request->input('transmission_instance_id'),
                 'transmission_revision' => $this->request->input('transmission_revision'),
                 'playback_revision' => $this->request->input('playback_revision'),
             ],
@@ -180,6 +205,7 @@ final class RoomTransmissionController
         $updated = $this->transmissions->updatePlayback(
             (int) $room['id'],
             $participantKeyHash,
+            $command['transmission_instance_id'],
             $command['transmission_revision'],
             $command['playback_revision'],
             $command['state'],
@@ -264,5 +290,25 @@ final class RoomTransmissionController
         }
 
         return hash_equals((string) $transmission['owner_participant_key_hash'], $participantKeyHash);
+    }
+
+    private function instanceId(mixed $value): ?string
+    {
+        return is_string($value) && preg_match('/^[a-f0-9]{32}$/', $value) === 1
+            ? $value
+            : null;
+    }
+
+    private function positiveInteger(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/', $value) !== 1) {
+            return null;
+        }
+        $parsed = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+        return is_int($parsed) ? $parsed : null;
     }
 }

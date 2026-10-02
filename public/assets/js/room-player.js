@@ -18,6 +18,7 @@
     const maxTimeMs = 315576000000;
     let player = null;
     let playerReady = false;
+    let currentInstanceId = null;
     let currentRevision = null;
     let currentVideoId = null;
     let pendingTransmission = null;
@@ -185,6 +186,7 @@
         if (!playerReady
             || player === null
             || playback === null
+            || playback.instanceId !== currentInstanceId
             || playback.transmissionRevision !== currentRevision
             || (!force
                 && playback.playbackRevision === appliedPlaybackRevision
@@ -225,7 +227,10 @@
     };
 
     const receiveSharedPlayback = (playback) => {
-        if (!Number.isSafeInteger(playback?.transmissionRevision)
+        if (typeof playback?.instanceId !== 'string'
+            || !/^[a-f0-9]{32}$/.test(playback.instanceId)
+            || (currentInstanceId !== null && playback.instanceId !== currentInstanceId)
+            || !Number.isSafeInteger(playback?.transmissionRevision)
             || playback.transmissionRevision < 1
             || !['vod', 'live'].includes(playback?.mediaMode)
             || typeof playback?.atLiveEdge !== 'boolean'
@@ -321,6 +326,15 @@
                 },
                 events: {
                     onReady: (event) => {
+                        if (currentInstanceId !== transmission.instanceId
+                            || currentRevision !== transmission.revision) {
+                            try {
+                                event.target?.destroy?.();
+                            } catch {
+                                // A superseded player is discarded best-effort.
+                            }
+                            return;
+                        }
                         player = event.target;
                         playerReady = true;
                         applyLocalAudioPreference();
@@ -329,6 +343,10 @@
                         applySharedPlayback(true);
                     },
                     onStateChange: (event) => {
+                        if (currentInstanceId !== transmission.instanceId
+                            || currentRevision !== transmission.revision) {
+                            return;
+                        }
                         emitTelemetry();
                         emitMediaDebug({
                             playerReady: true,
@@ -347,7 +365,12 @@
                             }
                         }
                     },
-                    onError: (event) => updateStatus(messageForError(event.data), true),
+                    onError: (event) => {
+                        if (currentInstanceId === transmission.instanceId
+                            && currentRevision === transmission.revision) {
+                            updateStatus(messageForError(event.data), true);
+                        }
+                    },
                 },
             });
         } catch {
@@ -359,6 +382,7 @@
         if (transmission === null || transmission.source !== 'youtube') {
             pendingTransmission = null;
             pendingSharedPlayback = null;
+            currentInstanceId = null;
             currentRevision = null;
             currentVideoId = null;
             appliedPlaybackRevision = null;
@@ -370,6 +394,8 @@
             return;
         }
         if (!videoIdPattern.test(transmission.videoId)
+            || typeof transmission.instanceId !== 'string'
+            || !/^[a-f0-9]{32}$/.test(transmission.instanceId)
             || !Number.isSafeInteger(transmission.revision)
             || transmission.revision < 1) {
             return;
@@ -377,7 +403,19 @@
 
         mount.hidden = false;
         currentIsOwner = transmission.isOwner === true;
+        const sameTransmission = transmission.instanceId === currentInstanceId
+            && transmission.revision === currentRevision;
+        if (!sameTransmission) {
+            destroyPlayer();
+            pendingTransmission = transmission;
+            currentInstanceId = transmission.instanceId;
+            currentRevision = transmission.revision;
+            currentVideoId = transmission.videoId;
+            appliedPlaybackRevision = null;
+            appliedAnchorReady = false;
+        }
         receiveSharedPlayback({
+            instanceId: transmission.instanceId,
             transmissionRevision: transmission.revision,
             mediaMode: transmission.mediaMode,
             atLiveEdge: transmission.playback?.atLiveEdge,
@@ -388,19 +426,15 @@
             liveSyncPositionMs: transmission.playback?.liveSyncPositionMs,
             liveSyncDelayMs: transmission.playback?.liveSyncDelayMs,
         });
-        if (transmission.revision === currentRevision) {
+        if (sameTransmission) {
             return;
         }
 
-        pendingTransmission = transmission;
-        currentRevision = transmission.revision;
-        currentVideoId = transmission.videoId;
-        appliedPlaybackRevision = null;
-        appliedAnchorReady = false;
         updateStatus('Carregando transmissão…');
         try {
             await ensureApi();
-            if (pendingTransmission?.revision === transmission.revision) {
+            if (pendingTransmission?.instanceId === transmission.instanceId
+                && pendingTransmission?.revision === transmission.revision) {
                 createPlayer(transmission);
             }
         } catch {

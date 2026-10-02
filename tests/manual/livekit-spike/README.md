@@ -14,7 +14,7 @@ php tests/manual/livekit-spike/create-semyra-whip-ingress.php
 powershell -ExecutionPolicy Bypass -File tests/manual/livekit-spike/run-semyra-local.ps1
 ```
 
-Publique primeiro o pipeline sintético no endpoint WHIP privado já preparado e abra a mesma sala em dois browsers. A fixture grava room name e publisher identity somente em `.private`; o servidor recebe credenciais LiveKit apenas no environment do processo. Para troca controlada, execute novamente `start ROOMCODE`, recrie o Ingress e confirme a nova revisão. Para cleanup:
+Publique primeiro o pipeline sintético no endpoint WHIP privado já preparado e abra a mesma sala em dois browsers. A fixture grava room name e publisher identity somente em `.private`; o servidor recebe credenciais LiveKit apenas no environment do processo. Para troca controlada, execute novamente `start ROOMCODE`, recrie o Ingress e confirme o novo `instance_id`. Para cleanup:
 
 ```powershell
 php tests/manual/livekit-spike/delete-whip-ingress.php

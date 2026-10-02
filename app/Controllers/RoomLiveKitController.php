@@ -69,11 +69,16 @@ final class RoomLiveKitController
             return $this->jsonError('livekit_not_applicable', 409);
         }
 
+        $requestedInstanceId = $this->instanceId($this->request->input('transmission_instance_id'));
+        if ($requestedInstanceId === null) {
+            return $this->jsonError('invalid_transmission_instance_id', 422);
+        }
         $requestedRevision = $this->positiveInteger($this->request->input('transmission_revision'));
         if ($requestedRevision === null) {
             return $this->jsonError('invalid_transmission_revision', 422);
         }
-        if ((int) ($transmission['revision'] ?? 0) !== $requestedRevision) {
+        if (!hash_equals((string) ($transmission['instance_id'] ?? ''), $requestedInstanceId)
+            || (int) ($transmission['revision'] ?? 0) !== $requestedRevision) {
             return $this->jsonError('transmission_changed', 409);
         }
 
@@ -92,11 +97,11 @@ final class RoomLiveKitController
             return Response::json([
                 'server_url' => $this->tokens->serverUrl(),
                 'participant_token' => $participantToken,
+                'transmission_instance_id' => $requestedInstanceId,
                 'transmission_revision' => $requestedRevision,
                 'publisher_identity' => $this->roomContext->publisherIdentity(
                     $roomId,
-                    $requestedRevision,
-                    (string) ($transmission['started_at'] ?? ''),
+                    $requestedInstanceId,
                 ),
             ], 201, self::TOKEN_HEADERS);
         } catch (Throwable) {
@@ -121,6 +126,13 @@ final class RoomLiveKitController
         $parsed = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 
         return is_int($parsed) ? $parsed : null;
+    }
+
+    private function instanceId(mixed $value): ?string
+    {
+        return is_string($value) && preg_match('/^[a-f0-9]{32}$/', $value) === 1
+            ? $value
+            : null;
     }
 
     /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */

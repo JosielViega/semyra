@@ -14,8 +14,8 @@ final class RoomTransmissionPlayback
     private const MEDIA_MODES = ['vod', 'live'];
 
     /**
-     * @param array{action?: mixed, position_ms?: mixed, transmission_revision?: mixed, playback_revision?: mixed} $payload
-     * @return array{action: string, state: string, position_ms: int, transmission_revision: int, playback_revision: int, at_live_edge: bool}
+     * @param array{action?: mixed, position_ms?: mixed, transmission_instance_id?: mixed, transmission_revision?: mixed, playback_revision?: mixed} $payload
+     * @return array{action: string, state: string, position_ms: int, transmission_instance_id: string, transmission_revision: int, playback_revision: int, at_live_edge: bool}
      */
     public function normalizeCommand(
         array $payload,
@@ -27,6 +27,7 @@ final class RoomTransmissionPlayback
         $positionMs = $action === 'live'
             ? $currentPositionMs
             : $this->integer($payload['position_ms'] ?? null);
+        $instanceId = $this->instanceId($payload['transmission_instance_id'] ?? null);
         $transmissionRevision = $this->integer($payload['transmission_revision'] ?? null);
         $playbackRevision = $this->integer($payload['playback_revision'] ?? null);
 
@@ -37,6 +38,7 @@ final class RoomTransmissionPlayback
             || !is_int($positionMs)
             || $positionMs < 0
             || $positionMs > self::MAX_TIME_MS
+            || $instanceId === null
             || $transmissionRevision === null
             || $transmissionRevision < 1
             || $playbackRevision === null
@@ -53,6 +55,7 @@ final class RoomTransmissionPlayback
                 'seek' => $currentState,
             },
             'position_ms' => $positionMs,
+            'transmission_instance_id' => $instanceId,
             'transmission_revision' => $transmissionRevision,
             'playback_revision' => $playbackRevision,
             'at_live_edge' => $action === 'live',
@@ -60,18 +63,20 @@ final class RoomTransmissionPlayback
     }
 
     /**
-     * @param array{position_ms?: mixed, transmission_revision?: mixed, playback_revision?: mixed} $payload
-     * @return array{position_ms: int, transmission_revision: int, playback_revision: int}
+     * @param array{position_ms?: mixed, transmission_instance_id?: mixed, transmission_revision?: mixed, playback_revision?: mixed} $payload
+     * @return array{position_ms: int, transmission_instance_id: string, transmission_revision: int, playback_revision: int}
      */
     public function normalizeLiveEdgeObservation(array $payload): array
     {
         $positionMs = $this->integer($payload['position_ms'] ?? null);
+        $instanceId = $this->instanceId($payload['transmission_instance_id'] ?? null);
         $transmissionRevision = $this->integer($payload['transmission_revision'] ?? null);
         $playbackRevision = $this->integer($payload['playback_revision'] ?? null);
 
         if ($positionMs === null
             || $positionMs < 0
             || $positionMs > self::MAX_TIME_MS
+            || $instanceId === null
             || $transmissionRevision === null
             || $transmissionRevision < 1
             || $playbackRevision === null
@@ -81,6 +86,7 @@ final class RoomTransmissionPlayback
 
         return [
             'position_ms' => $positionMs,
+            'transmission_instance_id' => $instanceId,
             'transmission_revision' => $transmissionRevision,
             'playback_revision' => $playbackRevision,
         ];
@@ -162,5 +168,12 @@ final class RoomTransmissionPlayback
         $validated = filter_var($value, FILTER_VALIDATE_INT);
 
         return is_int($validated) ? $validated : null;
+    }
+
+    private function instanceId(mixed $value): ?string
+    {
+        return is_string($value) && preg_match('/^[a-f0-9]{32}$/', $value) === 1
+            ? $value
+            : null;
     }
 }

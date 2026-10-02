@@ -100,6 +100,22 @@ final class RoomParticipantControllerTest extends TestCase
         self::assertSame(1, $pdo->roomActivityTouches);
     }
 
+    public function testPresenceRejectsInvalidLiveEdgeTransmissionInstance(): void
+    {
+        [$controller, $pdo] = $this->controller(null, extraBody: [
+            'live_edge_position_ms' => '1000',
+            'live_edge_transmission_instance_id' => 'INVALID',
+            'live_edge_transmission_revision' => '1',
+            'live_edge_playback_revision' => '1',
+        ]);
+
+        $response = $controller->presence('ROOM1234');
+
+        self::assertSame(422, $response->status());
+        self::assertSame(['error' => 'invalid_live_edge_observation'], json_decode($response->body(), true));
+        self::assertSame(0, $pdo->roomActivityTouches);
+    }
+
     public function testInvalidCsrfPresenceDoesNotTouchRoomActivity(): void
     {
         [$controller, $pdo] = $this->controller(null, validCsrf: false);

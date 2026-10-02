@@ -29,11 +29,15 @@ assert.equal(media.localOfficialDriftMs({localState: 2, officialState: 'paused',
     localPositionMs: 98800, officialPositionMs: 100000}), -1200);
 assert.equal(media.localOfficialDriftMs({localState: 3, officialState: 'playing',
     localPositionMs: 100800, officialPositionMs: 100000}), null);
-const beforeAnchor = media.sharedPlaybackDispatchKey(4, 7, null);
-const firstAnchor = media.sharedPlaybackDispatchKey(4, 7, 95000);
-const projectedAnchor = media.sharedPlaybackDispatchKey(4, 7, 96000);
+const instanceA = 'a'.repeat(32);
+const instanceB = 'b'.repeat(32);
+const beforeAnchor = media.sharedPlaybackDispatchKey(instanceA, 4, 7, null);
+const firstAnchor = media.sharedPlaybackDispatchKey(instanceA, 4, 7, 95000);
+const projectedAnchor = media.sharedPlaybackDispatchKey(instanceA, 4, 7, 96000);
 assert.notEqual(beforeAnchor, firstAnchor, 'anchorReady false -> true dispatches once');
 assert.equal(firstAnchor, projectedAnchor, 'projected target changes do not dispatch another seek');
+assert.notEqual(firstAnchor, media.sharedPlaybackDispatchKey(instanceB, 4, 7, 95000),
+    'a new transmission instance always dispatches even when revisions match');
 const bootstrap = {isOwner: true, mediaMode: 'live', atLiveEdge: true,
     playbackState: 'playing', liveEdgePositionMs: null, playerState: 1,
     elapsedMs: 5000, retryIntervalMs: 5000};

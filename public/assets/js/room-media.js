@@ -113,10 +113,11 @@
     };
 
     const sharedPlaybackDispatchKey = (
+        instanceId,
         transmissionRevision,
         playbackRevision,
         liveSyncPositionMs,
-    ) => `${transmissionRevision}:${playbackRevision}:${liveSyncPositionMs === null ? 0 : 1}`;
+    ) => `${instanceId}:${transmissionRevision}:${playbackRevision}:${liveSyncPositionMs === null ? 0 : 1}`;
 
     const localOfficialDriftMs = ({
         localState,
@@ -190,11 +191,12 @@
     const resyncContextMatches = (expected, current) => expected !== null
         && current !== null
         && current.isOwner === true
+        && current.instanceId === expected.instanceId
         && current.transmissionRevision === expected.transmissionRevision
         && current.playbackRevision === expected.playbackRevision;
 
-    const participantSyncStorageKey = (scope, transmissionRevision) => (
-        `semyra:resync:${scope}:${transmissionRevision}`
+    const participantSyncStorageKey = (scope, instanceId, transmissionRevision) => (
+        `semyra:resync:${scope}:${instanceId}:${transmissionRevision}`
     );
 
     const createParticipantSyncTracker = ({

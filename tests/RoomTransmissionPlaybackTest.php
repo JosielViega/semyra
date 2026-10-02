@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 
 final class RoomTransmissionPlaybackTest extends TestCase
 {
+    private const INSTANCE_ID = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     private RoomTransmissionPlayback $playback;
     protected function setUp(): void { $this->playback = new RoomTransmissionPlayback(); }
 
@@ -84,8 +85,10 @@ final class RoomTransmissionPlaybackTest extends TestCase
 
     public function testNormalizesLiveEdgeObservationFromCurrentTimeOnly(): void
     {
-        self::assertSame(['position_ms' => 8_092_855, 'transmission_revision' => 3, 'playback_revision' => 7],
+        self::assertSame(['position_ms' => 8_092_855, 'transmission_instance_id' => self::INSTANCE_ID,
+            'transmission_revision' => 3, 'playback_revision' => 7],
             $this->playback->normalizeLiveEdgeObservation(['position_ms' => '8092855',
+                'transmission_instance_id' => self::INSTANCE_ID,
                 'transmission_revision' => '3', 'playback_revision' => '7']));
     }
 
@@ -99,10 +102,12 @@ final class RoomTransmissionPlaybackTest extends TestCase
     public static function invalidCommandProvider(): array
     {
         $valid = ['action' => 'pause', 'position_ms' => '0',
+            'transmission_instance_id' => self::INSTANCE_ID,
             'transmission_revision' => '1', 'playback_revision' => '1'];
         return [
             'action' => [array_replace($valid, ['action' => 'rewind']), 'playing', 'vod'],
             'position' => [array_replace($valid, ['position_ms' => '-1']), 'playing', 'vod'],
+            'instance' => [array_replace($valid, ['transmission_instance_id' => 'INVALID']), 'playing', 'vod'],
             'transmission revision' => [array_replace($valid, ['transmission_revision' => '0']), 'playing', 'vod'],
             'playback revision' => [array_replace($valid, ['playback_revision' => '0']), 'playing', 'vod'],
             'state' => [$valid, 'buffering', 'vod'],
@@ -119,10 +124,12 @@ final class RoomTransmissionPlaybackTest extends TestCase
 
     public static function invalidObservationProvider(): array
     {
-        $valid = ['position_ms' => '1000', 'transmission_revision' => '1', 'playback_revision' => '1'];
+        $valid = ['position_ms' => '1000', 'transmission_instance_id' => self::INSTANCE_ID,
+            'transmission_revision' => '1', 'playback_revision' => '1'];
         return [
             'position' => [array_replace($valid, ['position_ms' => '-1'])],
             'missing position' => [array_diff_key($valid, ['position_ms' => true])],
+            'instance' => [array_replace($valid, ['transmission_instance_id' => 'INVALID'])],
             'transmission revision' => [array_replace($valid, ['transmission_revision' => '0'])],
             'playback revision' => [array_replace($valid, ['playback_revision' => '0'])],
         ];
@@ -147,7 +154,8 @@ final class RoomTransmissionPlaybackTest extends TestCase
 
     private function command(string $action, string $state, string $mode, int $currentPosition, bool $withPosition = true): array
     {
-        $payload = ['action' => $action, 'transmission_revision' => '3', 'playback_revision' => '7'];
+        $payload = ['action' => $action, 'transmission_instance_id' => self::INSTANCE_ID,
+            'transmission_revision' => '3', 'playback_revision' => '7'];
         if ($withPosition) $payload['position_ms'] = '12000';
         return $this->playback->normalizeCommand($payload, $state, $mode, $currentPosition);
     }

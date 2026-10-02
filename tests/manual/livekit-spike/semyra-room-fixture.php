@@ -49,16 +49,16 @@ if ($command === 'start') {
         throw new RuntimeException('Could not create local IPTV fixture.');
     }
     $revision = (int) $transmission['revision'];
-    $startedAt = (string) $transmission['started_at'];
+    $instanceId = (string) $transmission['instance_id'];
     $context = new LiveKitRoomContext((string) env('LIVEKIT_NAMESPACE', $environment));
     $fixture = [
         'room_id' => (int) $roomId,
         'room_code' => $code,
         'revision' => $revision,
-        'started_at' => $startedAt,
+        'instance_id' => $instanceId,
         'owner_hash' => $ownerHash,
         'livekit_room' => $context->roomName((int) $roomId),
-        'publisher_identity' => $context->publisherIdentity((int) $roomId, $revision, $startedAt),
+        'publisher_identity' => $context->publisherIdentity((int) $roomId, $instanceId),
     ];
     if (file_put_contents(FIXTURE_PATH, json_encode($fixture, JSON_THROW_ON_ERROR), LOCK_EX) === false) {
         throw new RuntimeException('Could not write private fixture state.');
@@ -74,14 +74,14 @@ if (!is_file(FIXTURE_PATH)) {
 }
 $fixture = json_decode((string) file_get_contents(FIXTURE_PATH), true, 16, JSON_THROW_ON_ERROR);
 $statement = $pdo->prepare(
-    'DELETE FROM room_transmissions WHERE room_id = :room_id AND revision = :revision '
-    . 'AND started_at = :started_at AND source_type = \'iptv\' '
+    'DELETE FROM room_transmissions WHERE room_id = :room_id AND instance_id = :instance_id '
+    . 'AND revision = :revision AND source_type = \'iptv\' '
     . 'AND owner_participant_key_hash = :owner_hash'
 );
 $statement->execute([
     'room_id' => $fixture['room_id'],
+    'instance_id' => $fixture['instance_id'],
     'revision' => $fixture['revision'],
-    'started_at' => $fixture['started_at'],
     'owner_hash' => $fixture['owner_hash'],
 ]);
 unlink(FIXTURE_PATH);

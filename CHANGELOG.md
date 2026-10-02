@@ -4,6 +4,10 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ## [Unreleased]
 
+### Fixed
+
+- Comandos, encerramento, observações de live edge e viewers agora são vinculados a um `instance_id` imutável por transmissão, evitando colisões após `end` seguido de novo `start` com revision reutilizada.
+
 ### Added
 
 - Viewer browser LiveKit para transmissões `iptv`/`live`, com bundle local lazy-loaded, token subscribe-only vinculado à revisão e filtro do publisher esperado; a criação e seleção IPTV pelo usuário ainda não fazem parte do produto.

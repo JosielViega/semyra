@@ -20,14 +20,15 @@ final class LiveKitRoomContext
         return 'smy_r_' . $this->digest('room:' . $roomId);
     }
 
-    public function publisherIdentity(int $roomId, int $transmissionRevision, string $startedAt): string
+    public function publisherIdentity(int $roomId, string $instanceId): string
     {
         $this->assertPositive($roomId, 'Room ID');
-        $this->assertPositive($transmissionRevision, 'Transmission revision');
-        $normalizedStartedAt = $this->normalizeStartedAt($startedAt);
+        if (preg_match('/^[a-f0-9]{32}$/', $instanceId) !== 1) {
+            throw new \InvalidArgumentException('Transmission instance ID is invalid.');
+        }
 
         return 'smy_i_' . $this->digest(
-            'publisher:' . $roomId . ':' . $transmissionRevision . ':' . $normalizedStartedAt,
+            'publisher:' . $roomId . ':' . $instanceId,
         );
     }
 
@@ -48,30 +49,4 @@ final class LiveKitRoomContext
         }
     }
 
-    private function normalizeStartedAt(string $startedAt): string
-    {
-        $value = trim($startedAt);
-        if (preg_match(
-            '/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$/',
-            $value,
-            $matches,
-        ) !== 1) {
-            throw new \InvalidArgumentException('Transmission start timestamp is invalid.');
-        }
-
-        $canonical = $matches[1] . '.' . str_pad($matches[2] ?? '', 6, '0');
-        $timestamp = \DateTimeImmutable::createFromFormat(
-            '!Y-m-d H:i:s.u',
-            $canonical,
-            new \DateTimeZone('UTC'),
-        );
-        $errors = \DateTimeImmutable::getLastErrors();
-        if ($timestamp === false
-            || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
-            || $timestamp->format('Y-m-d H:i:s.u') !== $canonical) {
-            throw new \InvalidArgumentException('Transmission start timestamp is invalid.');
-        }
-
-        return $canonical;
-    }
 }

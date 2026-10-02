@@ -16,7 +16,7 @@ final class RoomTransmissionRepository
     public function findByRoom(int $roomId): ?array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT transmission.room_id, transmission.owner_participant_key_hash, transmission.owner_user_id, '
+            'SELECT transmission.room_id, transmission.instance_id, transmission.owner_participant_key_hash, transmission.owner_user_id, '
             . 'transmission.source_type, transmission.youtube_video_id, transmission.media_mode, '
             . 'transmission.revision, '
             . 'transmission.playback_state, transmission.playback_position_ms, '
@@ -51,12 +51,14 @@ final class RoomTransmissionRepository
         string $mediaMode,
         ?int $ownerUserId = null,
     ): void {
+        $instanceId = bin2hex(random_bytes(16));
         $statement = $this->database->connection()->prepare(
             'INSERT INTO room_transmissions '
-            . '(room_id, owner_participant_key_hash, owner_user_id, source_type, youtube_video_id, media_mode, playback_at_live_edge) '
-            . 'VALUES (:room_id, :owner_participant_key_hash, :owner_user_id, :source_type, :youtube_video_id, '
+            . '(room_id, instance_id, owner_participant_key_hash, owner_user_id, source_type, youtube_video_id, media_mode, playback_at_live_edge) '
+            . 'VALUES (:room_id, :instance_id, :owner_participant_key_hash, :owner_user_id, :source_type, :youtube_video_id, '
             . ':media_mode, :playback_at_live_edge) '
             . 'ON DUPLICATE KEY UPDATE '
+            . 'instance_id = VALUES(instance_id), '
             . 'owner_participant_key_hash = VALUES(owner_participant_key_hash), '
             . 'owner_user_id = VALUES(owner_user_id), '
             . 'source_type = VALUES(source_type), youtube_video_id = VALUES(youtube_video_id), '
@@ -69,6 +71,7 @@ final class RoomTransmissionRepository
         );
         $statement->execute([
             'room_id' => $roomId,
+            'instance_id' => $instanceId,
             'owner_participant_key_hash' => $ownerParticipantKeyHash,
             'owner_user_id' => $ownerUserId,
             'source_type' => $sourceType,
@@ -78,18 +81,28 @@ final class RoomTransmissionRepository
         ]);
     }
 
-    public function end(int $roomId, string $ownerParticipantKeyHash, ?int $ownerUserId = null): bool
+    public function end(
+        int $roomId,
+        string $ownerParticipantKeyHash,
+        string $instanceId,
+        int $transmissionRevision,
+        ?int $ownerUserId = null,
+    ): bool
     {
         $statement = $this->database->connection()->prepare(
             'DELETE FROM room_transmissions '
             . 'WHERE room_id = :room_id '
             . 'AND ((owner_user_id IS NOT NULL AND owner_user_id = :owner_user_id) '
-            . 'OR (owner_user_id IS NULL AND owner_participant_key_hash = :owner_participant_key_hash))',
+            . 'OR (owner_user_id IS NULL AND owner_participant_key_hash = :owner_participant_key_hash)) '
+            . 'AND instance_id = :transmission_instance_id '
+            . 'AND revision = :transmission_revision',
         );
         $statement->execute([
             'room_id' => $roomId,
             'owner_participant_key_hash' => $ownerParticipantKeyHash,
             'owner_user_id' => $ownerUserId,
+            'transmission_instance_id' => $instanceId,
+            'transmission_revision' => $transmissionRevision,
         ]);
 
         return $statement->rowCount() === 1;
@@ -98,6 +111,7 @@ final class RoomTransmissionRepository
     public function updatePlayback(
         int $roomId,
         string $ownerParticipantKeyHash,
+        string $instanceId,
         int $transmissionRevision,
         int $playbackRevision,
         string $state,
@@ -114,6 +128,7 @@ final class RoomTransmissionRepository
             . 'WHERE room_id = :room_id '
             . 'AND ((owner_user_id IS NOT NULL AND owner_user_id = :owner_user_id) '
             . 'OR (owner_user_id IS NULL AND owner_participant_key_hash = :owner_participant_key_hash)) '
+            . 'AND instance_id = :transmission_instance_id '
             . 'AND revision = :transmission_revision '
             . 'AND playback_revision = :playback_revision',
         );
@@ -124,6 +139,7 @@ final class RoomTransmissionRepository
             'room_id' => $roomId,
             'owner_participant_key_hash' => $ownerParticipantKeyHash,
             'owner_user_id' => $ownerUserId,
+            'transmission_instance_id' => $instanceId,
             'transmission_revision' => $transmissionRevision,
             'playback_revision' => $playbackRevision,
         ]);
@@ -134,6 +150,7 @@ final class RoomTransmissionRepository
     public function observeLiveEdge(
         int $roomId,
         string $ownerParticipantKeyHash,
+        string $instanceId,
         int $transmissionRevision,
         int $playbackRevision,
         int $positionMs,
@@ -145,6 +162,7 @@ final class RoomTransmissionRepository
             . 'WHERE room_id = :room_id '
             . 'AND ((owner_user_id IS NOT NULL AND owner_user_id = :owner_user_id) '
             . 'OR (owner_user_id IS NULL AND owner_participant_key_hash = :owner_participant_key_hash)) '
+            . 'AND instance_id = :transmission_instance_id '
             . 'AND revision = :transmission_revision '
             . 'AND playback_revision = :playback_revision '
             . 'AND media_mode = \'live\' '
@@ -157,6 +175,7 @@ final class RoomTransmissionRepository
             'room_id' => $roomId,
             'owner_participant_key_hash' => $ownerParticipantKeyHash,
             'owner_user_id' => $ownerUserId,
+            'transmission_instance_id' => $instanceId,
             'transmission_revision' => $transmissionRevision,
             'playback_revision' => $playbackRevision,
         ]);

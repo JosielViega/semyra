@@ -27,6 +27,8 @@ final class RoomLiveKitControllerTest extends TestCase
 {
     private const API_KEY = 'DUMMY_TEST_API_KEY';
     private const API_SECRET = 'DUMMY_TEST_API_SECRET_NOT_REAL_0123456789ABCDEF';
+    private const INSTANCE_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    private const INSTANCE_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
     protected function setUp(): void
     {
@@ -87,9 +89,27 @@ final class RoomLiveKitControllerTest extends TestCase
         return [[null], [''], ['0'], ['1.5'], ['01'], [[]]];
     }
 
+    #[DataProvider('invalidInstanceIds')]
+    public function testTransmissionInstanceIdMustBeLowercaseHex(mixed $instanceId): void
+    {
+        [$controller] = $this->controller(instanceId: $instanceId);
+        $this->assertError($controller->viewerToken('ROOM1234'), 422, 'invalid_transmission_instance_id');
+    }
+
+    public static function invalidInstanceIds(): array
+    {
+        return [[null], [''], ['INVALID'], [str_repeat('A', 32)], [str_repeat('a', 31)], [[]]];
+    }
+
     public function testStaleTransmissionRevisionReturnsConflict(): void
     {
         [$controller] = $this->controller(revision: '2');
+        $this->assertError($controller->viewerToken('ROOM1234'), 409, 'transmission_changed');
+    }
+
+    public function testStaleInstanceWithSameRevisionReturnsConflict(): void
+    {
+        [$controller] = $this->controller(instanceId: self::INSTANCE_B);
         $this->assertError($controller->viewerToken('ROOM1234'), 409, 'transmission_changed');
     }
 
@@ -112,13 +132,15 @@ final class RoomLiveKitControllerTest extends TestCase
         self::assertSame([
             'server_url',
             'participant_token',
+            'transmission_instance_id',
             'transmission_revision',
             'publisher_identity',
         ], array_keys($body));
         self::assertSame('wss://unit-test.invalid', $body['server_url']);
+        self::assertSame(self::INSTANCE_A, $body['transmission_instance_id']);
         self::assertSame(3, $body['transmission_revision']);
         self::assertSame(
-            (new LiveKitRoomContext('testing'))->publisherIdentity(7, 3, '2026-10-01 12:00:00.000'),
+            (new LiveKitRoomContext('testing'))->publisherIdentity(7, self::INSTANCE_A),
             $body['publisher_identity'],
         );
         self::assertSame('no-store', $response->headers()['Cache-Control']);
@@ -159,12 +181,12 @@ final class RoomLiveKitControllerTest extends TestCase
     {
         [$firstController] = $this->controller(transmission: $this->transmission(
             revision: 1,
-            startedAt: '2026-10-01 12:00:00.000',
+            instanceId: self::INSTANCE_A,
         ), revision: '1');
         [$secondController] = $this->controller(transmission: $this->transmission(
             revision: 1,
-            startedAt: '2026-10-01 12:05:00.000',
-        ), revision: '1');
+            instanceId: self::INSTANCE_B,
+        ), instanceId: self::INSTANCE_B, revision: '1');
         $first = json_decode($firstController->viewerToken('ROOM1234')->body(), true, flags: JSON_THROW_ON_ERROR);
         $second = json_decode($secondController->viewerToken('ROOM1234')->body(), true, flags: JSON_THROW_ON_ERROR);
 
@@ -176,6 +198,7 @@ final class RoomLiveKitControllerTest extends TestCase
         bool $validCsrf = true,
         bool $roomExists = true,
         bool $joined = true,
+        mixed $instanceId = self::INSTANCE_A,
         mixed $revision = '3',
         array|false|null $transmission = false,
         ?array $config = null,
@@ -209,6 +232,7 @@ final class RoomLiveKitControllerTest extends TestCase
         return [new RoomLiveKitController(
             new Request(parsedBody: [
                 '_token' => $validCsrf ? $csrfToken : 'invalid-token',
+                'transmission_instance_id' => $instanceId,
                 'transmission_revision' => $revision,
             ]),
             $csrf,
@@ -227,11 +251,13 @@ final class RoomLiveKitControllerTest extends TestCase
         string $sourceType = 'iptv',
         string $mediaMode = 'live',
         int $revision = 3,
+        string $instanceId = self::INSTANCE_A,
         string $startedAt = '2026-10-01 12:00:00.000',
     ): array
     {
         return [
             'room_id' => 7,
+            'instance_id' => $instanceId,
             'owner_participant_key_hash' => str_repeat('a', 64),
             'owner_user_id' => null,
             'source_type' => $sourceType,

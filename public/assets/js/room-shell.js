@@ -20,6 +20,8 @@
     const emptyState = shell.querySelector('[data-room-empty-state]');
     const ownerCopy = shell.querySelector('[data-room-owner]');
     const endForm = shell.querySelector('[data-end-transmission]');
+    const endInstanceInput = shell.querySelector('[data-end-transmission-instance-id]');
+    const endRevisionInput = shell.querySelector('[data-end-transmission-revision]');
     const replaceWarning = shell.querySelector('[data-replace-warning]');
     const replaceOwner = shell.querySelector('[data-replace-owner]');
     const muteButton = shell.querySelector('[data-mute-toggle]');
@@ -214,6 +216,7 @@
     const sameTransmission = (left, right) => left === right
         || (left !== null
             && right !== null
+            && left.instanceId === right.instanceId
             && left.source === right.source
             && left.videoId === right.videoId
             && left.revision === right.revision
@@ -232,6 +235,12 @@
         shell.classList.toggle('has-transmission', active);
         emptyState?.toggleAttribute('hidden', active);
         endForm?.toggleAttribute('hidden', !transmission?.isOwner);
+        if (endInstanceInput) {
+            endInstanceInput.value = transmission?.instanceId ?? '';
+        }
+        if (endRevisionInput) {
+            endRevisionInput.value = transmission === null ? '' : String(transmission.revision);
+        }
         replaceWarning?.toggleAttribute('hidden', !active);
 
         if (ownerCopy) {
@@ -254,9 +263,12 @@
     });
 
     const initialRevision = Number(shell.dataset.initialRevision);
-    const initialTransmission = Number.isSafeInteger(initialRevision) && initialRevision > 0
+    const initialInstanceId = shell.dataset.initialInstanceId ?? '';
+    const initialTransmission = /^[a-f0-9]{32}$/.test(initialInstanceId)
+        && Number.isSafeInteger(initialRevision) && initialRevision > 0
         ? {
             source: shell.dataset.initialSource ?? '',
+            instanceId: initialInstanceId,
             videoId: shell.dataset.initialSource === 'youtube'
                 ? (shell.dataset.initialVideoId ?? '')
                 : null,

@@ -33,9 +33,20 @@ class Player {
     constructor(_target, options) {
         this.options = options;
         this.destroyCalls = 0;
+        this.seekCalls = 0;
         instances.push(this);
     }
     destroy() { ++this.destroyCalls; }
+    setVolume() {}
+    mute() {}
+    isMuted() { return true; }
+    getVolume() { return 100; }
+    getPlayerState() { return 1; }
+    getCurrentTime() { return 0; }
+    getDuration() { return 60; }
+    seekTo() { ++this.seekCalls; }
+    playVideo() {}
+    pauseVideo() {}
 }
 const window = {
     location: {origin: 'https://semyra.test'},
@@ -63,13 +74,13 @@ const update = (transmission) => listeners.get('semyra:transmission-updated')({
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 (async () => {
-    update({source: 'iptv', mediaMode: 'live', revision: 1, videoId: null});
+    update({source: 'iptv', mediaMode: 'live', instanceId: 'a'.repeat(32), revision: 1, videoId: null});
     await flush();
     assert.equal(instances.length, 0, 'IPTV never creates or loads the YouTube player');
     assert.equal(mount.hidden, true);
 
     update({
-        source: 'youtube', videoId: 'M7lc1UVf-VE', revision: 2,
+        source: 'youtube', instanceId: 'a'.repeat(32), videoId: 'M7lc1UVf-VE', revision: 2,
         isOwner: false, mediaMode: 'vod',
         playback: {state: 'playing', positionMs: 0, revision: 1, atLiveEdge: false,
             liveEdgePositionMs: null, liveSyncPositionMs: null, liveSyncDelayMs: null},
@@ -78,9 +89,39 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
     assert.equal(instances.length, 1);
     assert.equal(mount.hidden, false);
 
-    update({source: 'iptv', mediaMode: 'live', revision: 3, videoId: null});
+    update({
+        source: 'youtube', instanceId: 'b'.repeat(32), videoId: 'M7lc1UVf-VE', revision: 2,
+        isOwner: false, mediaMode: 'vod',
+        playback: {state: 'playing', positionMs: 0, revision: 1, atLiveEdge: false,
+            liveEdgePositionMs: null, liveSyncPositionMs: null, liveSyncDelayMs: null},
+    });
     await flush();
-    assert.equal(instances[0].destroyCalls, 1, 'source switch destroys the old YT.Player');
+    assert.equal(instances.length, 2, 'same revision and video in a new instance recreates YT.Player');
+    assert.equal(instances[0].destroyCalls, 1);
+
+    instances[1].options.events.onReady({target: instances[1]});
+    const appliedForB = instances[1].seekCalls;
+    listeners.get('semyra:shared-playback-updated')({detail: {
+        instanceId: 'a'.repeat(32), transmissionRevision: 2,
+        mediaMode: 'vod', atLiveEdge: false, state: 'playing', positionMs: 2000,
+        playbackRevision: 2, liveSyncPositionMs: null,
+    }});
+    assert.equal(instances[1].seekCalls, appliedForB,
+        'a delayed playback event from instance A is not applied to instance B');
+
+    update({
+        source: 'youtube', instanceId: 'c'.repeat(32), videoId: 'dQw4w9WgXcQ', revision: 2,
+        isOwner: false, mediaMode: 'vod',
+        playback: {state: 'playing', positionMs: 0, revision: 1, atLiveEdge: false,
+            liveEdgePositionMs: null, liveSyncPositionMs: null, liveSyncDelayMs: null},
+    });
+    await flush();
+    assert.equal(instances.length, 3, 'same revision and another video in a new instance recreates YT.Player');
+    assert.equal(instances[1].destroyCalls, 1);
+
+    update({source: 'iptv', mediaMode: 'live', instanceId: 'd'.repeat(32), revision: 3, videoId: null});
+    await flush();
+    assert.equal(instances[2].destroyCalls, 1, 'source switch destroys the current YT.Player');
     assert.equal(mount.children.length, 0);
     assert.equal(mount.hidden, true);
     console.log('room-player source switch tests passed');

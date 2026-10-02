@@ -20,7 +20,8 @@ assert.deepEqual(media.resyncPlan({mediaMode: 'live', state: 'paused', atLiveEdg
 const simulate = async ({mediaMode, state, atLiveEdge, mutateDuringWait = null}) => {
     const commands = [];
     const waits = [];
-    let context = {isOwner: true, transmissionRevision: 4, playbackRevision: 7,
+    let context = {isOwner: true, instanceId: 'a'.repeat(32),
+        transmissionRevision: 4, playbackRevision: 7,
         playbackPositionMs: 123456};
     const result = await media.runResyncSequence({
         transmission: {mediaMode, state, atLiveEdge},
@@ -68,6 +69,13 @@ const simulate = async ({mediaMode, state, atLiveEdge, mutateDuringWait = null})
     });
     assert.deepEqual(replaced.commands.map(({action}) => action), ['pause']);
     assert.equal(replaced.result.reason, 'stale');
+
+    const replacedInstance = await simulate({
+        mediaMode: 'vod', state: 'playing', atLiveEdge: false,
+        mutateDuringWait: (context, update) => update({...context, instanceId: 'b'.repeat(32)}),
+    });
+    assert.deepEqual(replacedInstance.commands.map(({action}) => action), ['pause']);
+    assert.equal(replacedInstance.result.reason, 'stale');
 
     const ownerLost = await simulate({
         mediaMode: 'live', state: 'playing', atLiveEdge: true,
@@ -251,8 +259,11 @@ const simulate = async ({mediaMode, state, atLiveEdge, mutateDuringWait = null})
     assert.equal(alone.observe({participants: [participant(ids.a, true, 'Owner', ids.p2)], now: 4000,
         officialState: 'playing'}).shouldResync, false, 'one ready player never triggers a barrier');
 
-    assert.notEqual(media.participantSyncStorageKey('/room/A/p', 4),
-        media.participantSyncStorageKey('/room/A/p', 5));
+    assert.notEqual(media.participantSyncStorageKey('/room/A/p', ids.a, 4),
+        media.participantSyncStorageKey('/room/A/p', ids.a, 5));
+    assert.notEqual(media.participantSyncStorageKey('/room/A/p', ids.a, 4),
+        media.participantSyncStorageKey('/room/A/p', ids.b, 4),
+    'same revision in a new instance uses separate participant sync storage');
 
     console.log('room-resync tests passed');
 })().catch((error) => {

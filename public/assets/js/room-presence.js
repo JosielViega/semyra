@@ -66,7 +66,9 @@
             return null;
         }
         const playback = transmission?.playback;
-        if (!Number.isSafeInteger(transmission?.revision)
+        if (typeof transmission?.instance_id !== 'string'
+            || !/^[a-f0-9]{32}$/.test(transmission.instance_id)
+            || !Number.isSafeInteger(transmission?.revision)
             || transmission.revision < 1
             || typeof transmission.owner_name !== 'string'
             || typeof transmission.is_owner !== 'boolean') {
@@ -80,6 +82,7 @@
             }
             return {
                 source: 'iptv',
+                instanceId: transmission.instance_id,
                 videoId: null,
                 revision: transmission.revision,
                 ownerName: transmission.owner_name,
@@ -136,6 +139,7 @@
 
         return {
             source: transmission.source,
+            instanceId: transmission.instance_id,
             videoId: transmission.youtube_video_id,
             revision: transmission.revision,
             ownerName: transmission.owner_name,
@@ -233,6 +237,7 @@
                     retryIntervalMs: liveEdgeObservationIntervalMs,
                 })) {
                     body.set('live_edge_position_ms', String(latestTelemetry.positionMs));
+                    body.set('live_edge_transmission_instance_id', latestTransmission.instanceId);
                     body.set('live_edge_transmission_revision', String(latestTransmission.revision));
                     body.set('live_edge_playback_revision', String(latestTransmission.playback.revision));
                     lastLiveEdgeObservationAt = now;

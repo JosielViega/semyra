@@ -6,7 +6,7 @@ declare(strict_types=1);
 /** @var null|array{participant_key: string, display_name: string, user_id: null|int} $identity */
 /** @var null|array{id: int, display_name: string} $currentUser */
 /** @var list<array{name: string, is_you: bool}> $participants */
-/** @var null|array{source: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool, media_mode: string, playback: array{state: string, position_ms: null|int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int, live_sync_position_ms: null|int, live_sync_delay_ms: null|int}} $transmission */
+/** @var null|array{source: string, instance_id: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool, media_mode: string, playback: array{state: string, position_ms: null|int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int, live_sync_position_ms: null|int, live_sync_delay_ms: null|int}} $transmission */
 /** @var bool $debug */
 /** @var array $flashes */
 /** @var string $csrfField */
@@ -71,6 +71,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"
         data-csrf-token="<?= e($csrfToken) ?>"
         data-initial-source="<?= e($transmission['source'] ?? '') ?>"
+        data-initial-instance-id="<?= e($transmission['instance_id'] ?? '') ?>"
         data-initial-video-id="<?= e($transmission['youtube_video_id'] ?? '') ?>"
         data-initial-revision="<?= e((string) ($transmission['revision'] ?? '')) ?>"
         data-initial-owner-name="<?= e($transmission['owner_name'] ?? '') ?>"
@@ -137,6 +138,8 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                 </div>
                 <form class="room-end-form" action="/room/<?= e($room['code']) ?>/transmission/end" method="post" data-end-transmission<?= !($transmission['is_owner'] ?? false) ? ' hidden' : '' ?>>
                     <?= $csrfField ?>
+                    <input type="hidden" name="transmission_instance_id" value="<?= e($transmission['instance_id'] ?? '') ?>" data-end-transmission-instance-id>
+                    <input type="hidden" name="transmission_revision" value="<?= e((string) ($transmission['revision'] ?? '')) ?>" data-end-transmission-revision>
                     <button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-stop"></use></svg><span>Encerrar transmissão</span></button>
                 </form>
             </footer>
@@ -222,13 +225,13 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         </dialog>
     </main>
 
-    <script src="/assets/js/room-media.js?v=reload-sync-1" defer></script>
-    <script src="/assets/js/room-player.js?v=8b-identity" defer></script>
-    <script src="/assets/js/room-livekit-player.js?v=10b2-livekit-viewer" defer></script>
+    <script src="/assets/js/room-media.js?v=10b21-instance" defer></script>
+    <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
+    <script src="/assets/js/room-livekit-player.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
-    <script src="/assets/js/room-playback.js?v=reload-sync-1" defer></script>
-    <script src="/assets/js/room-shell.js?v=8b-polish-2" defer></script>
+    <script src="/assets/js/room-playback.js?v=10b21-instance" defer></script>
+    <script src="/assets/js/room-shell.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-wake-lock.js?v=8b-identity" defer></script>
-    <script src="/assets/js/room-presence.js?v=presence-leave-1" defer></script>
+    <script src="/assets/js/room-presence.js?v=10b21-instance" defer></script>
 <?php endif; ?>

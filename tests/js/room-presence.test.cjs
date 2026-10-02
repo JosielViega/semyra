@@ -154,7 +154,7 @@ const flush = async () => {
     assert.equal(leaveFetches[0].body.get('player_instance_id'), firstNonce);
 
     responsePayload = {participants: [], transmission: {
-        source: 'iptv', youtube_video_id: null, revision: 8,
+        source: 'iptv', instance_id: 'a'.repeat(32), youtube_video_id: null, revision: 8,
         owner_name: 'Bridge local', is_owner: false, media_mode: 'live',
         playback: {state: 'playing', position_ms: 0, revision: 1,
             at_live_edge: false, live_edge_position_ms: null,
@@ -164,6 +164,7 @@ const flush = async () => {
     await flush();
     const iptvEvent = dispatched.filter((event) => event.type === 'semyra:presence-updated').at(-1);
     assert.equal(iptvEvent.detail.transmission.source, 'iptv');
+    assert.equal(iptvEvent.detail.transmission.instanceId, 'a'.repeat(32));
     assert.equal(iptvEvent.detail.transmission.videoId, null);
     assert.equal(iptvEvent.detail.transmission.mediaMode, 'live');
 

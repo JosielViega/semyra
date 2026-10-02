@@ -13,7 +13,7 @@ final class RoomTransmissionPresenter
 
     /**
      * @param null|array<string, mixed> $transmission
-     * @return null|array{source: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool, media_mode: string, playback: array{state: string, position_ms: null|int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int, live_sync_position_ms: null|int, live_sync_delay_ms: null|int}}
+     * @return null|array{source: string, instance_id: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool, media_mode: string, playback: array{state: string, position_ms: null|int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int, live_sync_position_ms: null|int, live_sync_delay_ms: null|int}}
      */
     public function present(
         ?array $transmission,
@@ -24,9 +24,14 @@ final class RoomTransmissionPresenter
         if ($transmission === null) {
             return null;
         }
+        $instanceId = $transmission['instance_id'] ?? null;
+        if (!is_string($instanceId) || preg_match('/^[a-f0-9]{32}$/', $instanceId) !== 1) {
+            throw new \InvalidArgumentException('Stored transmission instance ID is invalid.');
+        }
 
         return [
             'source' => (string) $transmission['source_type'],
+            'instance_id' => $instanceId,
             'youtube_video_id' => is_string($transmission['youtube_video_id'] ?? null)
                 ? $transmission['youtube_video_id']
                 : null,

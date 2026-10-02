@@ -62,11 +62,12 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-livekit-player-mount hidden', $html);
         self::assertStringContainsString('data-livekit-viewer-token-url="/room/7MKP3WQH/livekit/viewer-token"', $html);
         self::assertStringContainsString('data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"', $html);
-        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=10b2-livekit-viewer', $html);
+        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=10b21-instance', $html);
+        self::assertStringContainsString('data-initial-instance-id=""', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
         self::assertStringContainsString('/assets/css/room.css?v=8b-polish-2', $html);
-        self::assertStringContainsString('/assets/js/room-shell.js?v=8b-polish-2', $html);
+        self::assertStringContainsString('/assets/js/room-shell.js?v=10b21-instance', $html);
         self::assertStringContainsString('/assets/js/room-wake-lock.js?v=8b-identity', $html);
         self::assertStringContainsString('class="room-logo room-logo-empty"', $html);
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
@@ -83,10 +84,13 @@ final class RoomViewTest extends TestCase
 
         self::assertStringContainsString('class="room-shell has-transmission"', $html);
         self::assertStringContainsString('data-initial-video-id="M7lc1UVf-VE"', $html);
+        self::assertStringContainsString('data-initial-instance-id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"', $html);
         self::assertStringContainsString('data-initial-revision="4"', $html);
         self::assertStringContainsString('Você está transmitindo', $html);
         self::assertMatchesRegularExpression('/data-end-transmission>/', $html);
         self::assertStringContainsString('Encerrar transmissão', $html);
+        self::assertStringContainsString('name="transmission_instance_id" value="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"', $html);
+        self::assertStringContainsString('name="transmission_revision" value="4"', $html);
         self::assertMatchesRegularExpression('/data-shared-playback-controls>/', $html);
         self::assertStringContainsString('data-playback-sync aria-label="Sincronizar reprodução" hidden', $html);
         self::assertStringContainsString('data-playback-url="/room/7MKP3WQH/transmission/playback"', $html);
@@ -95,7 +99,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('/assets/js/room-media.js', $html);
         self::assertStringContainsString('data-volume-control', $html);
         self::assertStringContainsString('min="0" max="100" step="1" value="100"', $html);
-        self::assertStringContainsString('/assets/js/room-player.js?v=8b-identity', $html);
+        self::assertStringContainsString('/assets/js/room-player.js?v=10b21-instance', $html);
         self::assertStringContainsString('data-initial-live-sync-position-ms=""', $html);
         self::assertStringContainsString('data-panel-toggle="participants"', $html);
         self::assertStringContainsString('<use href="#room-icon-users"></use>', $html);
@@ -179,10 +183,10 @@ final class RoomViewTest extends TestCase
         foreach (['🔇', '🔊', '↗', '＋', '↻', '▶', 'Ⅱ', '⛶', '>×<'] as $legacyGlyph) {
             self::assertStringNotContainsString($legacyGlyph, $html);
         }
-        self::assertStringContainsString('/assets/js/room-media.js?v=reload-sync-1', $html);
-        self::assertStringContainsString('/assets/js/room-playback.js?v=reload-sync-1', $html);
+        self::assertStringContainsString('/assets/js/room-media.js?v=10b21-instance', $html);
+        self::assertStringContainsString('/assets/js/room-playback.js?v=10b21-instance', $html);
         self::assertStringContainsString('data-leave-url="/room/7MKP3WQH/leave"', $html);
-        self::assertStringContainsString('/assets/js/room-presence.js?v=presence-leave-1', $html);
+        self::assertStringContainsString('/assets/js/room-presence.js?v=10b21-instance', $html);
     }
 
     public function testEscapesRoomParticipantOwnerAndFlashValues(): void
@@ -196,6 +200,7 @@ final class RoomViewTest extends TestCase
             'participants' => [['name' => '<svg onload=alert(3)>', 'is_you' => true]],
             'transmission' => [
                 'source' => 'youtube',
+                'instance_id' => str_repeat('a', 32),
                 'youtube_video_id' => 'M7lc1UVf-VE',
                 'revision' => 1,
                 'owner_name' => '<img src=x onerror=alert(4)>',
@@ -251,6 +256,7 @@ final class RoomViewTest extends TestCase
     {
         return [
             'source' => 'youtube',
+            'instance_id' => str_repeat('a', 32),
             'youtube_video_id' => 'M7lc1UVf-VE',
             'revision' => 4,
             'owner_name' => 'Pedro',

@@ -49,6 +49,7 @@ const createHarness = ({status = 201, payload} = {}) => {
     const responsePayload = payload ?? {
         server_url: 'wss://livekit.example.test',
         participant_token: 'secret-jwt',
+        transmission_instance_id: 'a'.repeat(32),
         transmission_revision: 4,
         publisher_identity: `smy_i_${'a'.repeat(32)}`,
     };
@@ -56,7 +57,9 @@ const createHarness = ({status = 201, payload} = {}) => {
         const body = new URLSearchParams(options.body);
         requests.push({url, options, body});
         return {status, json: async () => payload === undefined
-            ? {...responsePayload, transmission_revision: Number(body.get('transmission_revision'))}
+            ? {...responsePayload,
+                transmission_instance_id: body.get('transmission_instance_id'),
+                transmission_revision: Number(body.get('transmission_revision'))}
             : responsePayload};
     };
     class FakeRoom {
@@ -111,7 +114,9 @@ const createHarness = ({status = 201, payload} = {}) => {
     return {controller, document, dispatched, mount, requests, statusElement, FakeRoom, sdk, storage};
 };
 
-const iptv = (revision = 4) => ({source: 'iptv', mediaMode: 'live', revision});
+const iptv = (revision = 4, instanceId = 'a'.repeat(32)) => ({
+    source: 'iptv', mediaMode: 'live', instanceId, revision,
+});
 
 test('only IPTV Live requests a revision-bound token and connects subscribe-only', async () => {
     const harness = createHarness();
@@ -122,8 +127,10 @@ test('only IPTV Live requests a revision-bound token and connects subscribe-only
 
     await harness.controller.applyTransmission(iptv());
     assert.equal(harness.requests.length, 1);
-    assert.deepEqual([...harness.requests[0].body.keys()], ['_token', 'transmission_revision']);
+    assert.deepEqual([...harness.requests[0].body.keys()],
+        ['_token', 'transmission_instance_id', 'transmission_revision']);
     assert.equal(harness.requests[0].body.get('_token'), 'csrf');
+    assert.equal(harness.requests[0].body.get('transmission_instance_id'), 'a'.repeat(32));
     assert.equal(harness.requests[0].body.get('transmission_revision'), '4');
     const room = harness.FakeRoom.instances[0];
     assert.deepEqual(room.options, {adaptiveStream: true, disconnectOnPageLeave: true});
@@ -195,6 +202,16 @@ test('revision replacement and transmission end disconnect and clear old media',
     assert.equal(harness.mount.children.length, 0);
 });
 
+test('same revision in a new instance disconnects and requests a fresh token', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv(1, 'a'.repeat(32)));
+    const oldRoom = harness.FakeRoom.instances[0];
+    await harness.controller.applyTransmission(iptv(1, 'b'.repeat(32)));
+    assert.equal(oldRoom.disconnectCalls, 1);
+    assert.equal(harness.requests.length, 2);
+    assert.equal(harness.requests[1].body.get('transmission_instance_id'), 'b'.repeat(32));
+});
+
 test('subscribes existing expected publisher publications after connect', async () => {
     const harness = createHarness();
     const subscriptions = [];
@@ -236,7 +253,20 @@ test('stale response revision never connects', async () => {
     const harness = createHarness({payload: {
         server_url: 'wss://livekit.example.test',
         participant_token: 'secret-jwt',
+        transmission_instance_id: 'a'.repeat(32),
         transmission_revision: 3,
+        publisher_identity: `smy_i_${'a'.repeat(32)}`,
+    }});
+    await harness.controller.applyTransmission(iptv());
+    assert.equal(harness.FakeRoom.instances.length, 0);
+});
+
+test('stale response instance with the same revision never connects', async () => {
+    const harness = createHarness({payload: {
+        server_url: 'wss://livekit.example.test',
+        participant_token: 'secret-jwt',
+        transmission_instance_id: 'b'.repeat(32),
+        transmission_revision: 4,
         publisher_identity: `smy_i_${'a'.repeat(32)}`,
     }});
     await harness.controller.applyTransmission(iptv());

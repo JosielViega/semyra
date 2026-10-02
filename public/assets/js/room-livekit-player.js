@@ -19,6 +19,7 @@
     const sdkUrl = shell.dataset.livekitClientSrc ?? '';
     const csrfToken = shell.dataset.csrfToken ?? '';
     const publisherPattern = /^smy_i_[a-f0-9]{32}$/;
+    const instancePattern = /^[a-f0-9]{32}$/;
     let sdkPromise = null;
     let generation = 0;
     let activeTransmission = null;
@@ -40,6 +41,8 @@
 
     const isLiveTransmission = (transmission) => transmission?.source === 'iptv'
         && transmission?.mediaMode === 'live'
+        && typeof transmission?.instanceId === 'string'
+        && instancePattern.test(transmission.instanceId)
         && Number.isSafeInteger(transmission?.revision)
         && transmission.revision > 0;
 
@@ -255,9 +258,10 @@
         on(sdk.RoomEvent.AudioPlaybackStatusChanged, emitAudioState);
     };
 
-    const requestToken = async (revision) => {
+    const requestToken = async (instanceId, revision) => {
         const body = new URLSearchParams({
             _token: csrfToken,
+            transmission_instance_id: instanceId,
             transmission_revision: String(revision),
         });
         const response = await fetch(tokenUrl, {
@@ -280,7 +284,9 @@
             await deactivate();
             return;
         }
-        if (activeTransmission?.revision === transmission.revision && room !== null) {
+        if (activeTransmission?.instanceId === transmission.instanceId
+            && activeTransmission?.revision === transmission.revision
+            && room !== null) {
             return;
         }
 
@@ -294,7 +300,10 @@
         try {
             const sdk = await ensureSdk();
             if (capturedGeneration !== generation) return;
-            const {response, payload} = await requestToken(transmission.revision);
+            const {response, payload} = await requestToken(
+                transmission.instanceId,
+                transmission.revision,
+            );
             if (capturedGeneration !== generation) return;
             if (response.status === 409 && payload?.error === 'transmission_changed') {
                 updateStatus('Atualizando transmissão…');
@@ -314,6 +323,7 @@
                 || !payload.server_url.startsWith('wss://')
                 || typeof payload.participant_token !== 'string'
                 || payload.participant_token === ''
+                || payload.transmission_instance_id !== transmission.instanceId
                 || payload.transmission_revision !== transmission.revision
                 || typeof payload.publisher_identity !== 'string'
                 || !publisherPattern.test(payload.publisher_identity)) {

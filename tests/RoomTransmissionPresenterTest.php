@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 
 final class RoomTransmissionPresenterTest extends TestCase
 {
+    private const INSTANCE_ID = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     public function testReturnsNullWithoutActiveTransmission(): void
     {
         self::assertNull((new RoomTransmissionPresenter())->present(null, 'current'));
@@ -18,6 +19,7 @@ final class RoomTransmissionPresenterTest extends TestCase
     {
         $presented = (new RoomTransmissionPresenter())->present([
             'room_id' => 42,
+            'instance_id' => self::INSTANCE_ID,
             'owner_participant_key_hash' => 'current',
             'source_type' => 'youtube',
             'youtube_video_id' => 'M7lc1UVf-VE',
@@ -35,6 +37,7 @@ final class RoomTransmissionPresenterTest extends TestCase
 
         self::assertSame([
             'source' => 'youtube',
+            'instance_id' => self::INSTANCE_ID,
             'youtube_video_id' => 'M7lc1UVf-VE',
             'revision' => 4,
             'media_mode' => 'live',
@@ -62,6 +65,7 @@ final class RoomTransmissionPresenterTest extends TestCase
     {
         $presented = (new RoomTransmissionPresenter())->present([
             'owner_participant_key_hash' => 'owner',
+            'instance_id' => self::INSTANCE_ID,
             'source_type' => 'youtube',
             'youtube_video_id' => 'M7lc1UVf-VE',
             'revision' => 1,
@@ -86,6 +90,7 @@ final class RoomTransmissionPresenterTest extends TestCase
     {
         $transmission = [
             'owner_user_id' => 42,
+            'instance_id' => self::INSTANCE_ID,
             'owner_participant_key_hash' => 'old-key',
             'source_type' => 'youtube',
             'youtube_video_id' => 'M7lc1UVf-VE',

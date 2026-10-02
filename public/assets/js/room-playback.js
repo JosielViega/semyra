@@ -28,6 +28,7 @@
     let autoCheckInProgress = false;
     const resyncLock = media.createResyncLock();
     let participantSyncTracker = null;
+    let participantSyncInstanceId = null;
     let participantSyncRevision = null;
     let latestParticipants = [];
     const scrubbing = media.createScrubbingSession();
@@ -59,6 +60,7 @@
             return null;
         }
         const source = value?.source;
+        const instanceId = value?.instanceId ?? value?.instance_id;
         const videoId = value?.videoId ?? value?.youtube_video_id;
         const revision = value?.revision;
         const ownerName = value?.ownerName ?? value?.owner_name;
@@ -82,6 +84,8 @@
         const liveSyncPositionMs = rawLiveSync === null ? null : Number(rawLiveSync);
         const liveSyncDelayMs = rawLiveSyncDelay === null ? null : Number(rawLiveSyncDelay);
         if (source !== 'youtube'
+            || typeof instanceId !== 'string'
+            || !/^[a-f0-9]{32}$/.test(instanceId)
             || typeof videoId !== 'string'
             || !/^[A-Za-z0-9_-]{11}$/.test(videoId)
             || !Number.isSafeInteger(revision)
@@ -117,6 +121,7 @@
 
         return {
             source,
+            instanceId,
             videoId,
             revision,
             ownerName,
@@ -197,6 +202,7 @@
     };
 
     const applyTransmission = (nextTransmission) => {
+        const previousInstanceId = transmission?.instanceId ?? null;
         const previousRevision = transmission?.revision ?? null;
         const wasOwner = transmission?.isOwner === true;
         transmission = normalizePublicTransmission(nextTransmission);
@@ -204,12 +210,14 @@
             scrubbing.cancel();
             document.dispatchEvent(new CustomEvent('semyra:hud-interaction-end'));
         }
-        if (transmission?.revision !== previousRevision) {
+        if (transmission?.instanceId !== previousInstanceId
+            || transmission?.revision !== previousRevision) {
             durationMs = 0;
         }
-        if (transmission?.revision !== previousRevision
+        if (transmission?.instanceId !== previousInstanceId
+            || transmission?.revision !== previousRevision
             || (transmission?.isOwner === true) !== wasOwner) {
-            resetParticipantSync(previousRevision);
+            resetParticipantSync(previousInstanceId, previousRevision);
         }
         render();
         if (transmission === null) {
@@ -218,6 +226,7 @@
         }
 
         const key = media.sharedPlaybackDispatchKey(
+            transmission.instanceId,
             transmission.revision,
             transmission.playback.revision,
             transmission.playback.liveSyncPositionMs,
@@ -228,6 +237,7 @@
         dispatchedKey = key;
         document.dispatchEvent(new CustomEvent('semyra:shared-playback-updated', {
             detail: {
+                instanceId: transmission.instanceId,
                 transmissionRevision: transmission.revision,
                 mediaMode: transmission.mediaMode,
                 atLiveEdge: transmission.playback.atLiveEdge,
@@ -256,6 +266,7 @@
 
     const currentContext = () => transmission === null ? null : {
         isOwner: transmission.isOwner,
+        instanceId: transmission.instanceId,
         transmissionRevision: transmission.revision,
         playbackRevision: transmission.playback.revision,
         playbackPositionMs: transmission.playback.positionMs,
@@ -275,6 +286,7 @@
             const body = new URLSearchParams({
                 _token: csrfToken,
                 action,
+                transmission_instance_id: expectedContext.instanceId,
                 transmission_revision: String(expectedContext.transmissionRevision),
                 playback_revision: String(expectedContext.playbackRevision),
             });
@@ -300,6 +312,7 @@
             const confirmed = currentContext();
             if (confirmed === null
                 || confirmed.isOwner !== true
+                || confirmed.instanceId !== expectedContext.instanceId
                 || confirmed.transmissionRevision !== expectedContext.transmissionRevision
                 || confirmed.playbackRevision !== expectedContext.playbackRevision + 1) {
                 return {ok: false, reason: 'invalid_confirmation'};
@@ -343,10 +356,12 @@
         return result;
     };
 
-    const participantStorageKey = (revision) => media.participantSyncStorageKey(endpoint, revision);
-    const storedParticipantIds = (revision) => {
+    const participantStorageKey = (instanceId, revision) => (
+        media.participantSyncStorageKey(endpoint, instanceId, revision)
+    );
+    const storedParticipantIds = (instanceId, revision) => {
         try {
-            const stored = window.sessionStorage.getItem(participantStorageKey(revision));
+            const stored = window.sessionStorage.getItem(participantStorageKey(instanceId, revision));
             const value = JSON.parse(stored ?? '[]');
             return Array.isArray(value) ? value : [];
         } catch {
@@ -354,33 +369,45 @@
         }
     };
     const persistParticipantSync = () => {
-        if (participantSyncTracker === null || participantSyncRevision === null) {
+        if (participantSyncTracker === null
+            || participantSyncInstanceId === null
+            || participantSyncRevision === null) {
             return;
         }
         try {
             window.sessionStorage.setItem(
-                participantStorageKey(participantSyncRevision),
+                participantStorageKey(participantSyncInstanceId, participantSyncRevision),
                 JSON.stringify(participantSyncTracker.synchronizedParticipantIds()),
             );
         } catch {
             // In-memory tracking remains authoritative for the current page.
         }
     };
-    const resetParticipantSync = (previousRevision) => {
-        if (Number.isSafeInteger(previousRevision)
-            && (previousRevision !== transmission?.revision
+    const resetParticipantSync = (previousInstanceId, previousRevision) => {
+        if (typeof previousInstanceId === 'string'
+            && Number.isSafeInteger(previousRevision)
+            && (previousInstanceId !== transmission?.instanceId
+                || previousRevision !== transmission?.revision
                 || transmission?.isOwner !== true)) {
             try {
-                window.sessionStorage.removeItem(participantStorageKey(previousRevision));
+                window.sessionStorage.removeItem(
+                    participantStorageKey(previousInstanceId, previousRevision),
+                );
             } catch {
                 // Storage cleanup is best-effort.
             }
         }
+        participantSyncInstanceId = transmission?.isOwner === true
+            ? transmission.instanceId
+            : null;
         participantSyncRevision = transmission?.isOwner === true ? transmission.revision : null;
         participantSyncTracker = participantSyncRevision === null
             ? null
             : media.createParticipantSyncTracker({
-                synchronizedIds: storedParticipantIds(participantSyncRevision),
+                synchronizedIds: storedParticipantIds(
+                    participantSyncInstanceId,
+                    participantSyncRevision,
+                ),
             });
     };
 
@@ -393,6 +420,7 @@
             return false;
         }
 
+        const instanceId = transmission.instanceId;
         const revision = transmission.revision;
         const coveredPlaybackInstanceIds = participantSyncTracker?.readyParticipantIds() ?? [];
         let snapshot = initialSnapshot;
@@ -425,7 +453,10 @@
             document.dispatchEvent(new CustomEvent('semyra:hud-interaction-end'));
         }
         if (result.ok) {
-            if (transmission?.revision === revision && participantSyncRevision === revision) {
+            if (transmission?.instanceId === instanceId
+                && transmission?.revision === revision
+                && participantSyncInstanceId === instanceId
+                && participantSyncRevision === revision) {
                 participantSyncTracker?.markSynchronized(coveredPlaybackInstanceIds);
                 persistParticipantSync();
             }
@@ -434,7 +465,9 @@
         }
 
         setStatus('Não foi possível sincronizar agora.');
-        if (automatic && transmission?.revision === revision
+        if (automatic && transmission?.instanceId === instanceId
+            && transmission?.revision === revision
+            && participantSyncInstanceId === instanceId
             && participantSyncRevision === revision) {
             participantSyncTracker?.deferRetry(Date.now());
             document.dispatchEvent(new CustomEvent('semyra:presence-refresh-request'));
@@ -443,12 +476,14 @@
     };
 
     const maybeAutoResync = async (participants) => {
+        const instanceId = transmission?.instanceId;
         const revision = transmission?.revision;
         latestParticipants = Array.isArray(participants) ? participants : [];
         if (!Number.isSafeInteger(revision)
             || autoCheckInProgress
             || transmission?.isOwner !== true
             || participantSyncTracker === null
+            || participantSyncInstanceId !== instanceId
             || participantSyncRevision !== revision) {
             return;
         }
@@ -478,7 +513,8 @@
                 && media.resyncContextMatches(expectedContext, currentContext())
                 && !controlsLocked()) {
                 await startResync({automatic: true, initialSnapshot: snapshot});
-            } else if (participantSyncRevision === revision) {
+            } else if (participantSyncInstanceId === instanceId
+                && participantSyncRevision === revision) {
                 participantSyncTracker?.deferRetry(Date.now());
             }
         } finally {
@@ -590,13 +626,16 @@
         maybeAutoResync(event.detail?.participants ?? []);
     });
 
+    const initialInstanceId = shell.dataset.initialInstanceId ?? '';
     const initialRevision = Number(shell.dataset.initialRevision);
     const rawInitialLiveEdge = shell.dataset.initialLiveEdgePositionMs;
     const rawInitialLiveSync = shell.dataset.initialLiveSyncPositionMs;
     const rawInitialLiveSyncDelay = shell.dataset.initialLiveSyncDelayMs;
-    applyTransmission(Number.isSafeInteger(initialRevision) && initialRevision > 0
+    applyTransmission(/^[a-f0-9]{32}$/.test(initialInstanceId)
+        && Number.isSafeInteger(initialRevision) && initialRevision > 0
         ? {
             source: shell.dataset.initialSource,
+            instanceId: initialInstanceId,
             videoId: shell.dataset.initialVideoId,
             revision: initialRevision,
             ownerName: shell.dataset.initialOwnerName || 'Participante',

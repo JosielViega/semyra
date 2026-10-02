@@ -80,13 +80,13 @@ bridge privado futuro
     media ingest plane: provider → H.264/Opus
 ```
 
-`source_type` descreve o conteúdo (`youtube` ou `iptv`); LiveKit é transporte, nunca `source_type`. O backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv`/`live` e revisão atual antes de emitir uma credencial com dez minutos de validade. Nenhum Ingress ou lifecycle de bridge foi integrado ao fluxo produtivo.
+`source_type` descreve o conteúdo (`youtube` ou `iptv`); LiveKit é transporte, nunca `source_type`. O backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv`/`live`, `instance_id` e revisão atuais antes de emitir uma credencial com dez minutos de validade. Nenhum Ingress ou lifecycle de bridge foi integrado ao fluxo produtivo.
 
 Na Etapa 10B.2, o polling continua sendo o plano de controle e o browser passa a ser consumidor do plano de mídia:
 
 ```text
 room-presence.js
-    → transmission iptv/live + revision
+    → transmission iptv/live + instance_id + revision
 POST /room/{code}/livekit/viewer-token
     → URL + JWT efêmero + publisher esperado
 room-livekit-player.js
@@ -94,9 +94,9 @@ room-livekit-player.js
 tracks somente do publisher esperado
 ```
 
-O SDK `livekit-client` 2.22.3 é distribuído localmente e carregado apenas para `iptv`/`live`. YouTube e LiveKit possuem mounts e status independentes. Mudança de fonte, revisão ou encerramento incrementa uma geração local, desconecta a room anterior e descarta token, publisher e tracks antigos. IPTV Live não participa de Play/Pause/Seek, DVR, live edge ou resync compartilhado nesta etapa; volume, mute e fullscreen permanecem locais.
+O SDK `livekit-client` 2.22.3 é distribuído localmente e carregado apenas para `iptv`/`live`. YouTube e LiveKit possuem mounts e status independentes. Mudança de fonte, `instance_id`, revisão ou encerramento incrementa uma geração local, desconecta a room anterior e descarta token, publisher e tracks antigos. IPTV Live não participa de Play/Pause/Seek, DVR, live edge ou resync compartilhado nesta etapa; volume, mute e fullscreen permanecem locais.
 
-O nome da room LiveKit deriva deterministicamente de namespace e ID interno da sala. A publisher identity é vinculada à instância da transmissão e inclui room ID, revision e o `started_at` imutável: isso impede reuso após `end` seguido de novo `start`, mesmo quando a nova linha reinicia em revision 1. Viewer identities são aleatórias por emissão para permitir duas abas independentes. Nenhum desses identificadores cria owner, host, moderator ou hierarquia no Semyra. A autoridade temporária de playback continua pertencendo exclusivamente à transmissão vigente.
+O nome da room LiveKit deriva deterministicamente de namespace e ID interno da sala. A publisher identity é vinculada à instância da transmissão e deriva de namespace, room ID e `instance_id`; `started_at` continua somente como timestamp observacional. Isso impede reuso após `end` seguido de novo `start`, mesmo quando a nova linha reinicia em revision 1. Viewer identities são aleatórias por emissão para permitir duas abas independentes. Nenhum desses identificadores cria owner, host, moderator ou hierarquia no Semyra. A autoridade temporária de playback continua pertencendo exclusivamente à transmissão vigente.
 
 O SDK PHP permanece resolvido em `agence104/livekit-server-sdk` 1.3.5. A auditoria da distribuição registra a inconsistência sem interpretação jurídica: Composer metadata declares MIT; distributed LICENSE file is Apache-2.0. O arquivo `LICENSE` acompanha o runtime no mirror de produção.
 
@@ -142,6 +142,7 @@ O gerador cria códigos públicos aleatórios e o repository tenta inserir cada 
 ```text
 Room
 └── RoomTransmission (0..1)
+    ├── instance_id opaco e imutável por execução
     ├── source
     ├── owner temporário
     └── revision
@@ -161,7 +162,7 @@ RoomTransmissionRepository
 MySQL
 ```
 
-Quem inicia torna-se proprietário da transmissão vigente. Outra pessoa pode substituí-la, incrementando `revision` e assumindo a propriedade. Somente o proprietário atual pode encerrá-la. O criador persistido da sala não recebe privilégios de playback; não há host permanente ou histórico de transmissões.
+Quem inicia torna-se proprietário da transmissão vigente. Outra pessoa pode substituí-la, incrementando `revision` e assumindo a propriedade. Cada start ou replacement recebe um novo `instance_id` aleatório; ele identifica a execução específica, enquanto `revision` e playback revision versionam o estado dentro desse contexto. End, playback e observação de live edge usam compare-and-swap por owner, `instance_id` e revisions aplicáveis, de modo que uma ação atrasada nunca alcance a transmissão seguinte. O identificador de instância é público e opaco, mas não é credencial nem concede autoridade. Somente o proprietário atual pode encerrar a transmissão. O criador persistido da sala não recebe privilégios de playback; não há host permanente ou histórico de transmissões.
 
 A consulta segue:
 
@@ -231,7 +232,7 @@ JSON { participants, transmission }
 
 Na saída real da página, `room-presence.js` envia um leave best-effort no evento `pagehide`, preferindo `sendBeacon` e usando `fetch keepalive` como fallback. O `UPDATE` exige sala, participante e hash da instância atual; assim um leave atrasado da instância anterior não inativa a página nova após reload. O leave apenas antecipa `last_seen_at` e limpa a telemetria correspondente, sem apagar a identidade da sessão, encerrar transmissão ou alterar ownership. A janela de 45 segundos permanece como fallback obrigatório. Troca de aba não envia leave, e uma restauração via BFCache registra novamente a mesma instância do documento.
 
-A resposta pública não contém IDs internos, hashes, tokens de sessão ou timestamps. Contas recebem `public_id` opaco estável derivado com namespace interno do `user_id`; guests continuam derivados do hash da chave. `playback_instance_id` identifica a geração física atual do documento/player. Nenhum desses IDs autentica ou autoriza. `is_you` compara `user_id` para contas e hash somente para guests. `transmission` contém fonte, video ID, revisão, nome do owner, `is_owner`, `media_mode` e playback oficial.
+A resposta pública não contém IDs internos, hashes, tokens de sessão ou timestamps. Contas recebem `public_id` opaco estável derivado com namespace interno do `user_id`; guests continuam derivados do hash da chave. `playback_instance_id` identifica a geração física atual do documento/player. Nenhum desses IDs autentica ou autoriza. `is_you` compara `user_id` para contas e hash somente para guests. `transmission` contém o `instance_id` público opaco, fonte, video ID, revisão, nome do owner, `is_owner`, `media_mode` e playback oficial.
 
 ```text
 room-presence.js
@@ -312,11 +313,11 @@ room-telemetry.js
 
 O banco mantém somente o último snapshot na linha de cada participante e calcula sua idade com o relógio do MySQL. Telemetria é recente por 12 segundos, separadamente da janela de presença de 45 segundos. Para dois participantes no estado `playing`, posições recentes são projetadas pela idade do snapshot e o drift é `posição estimada do outro - posição estimada de você`: positivo significa que o outro está à frente, negativo significa que está atrás. Duração é somente diagnóstica, inclusive em Lives.
 
-Este fluxo de telemetria continua observacional e não define autoridade. O playback oficial é aplicado quando muda a revisão da transmissão, a revisão do playback ou quando a primeira âncora se torna pronta; a projeção seguinte não redispara seek. Não existe seek periódico, eleição, consenso, playback rate, correção contínua de drift ou histórico de amostras. A margem de 5 segundos ainda está em validação empírica. Volume, mute, fullscreen e Wake Lock continuam exclusivamente locais.
+Este fluxo de telemetria continua observacional e não define autoridade. O playback oficial é aplicado quando muda o `instance_id`, a revisão da transmissão, a revisão do playback ou quando a primeira âncora se torna pronta; a projeção seguinte não redispara seek. Eventos atrasados são aceitos somente quando pertencem à mesma instância. Não existe seek periódico, eleição, consenso, playback rate, correção contínua de drift ou histórico de amostras. A margem de 5 segundos ainda está em validação empírica. Volume, mute, fullscreen e Wake Lock continuam exclusivamente locais.
 
-Como experimento de estabilização, o owner dispõe de `Sincronizar`: em conteúdo playing, o frontend serializa `pause`, confirmação oficial, espera de 2 segundos e `play` — ou `live` quando estava no ponto AO VIVO. Em paused, republica a posição por `seek` e não inicia reprodução. Revisions e ownership são revalidados antes da segunda ação; conflito, substituição ou perda de ownership cancelam a retomada antiga. Viewers continuam reagindo somente às revisions oficiais.
+Como experimento de estabilização, o owner dispõe de `Sincronizar`: em conteúdo playing, o frontend serializa `pause`, confirmação oficial, espera de 2 segundos e `play` — ou `live` quando estava no ponto AO VIVO. Em paused, republica a posição por `seek` e não inicia reprodução. Instance ID, revisions e ownership são revalidados antes da segunda ação; conflito, substituição ou perda de ownership cancelam a retomada antiga. Viewers continuam reagindo somente ao estado oficial da instância atual.
 
-O owner também pode executar esse pulso automaticamente por nova coorte de instâncias de player ainda não cobertas na revision vigente. Cada `playback_instance_id` precisa permanecer ativo e com telemetria fresh por quatro segundos; chegadas próximas são agrupadas numa única barreira, e somente os IDs ready capturados no início são marcados após sucesso. Um reload preserva `public_id`, mas cria outro `playback_instance_id`, portanto a nova instância recebe warmup e uma única barreira. Saída observada remove a cobertura para permitir novo warmup no rejoin. Em paused, o estado determinístico estabilizado funciona como barreira natural sem Pause/Play. A cobertura local guarda apenas IDs públicos opacos em memória e `sessionStorage`, limitada à revision atual; IDs antigos são descartados quando deixam de corresponder às instâncias ativas. Posições e drift não entram na decisão nem se tornam autoridade; polling da mesma instância não repete a barreira.
+O owner também pode executar esse pulso automaticamente por nova coorte de instâncias de player ainda não cobertas na revision vigente. Cada `playback_instance_id` precisa permanecer ativo e com telemetria fresh por quatro segundos; chegadas próximas são agrupadas numa única barreira, e somente os IDs ready capturados no início são marcados após sucesso. Um reload preserva `public_id`, mas cria outro `playback_instance_id`, portanto a nova instância recebe warmup e uma única barreira. Saída observada remove a cobertura para permitir novo warmup no rejoin. Em paused, o estado determinístico estabilizado funciona como barreira natural sem Pause/Play. A cobertura local guarda apenas IDs públicos opacos em memória e `sessionStorage`, separada por endpoint, `instance_id` e revision; IDs de uma transmissão nunca são reutilizados pela seguinte. Posições e drift não entram na decisão nem se tornam autoridade; polling da mesma instância não repete a barreira.
 
 ## Ferramentas de infraestrutura
 

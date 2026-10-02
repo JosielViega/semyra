@@ -167,6 +167,7 @@ final class RoomParticipantController
 
         $liveEdgeValues = [
             $this->request->input('live_edge_position_ms'),
+            $this->request->input('live_edge_transmission_instance_id'),
             $this->request->input('live_edge_transmission_revision'),
             $this->request->input('live_edge_playback_revision'),
         ];
@@ -175,14 +176,15 @@ final class RoomParticipantController
             static fn (mixed $value): bool => $value !== null,
         ));
         if ($liveEdgeProvided > 0) {
-            if ($liveEdgeProvided !== 3) {
+            if ($liveEdgeProvided !== 4) {
                 return Response::json(['error' => 'invalid_live_edge_observation'], 422);
             }
             try {
                 $observation = $this->transmissionPlayback->normalizeLiveEdgeObservation([
                     'position_ms' => $liveEdgeValues[0],
-                    'transmission_revision' => $liveEdgeValues[1],
-                    'playback_revision' => $liveEdgeValues[2],
+                    'transmission_instance_id' => $liveEdgeValues[1],
+                    'transmission_revision' => $liveEdgeValues[2],
+                    'playback_revision' => $liveEdgeValues[3],
                 ]);
             } catch (\InvalidArgumentException) {
                 return Response::json(['error' => 'invalid_live_edge_observation'], 422);
@@ -190,6 +192,7 @@ final class RoomParticipantController
             $this->transmissions->observeLiveEdge(
                 (int) $room['id'],
                 $participantKeyHash,
+                $observation['transmission_instance_id'],
                 $observation['transmission_revision'],
                 $observation['playback_revision'],
                 $observation['position_ms'],
