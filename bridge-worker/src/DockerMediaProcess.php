@@ -38,7 +38,7 @@ final class DockerMediaProcess implements MediaProcess
         }
         $this->containerName = 'semyra-bridge-' . $jobId . '-' . bin2hex(random_bytes(5));
         $this->readyPath = $this->config->runtimePath . DIRECTORY_SEPARATOR . 'ready-' . $this->containerName;
-        $maximumAge = (string) max(3, $this->config->heartbeatSeconds * 3);
+        $maximumAge = (string) $this->config->watchdogMaximumAgeSeconds();
         $environment = $this->baseEnvironment() + [
             'WHIP_ENDPOINT' => $whipEndpoint,
             'SEMYRA_FEED_SOURCE_URL' => $sourceUrl,

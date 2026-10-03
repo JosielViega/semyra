@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Semyra\BridgeWorker\Clock;
 use Semyra\BridgeWorker\ControlException;
 use Semyra\BridgeWorker\ControlPlaneClient;
@@ -11,6 +12,7 @@ use Semyra\BridgeWorker\MediaProcessFactory;
 use Semyra\BridgeWorker\SourceCatalog;
 use Semyra\BridgeWorker\Watchdog;
 use Semyra\BridgeWorker\WorkerConfig;
+use Semyra\BridgeWorker\WorkerException;
 use Semyra\BridgeWorker\WorkerRunner;
 
 require_once __DIR__ . '/../bridge-worker/bootstrap.php';
@@ -43,6 +45,42 @@ final class BridgeWorkerRunnerTest extends TestCase
         self::assertTrue($media->stopped);
         self::assertSame([['stopped', null]], $control->reports);
         self::assertSame(['starting', 'running'], $control->heartbeatStatuses);
+    }
+
+    public function testDefaultTimingPolicyAllowsMediaToStart(): void
+    {
+        [$runner, $control, $media] = $this->runner([['action' => 'keep'], ['action' => 'stop']], ['running'], 20, 5);
+
+        self::assertTrue($runner->runOnce());
+        self::assertTrue($media->started);
+        self::assertTrue($media->stopped);
+        self::assertSame([['stopped', null]], $control->reports);
+    }
+
+    #[DataProvider('unsafeLeaseProvider')]
+    public function testUnsafeLeaseFailsBeforeStartingMedia(int $heartbeatSeconds, int $leaseSeconds): void
+    {
+        [$runner, $control, $media] = $this->runner([], [], $leaseSeconds, $heartbeatSeconds);
+
+        try {
+            $runner->runOnce();
+            self::fail('Unsafe lease was accepted.');
+        } catch (WorkerException $exception) {
+            self::assertSame('lease_invalid', $exception->errorCode);
+        }
+        self::assertFalse($media->started);
+        self::assertFalse($media->stopped);
+        self::assertSame([], $control->heartbeatStatuses);
+        self::assertSame([['failed', 'lease_invalid']], $control->reports);
+    }
+
+    public static function unsafeLeaseProvider(): array
+    {
+        return [
+            'watchdog exceeds lease' => [5, 10],
+            'watchdog equals lease' => [5, 15],
+            'slow heartbeat exceeds lease' => [10, 20],
+        ];
     }
 
     public function testLeaseLossStopsImmediatelyWithoutReportingAgainstNewOwner(): void

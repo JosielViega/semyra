@@ -32,6 +32,36 @@ final class BridgeWorkerConfigTest extends TestCase
         self::assertSame(5, $config->heartbeatSeconds);
     }
 
+    #[DataProvider('leaseTimingProvider')]
+    public function testLeaseSupportKeepsWatchdogInsideLease(
+        int $heartbeatSeconds,
+        int $leaseSeconds,
+        int $expectedWatchdogAge,
+        bool $expectedSupport,
+    ): void {
+        $environment = $this->environment();
+        $environment['SEMYRA_HEARTBEAT_SECONDS'] = (string) $heartbeatSeconds;
+        $config = WorkerConfig::fromEnvironment($environment, dirname(__DIR__) . '/bridge-worker', true);
+
+        self::assertSame($expectedWatchdogAge, $config->watchdogMaximumAgeSeconds());
+        self::assertSame($expectedSupport, $config->supportsLease($leaseSeconds));
+        if ($expectedSupport) {
+            self::assertLessThan($leaseSeconds, $config->watchdogMaximumAgeSeconds());
+        }
+    }
+
+    public static function leaseTimingProvider(): array
+    {
+        return [
+            'default lease' => [5, 20, 15, true],
+            'equal boundary' => [5, 15, 15, false],
+            'one second beyond boundary' => [5, 16, 15, true],
+            'short lease' => [5, 10, 15, false],
+            'slow heartbeat' => [10, 20, 30, false],
+            'existing short outage case' => [1, 4, 3, true],
+        ];
+    }
+
     #[DataProvider('invalidConfigurationProvider')]
     public function testRejectsUnsafeConfiguration(string $key, string $value): void
     {

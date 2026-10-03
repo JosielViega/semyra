@@ -68,8 +68,8 @@ final class WorkerRunner
             throw new WorkerException('invalid_configuration');
         }
         $leaseSeconds = (int) ($job['lease_seconds'] ?? 0);
-        $margin = max(3, $this->config->heartbeatSeconds);
-        if ($leaseSeconds <= $margin) {
+        $margin = $this->config->leaseSafetyMarginSeconds();
+        if (!$this->config->supportsLease($leaseSeconds)) {
             $this->reportFailure($job, 'lease_invalid');
             throw new WorkerException('lease_invalid');
         }

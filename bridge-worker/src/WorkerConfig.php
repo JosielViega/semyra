@@ -23,6 +23,22 @@ final class WorkerConfig
     ) {
     }
 
+    public function watchdogMaximumAgeSeconds(): int
+    {
+        return max(3, $this->heartbeatSeconds * 3);
+    }
+
+    public function leaseSafetyMarginSeconds(): int
+    {
+        return max(3, $this->heartbeatSeconds);
+    }
+
+    public function supportsLease(int $leaseSeconds): bool
+    {
+        return $leaseSeconds > $this->leaseSafetyMarginSeconds()
+            && $leaseSeconds > $this->watchdogMaximumAgeSeconds();
+    }
+
     /** @param array<string, string|false> $environment */
     public static function fromEnvironment(array $environment, string $workerRoot, bool $requireMedia): self
     {
