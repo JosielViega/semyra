@@ -10,6 +10,8 @@
 
 /deploy/hostgator/mirror/
 /deploy/hostgator/build-info.json
+/bridge-worker/.private/
+/bridge-worker/runtime/
 
 /storage/logs/*.log
 /storage/cache/*

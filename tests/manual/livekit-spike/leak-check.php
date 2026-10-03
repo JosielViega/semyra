@@ -79,6 +79,8 @@ $paths = [];
 $authorRoots = [
     $root . '/tests/manual/iptv-spike',
     $root . '/tests/manual/livekit-spike',
+    $root . '/tests',
+    $root . '/bridge-worker',
     $root . '/docs',
 ];
 

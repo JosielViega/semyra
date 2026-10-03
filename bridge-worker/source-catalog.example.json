@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "sources": {
+    "demo_local_mpegts": {
+      "type": "http_mpegts",
+      "url": "http://127.0.0.1:9000/live.ts"
+    }
+  }
+}

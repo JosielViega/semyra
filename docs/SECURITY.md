@@ -57,6 +57,10 @@ Cada claim emite um lease token aleatório de 256 bits. O valor bruto fica somen
 
 Efeitos externos permanecem recuperáveis pelo ownership determinístico e pela reconciliação via `ListIngress`, inclusive após crash antes de persistir o ID ou exclusão da sala. Para isso, `room_id` é mantido como snapshot operacional no job, sem FK para `rooms`; ele não concede acesso nem substitui validação de lease. Credenciais e URLs do provider IPTV permanecem worker-side; o Semyra guarda apenas `source_ref` opaco e não secreto. O API key pode aparecer como issuer em JWTs de viewer pelo contrato LiveKit, mas não é retornado como campo explícito da API do bridge.
 
+O catálogo real de fontes é um boundary privado no filesystem do worker e fica fora do Git e do mirror HostGator. `source_ref` somente seleciona uma chave exata desse catálogo: nunca vira URL, path ou fallback. URLs de provider aceitam apenas HTTP/HTTPS e não entram no control plane, banco, browser, metadata, argv do Docker, logs ou códigos de erro. O endpoint WHIP efêmero também fica somente em memória/processo e é passado ao container sem valor literal em argv.
+
+Cada container de mídia é efêmero, sem restart policy, identificado apenas por labels não secretas e removido no cleanup. Lock local limita cada worker ID a um processo e um job ativo. O watchdog contém somente timestamp; heartbeats `keep` renovam um safety deadline anterior ao vencimento do lease. `action=stop`, `lease_lost`, falha de mídia ou perda prolongada do control plane encerram feeder e container de forma fail-closed. O worker não repete localmente a mesma lease: retry e fencing continuam sob controle do servidor.
+
 ## Mirror de produção
 
 O builder HostGator usa allowlist e falha se detectar configurações do servidor, secrets, certificados ou diretórios de dados no mirror. `.env`, `.htaccess`, uploads, logs e cache permanecem próprios de cada instalação. O builder não transmite arquivos e não executa migrations.
