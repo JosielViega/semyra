@@ -10,6 +10,8 @@ Para a fundação 10B.3A, `media-bridge-job-fixture.php create|stop` cria ou sol
 
 Use somente com `APP_ENV=local` ou `testing` e banco local. O harness recusa outros ambientes:
 
+A sala informada deve estar atualmente válida segundo `RoomRepository::findByCode()`. A fixture recusa salas temporárias expiradas, atualiza a atividade de uma sala válida antes do smoke e revalida a mesma sala antes de criar a transmissão. Ela não revive, recria ou contorna o TTL de uma sala expirada. Um `404` da sala indica problema da fixture/validade local e nunca deve ser classificado como falha do LiveKit.
+
 ```powershell
 php tests/manual/livekit-spike/semyra-room-fixture.php start ROOMCODE
 php tests/manual/livekit-spike/create-semyra-whip-ingress.php
@@ -24,6 +26,20 @@ php tests/manual/livekit-spike/semyra-room-fixture.php end
 ```
 
 O `DELETE` da fixture exige sala, revisão, timestamp, fonte e owner sintético originais, portanto não remove uma transmissão posterior. Feche os viewers, pare feeder/GStreamer e o servidor local. Nunca execute esse fluxo contra HostGator ou produção.
+
+Antes de gastar um Ingress em qualquer validação futura, siga esta ordem:
+
+1. confirme que o servidor local está healthy;
+2. crie ou abra uma sala local válida;
+3. confirme HTTP 200 para a sala;
+4. para guest, conclua normalmente o join/nickname para estabelecer a identidade de participante;
+5. inicie a fixture;
+6. confirme novamente HTTP 200 para a sala;
+7. somente então permita claim, Ingress e acesso ao provider.
+
+O viewer token continua exigindo a identidade normal de participante da sala. O laboratório não adiciona bypass, cookie forjado, parâmetro/header especial ou token sem identidade.
+
+Este hardening não executa um terceiro smoke; uma futura revalidação do viewer dependerá de autorização separada.
 
 ## Arquitetura
 

@@ -75,3 +75,66 @@ Do not repeat the real smoke until a separate investigation explains why the wor
 - A dedicated server lifecycle harness is prepared with a known PID, `/health` checks, and explicit shutdown. It is not tied to worker completion and has no automatic runtime timeout.
 - Any future retry must pass health checks before the worker, during media, before the viewer, and before stop. A health failure must abort the flow and trigger scoped cleanup instead of waiting for the viewer.
 - Root-cause classification after this investigation: **still indeterminate**. A single future authorized smoke with the new local exit enum, Ingress transition observer, and independent server lifecycle is required to distinguish source exit, pipeline exit, lease loss, or another sanitized control failure.
+
+## Second managed smoke — 10B.3C.2
+
+- Date: 2026-10-03 (America/Sao_Paulo)
+- Baseline: `e3c1fbdbe5b3c35537121cb16f3632c15b8aa055`
+- Scope: exactly one fixture, one asynchronous `worker --once`, one owned Ingress at most, and one browser tab; no retry was performed
+- Precheck: passed for Docker daemon, pinned image/digest, GStreamer, WHIP sink, and required plugins
+- Residual audit before the run: zero bridge containers/processes, active bridge jobs, IPTV/live transmissions, prior-fixture Ingresses, and runtime files
+- Local server: started independently and remained alive until final cleanup
+- HEALTH #1 before worker: passed
+- Initial fixture state: desired state `running`, status `pending`, attempt count 0, and no Ingress assigned
+- Worker: started asynchronously and a local process handle was acquired without putting secrets in argv
+- Claim: succeeded; attempt count 1, worker assigned, and one Ingress assigned
+- Observer: started asynchronously after Ingress assignment and coexisted with the worker; startup was delayed by a local path-composition error, without starting a second observer, worker, or Ingress
+- HEALTH #2 during media: passed
+- Source-ready: observed while the worker and media container were active; this proves validated MPEG-TS only and does not by itself prove publishing
+- Worker active at source-ready: yes
+- Sanitized Ingress transitions observed: `T+0.4 publishing` (the observer began after publishing had already been reached)
+- Publishing: yes, approximately 33.6 seconds after worker launch
+- Publishing codecs: H264 video and Opus audio
+- Publishing dimensions: 1920x1080
+- Publishing FPS: not observed
+- Media exit enum: not available; no sanitized worker failure was reported
+- HEALTH #3 before viewer: passed
+- Viewer: one Semyra browser tab was opened while the worker was still active and the Ingress was publishing
+- Viewer result: the selected local room was already expired, so the room request returned `Sala não encontrada`; no viewer token was emitted and LiveKit did not connect
+- Expected publisher in the viewer: not found; video and audio tracks were not received
+- Human confirmation: image and audio not observed
+- Starting heartbeat `keep`: confirmed by successful media startup
+- Running heartbeat `keep`: occurred while the worker stayed active, but an exact response count was not safely instrumented
+- Fixture-side effect: loading the expired room invoked normal temporary-room cleanup, which removed the room and current transmission; the worker subsequently completed cleanly and the bridge job reached `stopped`
+- HEALTH #4 before the explicit stop request: passed
+- Explicit stop: requested instance-aware, but the job was already stopped and its lease and Ingress reference were already cleared
+- `action=stop`: not directly observed in sanitized output; the clean worker completion and final stopped state after transmission removal strongly indicate that control-plane stop handling occurred
+- Final observer transition: `publishing`; the observer's bounded window ended before the later resource removal, so no final `complete` transition was captured
+- Worker final: terminated normally; sanitized stdout reported completion and stderr was empty
+- Observer final: terminated within its bounded window
+- Final job: desired state `stopped`, status `stopped`, attempt count 1, Ingress absent, lease absent, and error code empty
+- Cleanup: zero owned Ingresses, zero running/stopped bridge containers, and zero worker/helper/watchdog/feeder/GStreamer/observer processes
+- Fixture cleanup: private fixture state removed; transmission CAS reported `not-current` because expiration cleanup had already removed it
+- Server cleanup: stopped only after viewer, worker, observer, Ingress, job, process, container, and fixture cleanup; the following health check failed as expected
+- Runtime cleanup: zero lock, watchdog, source-ready, media-status, or smoke orchestration files
+- Media dumps: zero
+- Worker/media lifetime: approximately 219 seconds; this was a bounded diagnostic run, not an endurance test
+- Maximum simultaneous owned Ingresses: 1
+- Precisely attributable viewer participant-minutes: 0, because the room page never admitted the smoke viewer
+- Result classification: **CONFIRMED** for provider → worker → GStreamer/WHIP → LiveKit publishing; **CONFIRMED** viewer-blocking cause was the expired local fixture room, not a demonstrated media-path failure
+- Retry policy: no retry and no third smoke
+
+### Recommendation after the second smoke
+
+Do not run a third smoke. Preserve both attempts as separate evidence. Before any future product-stage validation, adjust the local fixture procedure in a separately reviewed change so it selects or creates a non-expired room; the managed media path itself reached real LiveKit publishing with H264 and Opus during this run.
+
+### Post-10B.3C.2 root-cause analysis
+
+- Viewer-blocking cause: **CONFIRMED IN THE TEST HARNESS**.
+- The local fixture looked up the room directly by code and did not apply the temporary-room TTL used by the application.
+- The real Semyra flow used `RoomRepository::findByCode()`, rejected the already-expired temporary room, and removed it through its normal expiration cleanup.
+- Deleting the room also removed its transmission through the existing cascade. The bridge then detected that the transmission was no longer eligible, cleaned up its owned Ingress, and stopped correctly.
+- No private room code or provider detail is retained in this report.
+- Managed media path — provider → worker → GStreamer → WHIP → LiveKit: **CONFIRMED**.
+- Managed smoke through the Semyra viewer in one execution: **NOT CONFIRMED in this run**, exclusively because the test fixture selected an expired room.
+- This result is not a bridge failure. No third smoke was performed.

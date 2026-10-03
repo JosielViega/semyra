@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Core\Database;
+use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Services\LiveKitRoomContext;
 use Dotenv\Dotenv;
@@ -27,6 +28,7 @@ if (!in_array($command, ['start', 'end'], true)) {
 
 $database = new Database(require $root . '/config/database.php');
 $pdo = $database->connection();
+$rooms = new RoomRepository($database);
 $repository = new RoomTransmissionRepository($database);
 
 if ($command === 'start') {
@@ -35,16 +37,21 @@ if ($command === 'start') {
         fwrite(STDERR, "A valid eight-character local room code is required.\n");
         exit(1);
     }
-    $statement = $pdo->prepare('SELECT id FROM rooms WHERE code = :code LIMIT 1');
-    $statement->execute(['code' => $code]);
-    $roomId = $statement->fetchColumn();
-    if (!is_numeric($roomId)) {
-        fwrite(STDERR, "Local room was not found.\n");
+    $room = $rooms->findByCode($code);
+    if ($room === null) {
+        fwrite(STDERR, "Local room is unavailable or expired.\n");
+        exit(1);
+    }
+    $roomId = (int) $room['id'];
+    $rooms->touchActivity($roomId);
+    $revalidatedRoom = $rooms->findByCode($code);
+    if ($revalidatedRoom === null || (int) $revalidatedRoom['id'] !== $roomId) {
+        fwrite(STDERR, "Local room is unavailable or expired.\n");
         exit(1);
     }
     $ownerHash = hash('sha256', 'semyra-10b2-local-fixture');
-    $repository->startOrReplace((int) $roomId, $ownerHash, 'iptv', null, 'live');
-    $transmission = $repository->findByRoom((int) $roomId);
+    $repository->startOrReplace($roomId, $ownerHash, 'iptv', null, 'live');
+    $transmission = $repository->findByRoom($roomId);
     if ($transmission === null || ($transmission['source_type'] ?? null) !== 'iptv') {
         throw new RuntimeException('Could not create local IPTV fixture.');
     }
@@ -52,13 +59,13 @@ if ($command === 'start') {
     $instanceId = (string) $transmission['instance_id'];
     $context = new LiveKitRoomContext((string) env('LIVEKIT_NAMESPACE', $environment));
     $fixture = [
-        'room_id' => (int) $roomId,
+        'room_id' => $roomId,
         'room_code' => $code,
         'revision' => $revision,
         'instance_id' => $instanceId,
         'owner_hash' => $ownerHash,
-        'livekit_room' => $context->roomName((int) $roomId),
-        'publisher_identity' => $context->publisherIdentity((int) $roomId, $instanceId),
+        'livekit_room' => $context->roomName($roomId),
+        'publisher_identity' => $context->publisherIdentity($roomId, $instanceId),
     ];
     if (file_put_contents(FIXTURE_PATH, json_encode($fixture, JSON_THROW_ON_ERROR), LOCK_EX) === false) {
         throw new RuntimeException('Could not write private fixture state.');
