@@ -408,7 +408,11 @@ final class MediaBridgeCoordinatorTest extends TestCase
     {
         [$coordinator, $store, $gateway] = $this->system();
         $first = $coordinator->claim(self::WORKER);
-        $coordinator->report(7, self::INSTANCE, self::WORKER, $first['lease_token'], 'failed', 'source_failed');
+        $coordinator->report(7, self::INSTANCE, self::WORKER, $first['lease_token'], 'failed', 'worker_shutdown');
+
+        self::assertSame('running', $store->job['desired_state']);
+        self::assertSame('failed', $store->job['status']);
+        self::assertSame('worker_shutdown', $store->job['last_error_code']);
 
         $coordinator->claim(self::WORKER);
 

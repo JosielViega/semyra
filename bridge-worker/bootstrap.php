@@ -7,6 +7,8 @@ foreach ([
     'WorkerException.php',
     'ControlException.php',
     'Clock.php',
+    'StopRequest.php',
+    'ProcessSignalStopRequest.php',
     'WorkerConfig.php',
     'WorkerLock.php',
     'Watchdog.php',

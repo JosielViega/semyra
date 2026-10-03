@@ -124,6 +124,8 @@ Jobs usam `transmission_instance_id` como fence da transmissão, `attempt_count`
 
 O diretório `bridge-worker/` é um artefato de implantação separado e não entra no mirror HostGator. Um processo aceita no máximo um job ativo: `--once` processa um claim e `--loop` repete claims sequencialmente; `--dry-run` preserva a prova sem mídia e `--check` valida Docker, imagem e plugins sem claim. Heartbeats renovam um watchdog local e um safety deadline conservador. `stop`, perda de lease ou indisponibilidade além desse deadline fecham feeder e container antes de qualquer novo claim. Retentativas de mídia continuam pertencendo ao `attempt_count` do control plane. Ainda não há seleção ou UI IPTV no produto.
 
+Shutdown local do serviço não equivale a stop da transmissão. `SIGTERM`/`SIGINT` interrompem mídia e watchdog pelo cleanup normal e tentam reportar `failed/worker_shutdown`, preservando `desired_state=running` para reclaim em novo attempt. Já `action=stop` do control plane continua reportando `stopped`; perda de lease tem prioridade de fencing e não permite report do owner antigo.
+
 ## Fluxo de autenticação opcional
 
 ```text

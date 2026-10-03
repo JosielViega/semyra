@@ -14,9 +14,19 @@ php bridge-worker/worker.php --loop
 - `--check` valida configuração, daemon Docker, digest da imagem, GStreamer e plugins sem claim ou acesso ao provider.
 - `--dry-run` preserva o protocolo de claim, heartbeat e report sem Docker, GStreamer ou mídia.
 - `--once` faz no máximo um claim e supervisiona esse job até seu encerramento.
-- `--loop` busca e processa jobs sequencialmente, aguardando entre respostas sem job.
+- `--loop` é o modo destinado ao futuro serviço Linux: busca e processa jobs sequencialmente, aguardando entre respostas sem job.
 
 Um processo aceita no máximo um job de mídia ativo. O lock por worker ID impede duas instâncias locais equivalentes; não existe pool ou daemon manager nesta etapa.
+
+## Shutdown do processo
+
+Em Linux/Unix, `--loop` exige `pcntl` com suporte a `SIGTERM` e `SIGINT`; o worker falha fechado com configuração inválida se não puder instalar os handlers cooperativos. Quando disponível, o mesmo tratamento também protege `--once`. Windows sem `pcntl` continua suportando `--check`, `--dry-run` e `--once`; o modo `--once` mantém o comportamento local anterior sem signal handler.
+
+O handler apenas registra o pedido de parada. O fluxo normal do runner interrompe imediatamente a mídia local e remove watchdog/runtime antes de tentar um report best-effort `failed` com `worker_shutdown`. Esse report não representa encerramento da transmissão: `desired_state` permanece `running`, a lease é liberada quando o report chega e o control plane pode reclamar um novo attempt após o reinício. `lease_lost` continua impedindo reports por um owner antigo, e um `action=stop` autoritativo mantém a semântica de `stopped`.
+
+Service restarts currently consume a new attempt generation; generation and failure budget will be separated before the systemd production stage.
+
+A unit do systemd e o provisionamento do serviço serão tratados na etapa seguinte; este diretório ainda não contém arquivos de serviço ou instalação.
 
 ## Configuração local
 

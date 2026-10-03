@@ -12,6 +12,7 @@ final class WorkerRunner
         private readonly ?SourceCatalog $catalog,
         private readonly ?MediaProcessFactory $mediaFactory,
         private readonly Clock $clock,
+        private readonly StopRequest $stopRequest,
     ) {
     }
 
@@ -29,9 +30,16 @@ final class WorkerRunner
 
     public function runOnce(): bool
     {
+        if ($this->stopRequest->requested()) {
+            return false;
+        }
         $job = $this->claim();
         if ($job === null) {
             return false;
+        }
+        if ($this->stopRequest->requested()) {
+            $this->reportFailure($job, 'worker_shutdown');
+            return true;
         }
         $this->process($job);
         return true;
@@ -40,8 +48,12 @@ final class WorkerRunner
     public function runLoop(int $maximumIterations = 0): void
     {
         $iterations = 0;
-        while (true) {
-            if (!$this->runOnce()) {
+        while (!$this->stopRequest->requested()) {
+            $processed = $this->runOnce();
+            if ($this->stopRequest->requested()) {
+                return;
+            }
+            if (!$processed) {
                 $this->clock->sleep($this->config->pollSeconds);
             }
             $iterations++;
@@ -88,6 +100,7 @@ final class WorkerRunner
         $failure = null;
         $lostLease = false;
         $stoppedByControl = false;
+        $shutdownRequested = false;
 
         try {
             try {
@@ -95,6 +108,8 @@ final class WorkerRunner
                 $initial = $this->control->heartbeat($job, 'starting');
                 if (($initial['action'] ?? null) === 'stop') {
                     $stoppedByControl = true;
+                } elseif ($this->stopRequest->requested()) {
+                    $shutdownRequested = true;
                 } else {
                     $watchdog->touchAt($heartbeatStartedAt);
                     $deadline = $heartbeatStartedAt + $leaseSeconds - $margin;
@@ -107,15 +122,28 @@ final class WorkerRunner
                     $failure = $exception->reason === 'unavailable' ? 'control_unavailable' : 'control_rejected';
                 }
             }
-            if (!$lostLease && !$stoppedByControl && $failure === null) {
+            if (!$lostLease && !$stoppedByControl && $this->stopRequest->requested()) {
+                $shutdownRequested = true;
+            }
+            if (!$lostLease && !$stoppedByControl && !$shutdownRequested && $failure === null) {
                 $this->clock->sleep(min(2.0, max(0.5, $this->config->heartbeatSeconds / 2)));
-                if ($this->clock->now() >= $deadline) {
+                if ($this->stopRequest->requested()) {
+                    $shutdownRequested = true;
+                } elseif ($this->clock->now() >= $deadline) {
                     $failure = 'lease_expired';
                 } else {
                     $media->start($sourceUrl, (string) ($job['whip_endpoint'] ?? ''), $job);
                 }
-                while ($failure === null) {
+                while ($failure === null && !$shutdownRequested) {
+                    if ($this->stopRequest->requested()) {
+                        $shutdownRequested = true;
+                        break;
+                    }
                     $state = $media->poll();
+                    if ($this->stopRequest->requested()) {
+                        $shutdownRequested = true;
+                        break;
+                    }
                     if ($state === 'failed') {
                         $failure = $media->errorCode();
                         break;
@@ -132,6 +160,10 @@ final class WorkerRunner
                                 $stoppedByControl = true;
                                 break;
                             }
+                            if ($this->stopRequest->requested()) {
+                                $shutdownRequested = true;
+                                break;
+                            }
                             $watchdog->touchAt($heartbeatStartedAt);
                             $deadline = $heartbeatStartedAt + $leaseSeconds - $margin;
                             $nextHeartbeat = $heartbeatStartedAt + $this->config->heartbeatSeconds;
@@ -145,6 +177,10 @@ final class WorkerRunner
                                 break;
                             }
                             $nextHeartbeat = $this->clock->now() + min(1, $this->config->heartbeatSeconds);
+                        }
+                        if (!$lostLease && !$stoppedByControl && $this->stopRequest->requested()) {
+                            $shutdownRequested = true;
+                            break;
                         }
                     }
                     if ($this->clock->now() >= $deadline) {
@@ -166,6 +202,10 @@ final class WorkerRunner
         }
         if ($stoppedByControl) {
             $this->reportBestEffort($job, 'stopped');
+            return;
+        }
+        if ($shutdownRequested) {
+            $this->reportFailure($job, 'worker_shutdown');
             return;
         }
         $this->reportFailure($job, $failure ?? 'pipeline_failed');

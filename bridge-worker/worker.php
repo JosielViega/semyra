@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Semyra\BridgeWorker\DockerEnvironmentCheck;
 use Semyra\BridgeWorker\DockerMediaProcessFactory;
 use Semyra\BridgeWorker\HttpControlPlaneClient;
+use Semyra\BridgeWorker\NullStopRequest;
+use Semyra\BridgeWorker\ProcessSignalStopRequest;
 use Semyra\BridgeWorker\SourceCatalog;
 use Semyra\BridgeWorker\SystemClock;
 use Semyra\BridgeWorker\WorkerConfig;
@@ -36,10 +38,18 @@ try {
         exit(0);
     }
 
+    if ($mode === '--loop' && !ProcessSignalStopRequest::isSupported()) {
+        throw new WorkerException('invalid_configuration');
+    }
+    $stopRequest = in_array($mode, ['--once', '--loop'], true)
+        && ProcessSignalStopRequest::isSupported()
+        ? new ProcessSignalStopRequest()
+        : new NullStopRequest();
+
     $control = new HttpControlPlaneClient($config->controlUrl, $config->workerSecret);
     $catalog = $mode === '--dry-run' ? null : new SourceCatalog($config->catalogPath);
     $factory = $mode === '--dry-run' ? null : new DockerMediaProcessFactory($config);
-    $runner = new WorkerRunner($config, $control, $catalog, $factory, $clock);
+    $runner = new WorkerRunner($config, $control, $catalog, $factory, $clock, $stopRequest);
     if ($mode === '--dry-run') {
         if ($runner->dryRun()) {
             echo "whip credentials received: yes\nbridge dry-run: passed\n";

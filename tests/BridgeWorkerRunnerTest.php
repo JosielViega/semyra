@@ -9,7 +9,10 @@ use Semyra\BridgeWorker\ControlException;
 use Semyra\BridgeWorker\ControlPlaneClient;
 use Semyra\BridgeWorker\MediaProcess;
 use Semyra\BridgeWorker\MediaProcessFactory;
+use Semyra\BridgeWorker\NullStopRequest;
+use Semyra\BridgeWorker\ProcessSignalStopRequest;
 use Semyra\BridgeWorker\SourceCatalog;
+use Semyra\BridgeWorker\StopRequest;
 use Semyra\BridgeWorker\Watchdog;
 use Semyra\BridgeWorker\WorkerConfig;
 use Semyra\BridgeWorker\WorkerException;
@@ -158,11 +161,167 @@ final class BridgeWorkerRunnerTest extends TestCase
         self::assertSame([['failed', 'source_invalid']], $control->reports);
     }
 
+    public function testStopBeforeLoopReturnsWithoutClaiming(): void
+    {
+        $clock = new BridgeFakeClock();
+        $control = new BridgeLoopFakeControl();
+        $stop = new BridgeMutableStopRequest();
+        $stop->request();
+        $runner = new WorkerRunner(
+            $this->config(15, 1), $control, new SourceCatalog($this->catalogPath),
+            new BridgeFakeMediaFactory(new BridgeFakeMedia([])), $clock, $stop,
+        );
+
+        $runner->runLoop();
+
+        self::assertSame(0, $control->claims);
+        self::assertSame([], $control->reports);
+        self::assertSame(1000.0, $clock->time);
+    }
+
+    public function testStopArrivingWithNoJobPreventsSleepAndAnotherClaim(): void
+    {
+        $clock = new BridgeFakeClock();
+        $stop = new BridgeMutableStopRequest();
+        $control = new BridgeNoJobStopControl($stop);
+        $runner = new WorkerRunner(
+            $this->config(15, 1), $control, new SourceCatalog($this->catalogPath),
+            new BridgeFakeMediaFactory(new BridgeFakeMedia([])), $clock, $stop,
+        );
+
+        $runner->runLoop();
+
+        self::assertSame(1, $control->claims);
+        self::assertSame(1000.0, $clock->time);
+    }
+
+    public function testStopAfterClaimReportsWorkerShutdownWithoutStartingMedia(): void
+    {
+        $clock = new BridgeFakeClock();
+        $stop = new BridgeMutableStopRequest();
+        $control = new BridgeFakeControl([], 15, $clock, $stop);
+        $media = new BridgeFakeMedia([]);
+        $runner = new WorkerRunner(
+            $this->config(15, 1), $control, new SourceCatalog($this->catalogPath),
+            new BridgeFakeMediaFactory($media), $clock, $stop,
+        );
+
+        self::assertTrue($runner->runOnce());
+        self::assertFalse($media->started);
+        self::assertFalse($media->stopped);
+        self::assertSame([], $control->heartbeatStatuses);
+        self::assertSame([['failed', 'worker_shutdown']], $control->reports);
+    }
+
+    public function testStopDuringInitialHeartbeatPreventsMediaStart(): void
+    {
+        $stop = new BridgeMutableStopRequest();
+        [$runner, $control, $media] = $this->runner(
+            [new BridgeStopDuringHeartbeat($stop, ['action' => 'keep'])], ['running'], 15, 1, $stop,
+        );
+
+        self::assertTrue($runner->runOnce());
+        self::assertFalse($media->started);
+        self::assertTrue($media->stopped);
+        self::assertSame(['starting'], $control->heartbeatStatuses);
+        self::assertSame([['failed', 'worker_shutdown']], $control->reports);
+    }
+
+    public function testStopDuringStartupGracePreventsMediaStartAndRemovesWatchdog(): void
+    {
+        $clock = new BridgeFakeClock();
+        $stop = new BridgeMutableStopRequest();
+        $clock->stopOnNextSleep = $stop;
+        $control = new BridgeFakeControl([['action' => 'keep']], 15, $clock);
+        $media = new BridgeFakeMedia([]);
+        $runner = new WorkerRunner(
+            $this->config(15, 1), $control, new SourceCatalog($this->catalogPath),
+            new BridgeFakeMediaFactory($media), $clock, $stop,
+        );
+
+        self::assertTrue($runner->runOnce());
+        self::assertFalse($media->started);
+        self::assertTrue($media->stopped);
+        self::assertNotNull($media->watchdog);
+        self::assertFileDoesNotExist($media->watchdog->path());
+        self::assertSame([['failed', 'worker_shutdown']], $control->reports);
+    }
+
+    public function testStopDuringRunningStopsMediaWithoutExtraHeartbeat(): void
+    {
+        $stop = new BridgeMutableStopRequest();
+        [$runner, $control, $media] = $this->runner([['action' => 'keep']], ['running'], 15, 1, $stop);
+        $media->stopOnPoll = $stop;
+
+        self::assertTrue($runner->runOnce());
+        self::assertTrue($media->started);
+        self::assertTrue($media->stopped);
+        self::assertNotNull($media->watchdog);
+        self::assertFileDoesNotExist($media->watchdog->path());
+        self::assertSame(['starting'], $control->heartbeatStatuses);
+        self::assertSame([['failed', 'worker_shutdown']], $control->reports);
+        self::assertNotContains(['stopped', null], $control->reports);
+    }
+
+    public function testStopAndLeaseLossStopsMediaWithoutReport(): void
+    {
+        $stop = new BridgeMutableStopRequest();
+        [$runner, $control, $media] = $this->runner([
+            ['action' => 'keep'],
+            new BridgeStopDuringHeartbeat($stop, new ControlException('lease_lost')),
+        ], ['running'], 15, 1, $stop);
+
+        self::assertTrue($runner->runOnce());
+        self::assertTrue($media->stopped);
+        self::assertSame([], $control->reports);
+    }
+
+    public function testControlStopWinsOverConcurrentLocalStop(): void
+    {
+        $stop = new BridgeMutableStopRequest();
+        [$runner, $control, $media] = $this->runner([
+            ['action' => 'keep'],
+            new BridgeStopDuringHeartbeat($stop, ['action' => 'stop']),
+        ], ['running'], 15, 1, $stop);
+
+        self::assertTrue($runner->runOnce());
+        self::assertTrue($media->stopped);
+        self::assertSame([['stopped', null]], $control->reports);
+    }
+
+    public function testUnavailableShutdownReportDoesNotKeepMediaAliveOrEscape(): void
+    {
+        $stop = new BridgeMutableStopRequest();
+        $clock = new BridgeFakeClock();
+        $control = new BridgeFakeControl([['action' => 'keep']], 15, $clock, null, new ControlException('unavailable'));
+        $media = new BridgeFakeMedia(['running']);
+        $media->stopOnPoll = $stop;
+        $runner = new WorkerRunner(
+            $this->config(15, 1), $control, new SourceCatalog($this->catalogPath),
+            new BridgeFakeMediaFactory($media), $clock, $stop,
+        );
+
+        self::assertTrue($runner->runOnce());
+        self::assertTrue($media->stopped);
+        self::assertSame(1, $control->reportAttempts);
+        self::assertSame([], $control->reports);
+    }
+
+    public function testSignalSupportProbeMatchesRuntimeCapabilities(): void
+    {
+        self::assertSame(
+            function_exists('pcntl_async_signals') && function_exists('pcntl_signal')
+                && defined('SIGTERM') && defined('SIGINT'),
+            ProcessSignalStopRequest::isSupported(),
+        );
+        self::assertFalse((new NullStopRequest())->requested());
+    }
+
     public function testDryRunPreservesProtocolWithoutCreatingMedia(): void
     {
         $clock = new BridgeFakeClock();
         $control = new BridgeFakeControl([['action' => 'keep'], ['action' => 'keep']]);
-        $runner = new WorkerRunner($this->config(15, 5), $control, null, null, $clock);
+        $runner = new WorkerRunner($this->config(15, 5), $control, null, null, $clock, new NullStopRequest());
 
         self::assertTrue($runner->dryRun());
         self::assertSame(['starting', 'running'], $control->heartbeatStatuses);
@@ -176,7 +335,7 @@ final class BridgeWorkerRunnerTest extends TestCase
         $media = new BridgeFakeMedia(['running']);
         $runner = new WorkerRunner(
             $this->config(15, 1), $control, new SourceCatalog($this->catalogPath),
-            new BridgeFakeMediaFactory($media), $clock,
+            new BridgeFakeMediaFactory($media), $clock, new NullStopRequest(),
         );
 
         $runner->runLoop(2);
@@ -187,7 +346,13 @@ final class BridgeWorkerRunnerTest extends TestCase
         self::assertSame([['stopped', null]], $control->reports);
     }
 
-    private function runner(array $heartbeats, array $states, int $lease = 15, int $heartbeat = 1): array
+    private function runner(
+        array $heartbeats,
+        array $states,
+        int $lease = 15,
+        int $heartbeat = 1,
+        ?StopRequest $stopRequest = null,
+    ): array
     {
         $clock = new BridgeFakeClock();
         $control = new BridgeFakeControl($heartbeats, $lease, $clock);
@@ -198,6 +363,7 @@ final class BridgeWorkerRunnerTest extends TestCase
             new SourceCatalog($this->catalogPath),
             new BridgeFakeMediaFactory($media),
             $clock,
+            $stopRequest ?? new NullStopRequest(),
         );
         return [$runner, $control, $media, $clock];
     }
@@ -214,8 +380,17 @@ final class BridgeWorkerRunnerTest extends TestCase
 final class BridgeFakeClock implements Clock
 {
     public float $time = 1000.0;
+    public ?BridgeMutableStopRequest $stopOnNextSleep = null;
     public function now(): float { return $this->time; }
-    public function sleep(float $seconds): void { $this->time += $seconds; }
+    public function sleep(float $seconds): void
+    {
+        $this->time += $seconds;
+        if ($this->stopOnNextSleep !== null) {
+            $stop = $this->stopOnNextSleep;
+            $this->stopOnNextSleep = null;
+            $stop->request();
+        }
+    }
 }
 
 final class BridgeFakeControl implements ControlPlaneClient
@@ -225,13 +400,17 @@ final class BridgeFakeControl implements ControlPlaneClient
     public array $heartbeatFinishedAt = [];
     public array $reports = [];
     public array $reportTimes = [];
+    public int $reportAttempts = 0;
     public function __construct(
         private array $heartbeats,
         private readonly int $lease = 15,
         private readonly ?BridgeFakeClock $clock = null,
+        private readonly ?BridgeMutableStopRequest $stopOnClaim = null,
+        private readonly ?ControlException $reportFailure = null,
     ) {}
     public function claim(string $workerId): ?array
     {
+        $this->stopOnClaim?->request();
         return [
             'job_id' => 7, 'transmission_instance_id' => str_repeat('c', 32), 'source_ref' => 'private:one',
             'lease_token' => str_repeat('d', 64), 'lease_seconds' => $this->lease,
@@ -247,12 +426,20 @@ final class BridgeFakeControl implements ControlPlaneClient
             $this->clock?->sleep($response->delaySeconds);
             $response = $response->response;
         }
+        if ($response instanceof BridgeStopDuringHeartbeat) {
+            $response->stopRequest->request();
+            $response = $response->response;
+        }
         $this->heartbeatFinishedAt[] = $this->clock?->now();
         if ($response instanceof Throwable) { throw $response; }
         return $response;
     }
     public function report(array $job, string $status, ?string $errorCode = null): void
     {
+        $this->reportAttempts++;
+        if ($this->reportFailure !== null) {
+            throw $this->reportFailure;
+        }
         $this->reports[] = [$status, $errorCode];
         $this->reportTimes[] = $this->clock?->now();
     }
@@ -261,6 +448,21 @@ final class BridgeFakeControl implements ControlPlaneClient
 final class BridgeDelayedHeartbeat
 {
     public function __construct(public readonly float $delaySeconds, public readonly mixed $response) {}
+}
+
+final class BridgeStopDuringHeartbeat
+{
+    public function __construct(
+        public readonly BridgeMutableStopRequest $stopRequest,
+        public readonly mixed $response,
+    ) {}
+}
+
+final class BridgeMutableStopRequest implements StopRequest
+{
+    private bool $requested = false;
+    public function request(): void { $this->requested = true; }
+    public function requested(): bool { return $this->requested; }
 }
 
 final class BridgeFakeMediaFactory implements MediaProcessFactory
@@ -280,6 +482,7 @@ final class BridgeFakeMedia implements MediaProcess
     public string $failure = 'pipeline_failed';
     public ?Watchdog $watchdog = null;
     public array $watchdogTimestamps = [];
+    public ?BridgeMutableStopRequest $stopOnPoll = null;
     public function __construct(private array $states) {}
     public function start(string $sourceUrl, string $whipEndpoint, array $job): void { $this->started = true; }
     public function poll(): string
@@ -287,6 +490,8 @@ final class BridgeFakeMedia implements MediaProcess
         if ($this->watchdog !== null && is_file($this->watchdog->path())) {
             $this->watchdogTimestamps[] = (int) file_get_contents($this->watchdog->path());
         }
+        $this->stopOnPoll?->request();
+        $this->stopOnPoll = null;
         return array_shift($this->states) ?? 'running';
     }
     public function errorCode(): string { return $this->failure; }
@@ -309,4 +514,18 @@ final class BridgeLoopFakeControl implements ControlPlaneClient
     }
     public function heartbeat(array $job, string $status): array { return ['action' => 'stop']; }
     public function report(array $job, string $status, ?string $errorCode = null): void { $this->reports[] = [$status, $errorCode]; }
+}
+
+final class BridgeNoJobStopControl implements ControlPlaneClient
+{
+    public int $claims = 0;
+    public function __construct(private readonly BridgeMutableStopRequest $stopRequest) {}
+    public function claim(string $workerId): ?array
+    {
+        $this->claims++;
+        $this->stopRequest->request();
+        return null;
+    }
+    public function heartbeat(array $job, string $status): array { throw new RuntimeException('Unexpected heartbeat.'); }
+    public function report(array $job, string $status, ?string $errorCode = null): void { throw new RuntimeException('Unexpected report.'); }
 }

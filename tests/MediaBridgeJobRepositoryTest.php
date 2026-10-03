@@ -57,6 +57,23 @@ final class MediaBridgeJobRepositoryTest extends TestCase
         self::assertStringContainsString("desired_state = 'running'", $this->pdo->lastQuery);
     }
 
+    public function testFailedReportPreservesRunningDesiredStateForRetry(): void
+    {
+        self::assertTrue($this->repository->markFailed(
+            7,
+            str_repeat('a', 32),
+            'wrk_' . str_repeat('b', 32),
+            str_repeat('c', 64),
+            'worker_shutdown',
+            false,
+        ));
+
+        self::assertStringContainsString("status = 'failed'", $this->pdo->lastQuery);
+        self::assertStringContainsString('last_error_code = :last_error_code', $this->pdo->lastQuery);
+        self::assertStringNotContainsString('desired_state =', $this->pdo->lastQuery);
+        self::assertSame('worker_shutdown', $this->pdo->lastParams['last_error_code']);
+    }
+
     public function testRequestStopAndStaleReconciliationUseInstanceAsFence(): void
     {
         self::assertTrue($this->repository->requestStop(str_repeat('a', 32)));
