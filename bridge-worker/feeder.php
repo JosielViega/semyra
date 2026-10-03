@@ -23,7 +23,8 @@ if (!is_array($parts)
 
 $fresh = static function () use ($watchdogPath, $maximumAge): bool {
     $timestamp = is_file($watchdogPath) ? (int) @file_get_contents($watchdogPath) : 0;
-    return $timestamp > 0 && time() - $timestamp <= $maximumAge;
+    $now = time();
+    return $timestamp > 0 && $timestamp <= $now && $now - $timestamp < $maximumAge;
 };
 $initial = new InitialMpegTsBuffer();
 $exitCode = 11;

@@ -33,10 +33,15 @@ final class WorkerConfig
         return max(3, $this->heartbeatSeconds);
     }
 
+    public function watchdogEnforcementSlackSeconds(): int
+    {
+        return 2;
+    }
+
     public function supportsLease(int $leaseSeconds): bool
     {
         return $leaseSeconds > $this->leaseSafetyMarginSeconds()
-            && $leaseSeconds > $this->watchdogMaximumAgeSeconds();
+            && $leaseSeconds > $this->watchdogMaximumAgeSeconds() + $this->watchdogEnforcementSlackSeconds();
     }
 
     /** @param array<string, string|false> $environment */

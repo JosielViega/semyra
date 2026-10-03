@@ -91,9 +91,14 @@ final class WorkerRunner
 
         try {
             try {
+                $heartbeatStartedAt = $this->clock->now();
                 $initial = $this->control->heartbeat($job, 'starting');
                 if (($initial['action'] ?? null) === 'stop') {
                     $stoppedByControl = true;
+                } else {
+                    $watchdog->touchAt($heartbeatStartedAt);
+                    $deadline = $heartbeatStartedAt + $leaseSeconds - $margin;
+                    $nextHeartbeat = $heartbeatStartedAt + $this->config->heartbeatSeconds;
                 }
             } catch (ControlException $exception) {
                 if ($exception->reason === 'lease_lost') {
@@ -103,12 +108,13 @@ final class WorkerRunner
                 }
             }
             if (!$lostLease && !$stoppedByControl && $failure === null) {
-                $watchdog->touch();
-                $deadline = $this->clock->now() + $leaseSeconds - $margin;
                 $this->clock->sleep(min(2.0, max(0.5, $this->config->heartbeatSeconds / 2)));
-                $media->start($sourceUrl, (string) ($job['whip_endpoint'] ?? ''), $job);
-                $nextHeartbeat = $this->clock->now() + $this->config->heartbeatSeconds;
-                while (true) {
+                if ($this->clock->now() >= $deadline) {
+                    $failure = 'lease_expired';
+                } else {
+                    $media->start($sourceUrl, (string) ($job['whip_endpoint'] ?? ''), $job);
+                }
+                while ($failure === null) {
                     $state = $media->poll();
                     if ($state === 'failed') {
                         $failure = $media->errorCode();
@@ -120,14 +126,15 @@ final class WorkerRunner
                     $now = $this->clock->now();
                     if ($now >= $nextHeartbeat) {
                         try {
+                            $heartbeatStartedAt = $now;
                             $response = $this->control->heartbeat($job, $heartbeatStatus);
                             if (($response['action'] ?? null) === 'stop') {
                                 $stoppedByControl = true;
                                 break;
                             }
-                            $watchdog->touch();
-                            $deadline = $now + $leaseSeconds - $margin;
-                            $nextHeartbeat = $now + $this->config->heartbeatSeconds;
+                            $watchdog->touchAt($heartbeatStartedAt);
+                            $deadline = $heartbeatStartedAt + $leaseSeconds - $margin;
+                            $nextHeartbeat = $heartbeatStartedAt + $this->config->heartbeatSeconds;
                         } catch (ControlException $exception) {
                             if ($exception->reason === 'lease_lost') {
                                 $lostLease = true;
@@ -137,7 +144,7 @@ final class WorkerRunner
                                 $failure = 'control_rejected';
                                 break;
                             }
-                            $nextHeartbeat = $now + min(1, $this->config->heartbeatSeconds);
+                            $nextHeartbeat = $this->clock->now() + min(1, $this->config->heartbeatSeconds);
                         }
                     }
                     if ($this->clock->now() >= $deadline) {

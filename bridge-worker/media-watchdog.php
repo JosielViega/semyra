@@ -17,9 +17,9 @@ if ($path === '' || $maximumAge < 1
 
 while (true) {
     $timestamp = is_file($path) ? (int) @file_get_contents($path) : 0;
-    if ($timestamp < 1 || time() - $timestamp > $maximumAge) {
+    $now = time();
+    if ($timestamp < 1 || $timestamp > $now || $now - $timestamp >= $maximumAge) {
         foreach ([
-            [$docker, 'stop', '--time', '2', $container],
             [$docker, 'kill', $container],
             [$docker, 'rm', '-f', $container],
         ] as $command) {

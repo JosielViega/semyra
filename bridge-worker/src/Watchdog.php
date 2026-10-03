@@ -18,7 +18,15 @@ final class Watchdog
 
     public function touch(): void
     {
-        if (@file_put_contents($this->path, (string) (int) $this->clock->now(), LOCK_EX) === false) {
+        $this->touchAt($this->clock->now());
+    }
+
+    public function touchAt(float $timestamp): void
+    {
+        $now = $this->clock->now();
+        $timestamp = min($timestamp, $now);
+        if (!is_finite($timestamp) || $timestamp <= 0
+            || @file_put_contents($this->path, (string) (int) $timestamp, LOCK_EX) === false) {
             throw new WorkerException('runtime_unavailable');
         }
     }
@@ -26,7 +34,8 @@ final class Watchdog
     public function fresh(int $maximumAgeSeconds): bool
     {
         $timestamp = is_file($this->path) ? (int) @file_get_contents($this->path) : 0;
-        return $timestamp > 0 && $this->clock->now() - $timestamp <= $maximumAgeSeconds;
+        $age = $this->clock->now() - $timestamp;
+        return $timestamp > 0 && $age >= 0 && $age < $maximumAgeSeconds;
     }
 
     public function remove(): void

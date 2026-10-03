@@ -46,7 +46,10 @@ final class BridgeWorkerConfigTest extends TestCase
         self::assertSame($expectedWatchdogAge, $config->watchdogMaximumAgeSeconds());
         self::assertSame($expectedSupport, $config->supportsLease($leaseSeconds));
         if ($expectedSupport) {
-            self::assertLessThan($leaseSeconds, $config->watchdogMaximumAgeSeconds());
+            self::assertLessThan(
+                $leaseSeconds,
+                $config->watchdogMaximumAgeSeconds() + $config->watchdogEnforcementSlackSeconds(),
+            );
         }
     }
 
@@ -54,11 +57,11 @@ final class BridgeWorkerConfigTest extends TestCase
     {
         return [
             'default lease' => [5, 20, 15, true],
-            'equal boundary' => [5, 15, 15, false],
-            'one second beyond boundary' => [5, 16, 15, true],
-            'short lease' => [5, 10, 15, false],
-            'slow heartbeat' => [10, 20, 30, false],
-            'existing short outage case' => [1, 4, 3, true],
+            'one second beyond enforced boundary' => [5, 18, 15, true],
+            'equal enforced boundary' => [5, 17, 15, false],
+            'inside enforcement slack' => [5, 16, 15, false],
+            'short heartbeat safe lease' => [1, 6, 3, true],
+            'short heartbeat boundary' => [1, 5, 3, false],
         ];
     }
 

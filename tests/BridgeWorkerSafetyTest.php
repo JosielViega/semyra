@@ -43,18 +43,37 @@ final class BridgeWorkerSafetyTest extends TestCase
         try { $second->acquire($this->runtime, $workerId); } finally { $first->release(); }
     }
 
-    public function testWatchdogContainsOnlyTimestampAndBecomesStale(): void
+    public function testWatchdogUsesConservativeAnchorAndExclusiveFreshBoundary(): void
     {
         $clock = new BridgeSafetyClock();
         $watchdog = new Watchdog($this->runtime, 'wrk_' . str_repeat('b', 32), $clock);
-        $watchdog->touch();
+        $clock->time = 1004;
+        $watchdog->touchAt(1000);
 
-        self::assertMatchesRegularExpression('/^[0-9]+$/', file_get_contents($watchdog->path()));
-        self::assertTrue($watchdog->fresh(5));
-        $clock->time += 6;
-        self::assertFalse($watchdog->fresh(5));
+        self::assertSame('1000', file_get_contents($watchdog->path()));
+        $clock->time = 1014;
+        self::assertTrue($watchdog->fresh(15));
+        $clock->time = 1015;
+        self::assertFalse($watchdog->fresh(15));
+        $watchdog->touchAt(2000);
+        self::assertSame('1015', file_get_contents($watchdog->path()));
         $watchdog->remove();
         self::assertFileDoesNotExist($watchdog->path());
+    }
+
+    public function testFeederAndEmergencyWatchdogUseConservativeStaleEnforcement(): void
+    {
+        $feeder = (string) file_get_contents(dirname(__DIR__) . '/bridge-worker/feeder.php');
+        $emergency = (string) file_get_contents(dirname(__DIR__) . '/bridge-worker/media-watchdog.php');
+        $normal = (string) file_get_contents(dirname(__DIR__) . '/bridge-worker/src/DockerMediaProcess.php');
+
+        self::assertStringContainsString('$now - $timestamp < $maximumAge', $feeder);
+        self::assertStringContainsString('$now - $timestamp >= $maximumAge', $emergency);
+        self::assertStringNotContainsString("'stop', '--time'", $emergency);
+        self::assertLessThan(strpos($emergency, "'rm', '-f'"), strpos($emergency, "'kill'"));
+        self::assertStringContainsString("dockerCleanup('stop')", $normal);
+        self::assertStringContainsString("dockerCleanup('kill')", $normal);
+        self::assertStringContainsString("dockerCleanup('rm')", $normal);
     }
 
     public function testDockerCommandContainsNoRuntimeSecretsAndUsesPinnedPipeline(): void
