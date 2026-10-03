@@ -21,7 +21,8 @@ final class DockerMediaProcess implements MediaProcess
     /** @var array<int, resource> */
     private array $watchdogPipes = [];
     private string $containerName = '';
-    private string $readyPath = '';
+    private string $sourceReadyPath = '';
+    private string $mediaStatusPath = '';
     private bool $stopping = false;
     private string $state = 'idle';
     private string $failure = 'pipeline_failed';
@@ -37,13 +38,16 @@ final class DockerMediaProcess implements MediaProcess
             throw new WorkerException('pipeline_failed');
         }
         $this->containerName = 'semyra-bridge-' . $jobId . '-' . bin2hex(random_bytes(5));
-        $this->readyPath = $this->config->runtimePath . DIRECTORY_SEPARATOR . 'ready-' . $this->containerName;
+        $this->sourceReadyPath = $this->config->runtimePath . DIRECTORY_SEPARATOR . 'ready-' . $this->containerName;
+        $this->mediaStatusPath = $this->config->runtimePath . DIRECTORY_SEPARATOR . 'media-status-' . $this->containerName;
+        @unlink($this->sourceReadyPath);
+        @unlink($this->mediaStatusPath);
         $maximumAge = (string) $this->config->watchdogMaximumAgeSeconds();
         $environment = $this->baseEnvironment() + [
             'WHIP_ENDPOINT' => $whipEndpoint,
             'SEMYRA_FEED_SOURCE_URL' => $sourceUrl,
             'SEMYRA_FEED_WATCHDOG_PATH' => $this->watchdog->path(),
-            'SEMYRA_FEED_READY_PATH' => $this->readyPath,
+            'SEMYRA_FEED_READY_PATH' => $this->sourceReadyPath,
             'SEMYRA_FEED_WATCHDOG_MAX_AGE' => $maximumAge,
             'SEMYRA_MEDIA_CONTAINER' => $this->containerName,
             'SEMYRA_MEDIA_WORKER_ID' => $this->config->workerId,
@@ -51,6 +55,7 @@ final class DockerMediaProcess implements MediaProcess
             'SEMYRA_MEDIA_INSTANCE' => $instance,
             'SEMYRA_MEDIA_DOCKER' => $this->config->dockerBinary,
             'SEMYRA_MEDIA_IMAGE' => $this->config->gstreamerImage,
+            'SEMYRA_MEDIA_STATUS_PATH' => $this->mediaStatusPath,
         ];
         $sourceUrl = ''; $whipEndpoint = '';
         $this->helperProcess = @proc_open(
@@ -78,9 +83,10 @@ final class DockerMediaProcess implements MediaProcess
     public function poll(): string
     {
         if (!in_array($this->state, ['starting', 'running'], true)) { return $this->state; }
-        if (is_file($this->readyPath) && trim((string) @file_get_contents($this->readyPath)) === 'ready') { $this->state = 'running'; }
+        // This marker means only that the source produced validated MPEG-TS; it does not prove WHIP publishing.
+        if (is_file($this->sourceReadyPath) && trim((string) @file_get_contents($this->sourceReadyPath)) === 'ready') { $this->state = 'running'; }
         if (!$this->running($this->helperProcess) && !$this->stopping) {
-            $this->failure = $this->state === 'starting' ? 'source_invalid' : 'source_failed';
+            $this->failure = MediaExitStatus::errorCode(MediaExitStatus::read($this->mediaStatusPath));
             $this->state = 'failed';
         }
         if (!$this->running($this->watchdogProcess) && !$this->stopping) {
@@ -98,8 +104,10 @@ final class DockerMediaProcess implements MediaProcess
         if ($this->containerName !== '') { $this->dockerCleanup('stop'); $this->dockerCleanup('kill'); $this->dockerCleanup('rm'); }
         $this->closeProcess($this->helperProcess, $this->helperPipes);
         $this->closeProcess($this->watchdogProcess, $this->watchdogPipes);
-        if ($this->readyPath !== '' && is_file($this->readyPath)) { @unlink($this->readyPath); }
-        $this->containerName = ''; $this->readyPath = '';
+        foreach ([$this->sourceReadyPath, $this->mediaStatusPath] as $path) {
+            if ($path !== '' && is_file($path)) { @unlink($path); }
+        }
+        $this->containerName = ''; $this->sourceReadyPath = ''; $this->mediaStatusPath = '';
         if ($this->state !== 'failed') { $this->state = 'stopped'; }
     }
 

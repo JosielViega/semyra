@@ -16,6 +16,7 @@ foreach ([
     'ControlPlaneClient.php',
     'MediaProcess.php',
     'MediaPipeline.php',
+    'MediaExitStatus.php',
     'DockerEnvironmentCheck.php',
     'DockerMediaProcess.php',
     'WorkerRunner.php',

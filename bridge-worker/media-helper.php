@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Semyra\BridgeWorker\MediaPipeline;
+use Semyra\BridgeWorker\MediaExitStatus;
 use Semyra\BridgeWorker\WorkerConfig;
 
 require __DIR__ . '/bootstrap.php';
@@ -15,6 +16,7 @@ $jobId = (string) getenv('SEMYRA_MEDIA_JOB_ID');
 $instance = (string) getenv('SEMYRA_MEDIA_INSTANCE');
 $docker = (string) getenv('SEMYRA_MEDIA_DOCKER');
 $image = (string) getenv('SEMYRA_MEDIA_IMAGE');
+$statusPath = (string) getenv('SEMYRA_MEDIA_STATUS_PATH');
 $whip = (string) getenv('WHIP_ENDPOINT');
 if (preg_match('/^semyra-bridge-[1-9][0-9]*-[a-f0-9]{10}$/', $container) !== 1
     || preg_match('/^wrk_[a-f0-9]{32}$/', $workerId) !== 1
@@ -22,9 +24,11 @@ if (preg_match('/^semyra-bridge-[1-9][0-9]*-[a-f0-9]{10}$/', $container) !== 1
     || preg_match('/^[a-f0-9]{32}$/', $instance) !== 1
     || preg_match('#^[A-Za-z0-9._:/\\\\-]+$#', $docker) !== 1
     || $image !== WorkerConfig::IMAGE
+    || $statusPath === ''
     || strtolower((string) parse_url($whip, PHP_URL_SCHEME)) !== 'https') {
     exit(20);
 }
+@unlink($statusPath);
 
 $command = [
     $docker, 'run', '--rm', '-i', '--name', $container,
@@ -46,7 +50,10 @@ $dockerProcess = @proc_open(
     [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $dockerPipes, null, $dockerEnvironment, ['bypass_shell' => true],
 );
-if (!is_resource($dockerProcess)) { exit(21); }
+if (!is_resource($dockerProcess)) {
+    MediaExitStatus::write($statusPath, MediaExitStatus::HELPER_FAILED);
+    exit(21);
+}
 stream_set_blocking($dockerPipes[1], false);
 stream_set_blocking($dockerPipes[2], false);
 
@@ -55,15 +62,26 @@ $feederProcess = @proc_open(
     [0 => ['file', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'r'], 1 => $dockerPipes[0], 2 => ['file', PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null', 'w']],
     $feederPipes, null, getenv(), ['bypass_shell' => true],
 );
-if (!is_resource($feederProcess)) { @proc_terminate($dockerProcess); exit(22); }
+if (!is_resource($feederProcess)) {
+    MediaExitStatus::write($statusPath, MediaExitStatus::HELPER_FAILED);
+    @proc_terminate($dockerProcess);
+    exit(22);
+}
 
+$reason = MediaExitStatus::HELPER_FAILED;
 while (true) {
     foreach ([1, 2] as $index) { if (isset($dockerPipes[$index])) { stream_get_contents($dockerPipes[$index], 8192); } }
     $feederStatus = proc_get_status($feederProcess);
     $dockerStatus = proc_get_status($dockerProcess);
-    if (!$feederStatus['running'] || !$dockerStatus['running']) { break; }
+    $sourceRunning = (bool) ($feederStatus['running'] ?? false);
+    $pipelineRunning = (bool) ($dockerStatus['running'] ?? false);
+    if (!$sourceRunning || !$pipelineRunning) {
+        $reason = MediaExitStatus::classify($sourceRunning, $pipelineRunning);
+        break;
+    }
     usleep(100_000);
 }
+MediaExitStatus::write($statusPath, $reason);
 @proc_terminate($feederProcess);
 @proc_terminate($dockerProcess);
 foreach ($dockerPipes as $pipe) { if (is_resource($pipe)) { @fclose($pipe); } }
