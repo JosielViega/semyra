@@ -11,6 +11,7 @@ use Throwable;
 
 final class MediaBridgeJobRepository implements MediaBridgeJobStore
 {
+    private const MAX_UNSIGNED_INT = 4294967295;
     private const INSTANCE_PATTERN = '/^[a-f0-9]{32}$/';
     private const SOURCE_PATTERN = '/^[a-zA-Z0-9._:-]{1,96}$/';
 
@@ -74,20 +75,36 @@ final class MediaBridgeJobRepository implements MediaBridgeJobStore
             . "job.status = CASE WHEN job.status = 'stopped' THEN job.status ELSE 'stopping' END "
             . "WHERE job.desired_state = 'running' AND transmission.room_id IS NULL",
         );
+        $pdo->exec(
+            "UPDATE media_bridge_jobs job "
+            . 'INNER JOIN room_transmissions transmission '
+            . 'ON transmission.room_id = job.room_id '
+            . 'AND transmission.instance_id = job.transmission_instance_id '
+            . "AND transmission.source_type = 'iptv' AND transmission.media_mode = 'live' "
+            . "SET job.status = 'failed', job.failure_count = job.failure_count + 1, "
+            . "job.last_error_code = 'lease_expired', job.worker_id = NULL, "
+            . 'job.lease_token_hash = NULL, job.lease_expires_at = NULL '
+            . "WHERE job.desired_state = 'running' "
+            . "AND job.status IN ('claimed', 'starting', 'running') "
+            . 'AND job.lease_expires_at < CURRENT_TIMESTAMP(3)',
+        );
     }
 
     public function staleJobsForCleanup(): array
     {
         $statement = $this->database->connection()->query(
-            'SELECT id, room_id, transmission_instance_id, attempt_count, ingress_id FROM media_bridge_jobs '
-            . "WHERE desired_state = 'stopped' AND "
-            . "(status = 'stopping' OR last_error_code = 'ingress_cleanup_pending')",
+            'SELECT id, room_id, transmission_instance_id, desired_state, status, attempt_count, '
+            . 'failure_count, cleanup_through_attempt, ingress_id, last_error_code FROM media_bridge_jobs '
+            . "WHERE (desired_state = 'stopped' AND (status = 'stopping' "
+            . 'OR cleanup_through_attempt < attempt_count)) '
+            . "OR (desired_state = 'running' AND status = 'failed' "
+            . 'AND cleanup_through_attempt < attempt_count)',
         );
 
         return $statement === false ? [] : $statement->fetchAll();
     }
 
-    public function claim(string $workerId, string $leaseHash, int $leaseSeconds, int $maxAttempts): ?array
+    public function claim(string $workerId, string $leaseHash, int $leaseSeconds, int $maxFailures): ?array
     {
         $pdo = $this->database->connection();
         $pdo->beginTransaction();
@@ -98,13 +115,16 @@ final class MediaBridgeJobRepository implements MediaBridgeJobStore
                 . 'ON transmission.room_id = job.room_id '
                 . 'AND transmission.instance_id = job.transmission_instance_id '
                 . "AND transmission.source_type = 'iptv' AND transmission.media_mode = 'live' "
-                . "WHERE job.desired_state = 'running' AND job.attempt_count < :max_attempts "
-                . "AND (job.status = 'pending' OR job.status = 'failed' "
-                . "OR (job.status IN ('claimed', 'starting', 'running') "
-                . 'AND job.lease_expires_at < CURRENT_TIMESTAMP(3))) '
+                . "WHERE job.desired_state = 'running' AND job.failure_count < :max_failures "
+                . 'AND job.attempt_count < :max_attempt_count '
+                . "AND job.status IN ('pending', 'failed') "
+                . 'AND job.cleanup_through_attempt = job.attempt_count '
                 . 'ORDER BY job.id ASC LIMIT 1 FOR UPDATE',
             );
-            $statement->execute(['max_attempts' => $maxAttempts]);
+            $statement->execute([
+                'max_failures' => $maxFailures,
+                'max_attempt_count' => self::MAX_UNSIGNED_INT,
+            ]);
             $job = $statement->fetch();
             if (!is_array($job)) {
                 $pdo->commit();
@@ -190,15 +210,26 @@ final class MediaBridgeJobRepository implements MediaBridgeJobStore
         return $this->leaseMutation("status = 'running'", $jobId, $instanceId, $workerId, $leaseHash, [], "AND desired_state = 'running'");
     }
 
-    public function markFailed(int $jobId, string $instanceId, string $workerId, string $leaseHash, string $errorCode, bool $keepIngress): bool
+    public function markFailed(
+        int $jobId,
+        string $instanceId,
+        string $workerId,
+        string $leaseHash,
+        string $errorCode,
+        bool $keepIngress,
+        bool $consumeFailureBudget,
+    ): bool
     {
         $set = "status = 'failed', last_error_code = :last_error_code, worker_id = NULL, "
-            . 'lease_token_hash = NULL, lease_expires_at = NULL';
+            . 'lease_token_hash = NULL, lease_expires_at = NULL, failure_count = failure_count + :failure_increment';
         if (!$keepIngress) {
             $set .= ', ingress_id = NULL';
         }
 
-        return $this->leaseMutation($set, $jobId, $instanceId, $workerId, $leaseHash, ['last_error_code' => $errorCode]);
+        return $this->leaseMutation($set, $jobId, $instanceId, $workerId, $leaseHash, [
+            'last_error_code' => $errorCode,
+            'failure_increment' => $consumeFailureBudget ? 1 : 0,
+        ]);
     }
 
     public function markStopped(int $jobId, string $instanceId, string $workerId, string $leaseHash, bool $keepIngress): bool
@@ -229,37 +260,87 @@ final class MediaBridgeJobRepository implements MediaBridgeJobStore
         );
     }
 
-    public function completeReconciledCleanup(int $jobId): void
+    public function advanceCleanupThrough(
+        int $jobId,
+        string $instanceId,
+        string $workerId,
+        string $leaseHash,
+        int $throughAttempt,
+    ): bool
     {
-        $statement = $this->database->connection()->prepare(
-            "UPDATE media_bridge_jobs SET ingress_id = NULL, last_error_code = NULL, "
-            . "stopped_at = CASE WHEN status = 'stopping' "
-            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
-            . 'THEN CURRENT_TIMESTAMP(3) ELSE stopped_at END, '
-            . "worker_id = CASE WHEN status = 'stopping' "
-            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
-            . 'THEN NULL ELSE worker_id END, '
-            . "lease_token_hash = CASE WHEN status = 'stopping' "
-            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
-            . 'THEN NULL ELSE lease_token_hash END, '
-            . "lease_expires_at = CASE WHEN status = 'stopping' "
-            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
-            . 'THEN NULL ELSE lease_expires_at END, '
-            . "status = CASE WHEN status = 'stopping' "
-            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
-            . "THEN 'stopped' ELSE status END "
-            . "WHERE id = :id AND desired_state = 'stopped'",
+        if ($throughAttempt < 0 || $throughAttempt > self::MAX_UNSIGNED_INT) {
+            return false;
+        }
+
+        return $this->leaseMutation(
+            'cleanup_through_attempt = :through_value',
+            $jobId,
+            $instanceId,
+            $workerId,
+            $leaseHash,
+            [
+                'through_value' => $throughAttempt,
+                'through_floor' => $throughAttempt,
+                'through_limit' => $throughAttempt,
+            ],
+            'AND cleanup_through_attempt < :through_floor AND :through_limit <= attempt_count',
         );
-        $statement->execute(['id' => $jobId]);
     }
 
-    public function recordCleanupPending(int $jobId): void
+    public function completeReconciledCleanup(int $jobId, int $expectedAttempt): bool
     {
+        if ($expectedAttempt < 0 || $expectedAttempt > self::MAX_UNSIGNED_INT) {
+            return false;
+        }
+        $statement = $this->database->connection()->prepare(
+            'UPDATE media_bridge_jobs SET ingress_id = NULL, '
+            . 'cleanup_through_attempt = GREATEST(cleanup_through_attempt, :through_attempt), '
+            . "last_error_code = CASE WHEN desired_state = 'stopped' THEN NULL ELSE last_error_code END, "
+            . "stopped_at = CASE WHEN desired_state = 'stopped' AND status = 'stopping' "
+            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
+            . 'THEN CURRENT_TIMESTAMP(3) ELSE stopped_at END, '
+            . "worker_id = CASE WHEN desired_state = 'stopped' AND status = 'stopping' "
+            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
+            . 'THEN NULL ELSE worker_id END, '
+            . "lease_token_hash = CASE WHEN desired_state = 'stopped' AND status = 'stopping' "
+            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
+            . 'THEN NULL ELSE lease_token_hash END, '
+            . "lease_expires_at = CASE WHEN desired_state = 'stopped' AND status = 'stopping' "
+            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
+            . 'THEN NULL ELSE lease_expires_at END, '
+            . "status = CASE WHEN desired_state = 'stopped' AND status = 'stopping' "
+            . 'AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP(3)) '
+            . "THEN 'stopped' ELSE status END "
+            . 'WHERE id = :id AND attempt_count = :expected_attempt '
+            . 'AND cleanup_through_attempt <= :through_limit',
+        );
+        $statement->execute([
+            'id' => $jobId,
+            'through_attempt' => $expectedAttempt,
+            'expected_attempt' => $expectedAttempt,
+            'through_limit' => $expectedAttempt,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    public function recordCleanupPending(int $jobId, int $expectedAttempt): bool
+    {
+        if ($expectedAttempt < 1 || $expectedAttempt > self::MAX_UNSIGNED_INT) {
+            return false;
+        }
         $statement = $this->database->connection()->prepare(
             "UPDATE media_bridge_jobs SET last_error_code = 'ingress_cleanup_pending' "
-            . 'WHERE id = :id',
+            . 'WHERE id = :id AND attempt_count = :expected_attempt '
+            . 'AND cleanup_through_attempt < :cleanup_target',
         );
-        $statement->execute(['id' => $jobId]);
+        $statement->execute([
+            'id' => $jobId,
+            'expected_attempt' => $expectedAttempt,
+            'cleanup_target' => $expectedAttempt,
+        ]);
+
+        return $statement->rowCount() === 1;
     }
 
     private function leaseMutation(

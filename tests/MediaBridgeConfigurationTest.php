@@ -21,8 +21,30 @@ final class MediaBridgeConfigurationTest extends TestCase
         self::assertStringContainsString('MEDIA_BRIDGE_ENABLED=false', $example);
         self::assertStringContainsString('MEDIA_BRIDGE_WORKER_SECRET=', $example);
         self::assertStringContainsString('MEDIA_BRIDGE_LEASE_SECONDS=20', $example);
-        self::assertStringContainsString('MEDIA_BRIDGE_MAX_ATTEMPTS=3', $example);
+        self::assertStringContainsString('MEDIA_BRIDGE_MAX_FAILURES=3', $example);
+        self::assertStringNotContainsString('MEDIA_BRIDGE_MAX_ATTEMPTS=', $example);
         self::assertDoesNotMatchRegularExpression('/MEDIA_BRIDGE_WORKER_SECRET=[a-f0-9]{64}/', $example);
+    }
+
+    public function testFailureBudgetConfigurationDefaultsBoundsAndPrefersNewEnvironmentName(): void
+    {
+        self::assertSame(3, $this->mediaBridgeConfig(null, null)['max_failures']);
+        self::assertSame(1, $this->mediaBridgeConfig('0', null)['max_failures']);
+        self::assertSame(20, $this->mediaBridgeConfig('99', null)['max_failures']);
+        self::assertSame(4, $this->mediaBridgeConfig(null, '4')['max_failures']);
+        self::assertSame(7, $this->mediaBridgeConfig('7', '2')['max_failures']);
+    }
+
+    public function testFailureBudgetMigrationAddsColumnsAndConservativeBackfill(): void
+    {
+        $sql = (string) file_get_contents(
+            $this->root . '/database/migrations/2026_10_03_000013_add_media_bridge_failure_budget.sql',
+        );
+        self::assertStringContainsString('failure_count INT UNSIGNED NOT NULL DEFAULT 0', $sql);
+        self::assertStringContainsString('cleanup_through_attempt INT UNSIGNED NOT NULL DEFAULT 0', $sql);
+        self::assertStringContainsString("status = 'failed' AND last_error_code = 'worker_shutdown' THEN attempt_count - 1", $sql);
+        self::assertStringContainsString("status IN ('claimed', 'starting', 'running') THEN attempt_count - 1", $sql);
+        self::assertStringContainsString('cleanup_through_attempt = 0', $sql);
     }
 
     public function testMigrationDefinesInstanceBoundJobWithoutTransmissionForeignKey(): void
@@ -60,5 +82,47 @@ final class MediaBridgeConfigurationTest extends TestCase
         $manifest = require $this->root . '/deploy/hostgator/config/deploy.php';
         self::assertContains('bridge-worker', $manifest['ignore']);
         self::assertNotContains('bridge-worker', $manifest['include']);
+    }
+
+    private function mediaBridgeConfig(?string $maxFailures, ?string $legacyMaxAttempts): array
+    {
+        $values = [
+            'MEDIA_BRIDGE_MAX_FAILURES' => $maxFailures,
+            'MEDIA_BRIDGE_MAX_ATTEMPTS' => $legacyMaxAttempts,
+        ];
+        $previous = [];
+        foreach ($values as $key => $value) {
+            $previous[$key] = [
+                'env_exists' => array_key_exists($key, $_ENV),
+                'env' => $_ENV[$key] ?? null,
+                'server_exists' => array_key_exists($key, $_SERVER),
+                'server' => $_SERVER[$key] ?? null,
+                'process' => getenv($key),
+            ];
+            unset($_ENV[$key], $_SERVER[$key]);
+            putenv($key);
+            if ($value !== null) {
+                $_ENV[$key] = $value;
+                putenv($key . '=' . $value);
+            }
+        }
+
+        try {
+            return require $this->root . '/config/media_bridge.php';
+        } finally {
+            foreach (array_keys($values) as $key) {
+                unset($_ENV[$key], $_SERVER[$key]);
+                putenv($key);
+                if ($previous[$key]['env_exists']) {
+                    $_ENV[$key] = $previous[$key]['env'];
+                }
+                if ($previous[$key]['server_exists']) {
+                    $_SERVER[$key] = $previous[$key]['server'];
+                }
+                if ($previous[$key]['process'] !== false) {
+                    putenv($key . '=' . $previous[$key]['process']);
+                }
+            }
+        }
     }
 }

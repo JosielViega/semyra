@@ -22,9 +22,7 @@ Um processo aceita no máximo um job de mídia ativo. O lock por worker ID imped
 
 Em Linux/Unix, `--loop` exige `pcntl` com suporte a `SIGTERM` e `SIGINT`; o worker falha fechado com configuração inválida se não puder instalar os handlers cooperativos. Quando disponível, o mesmo tratamento também protege `--once`. Windows sem `pcntl` continua suportando `--check`, `--dry-run` e `--once`; o modo `--once` mantém o comportamento local anterior sem signal handler.
 
-O handler apenas registra o pedido de parada. O fluxo normal do runner interrompe imediatamente a mídia local e remove watchdog/runtime antes de tentar um report best-effort `failed` com `worker_shutdown`. Esse report não representa encerramento da transmissão: `desired_state` permanece `running`, a lease é liberada quando o report chega e o control plane pode reclamar um novo attempt após o reinício. `lease_lost` continua impedindo reports por um owner antigo, e um `action=stop` autoritativo mantém a semântica de `stopped`.
-
-Service restarts currently consume a new attempt generation; generation and failure budget will be separated before the systemd production stage.
+O handler apenas registra o pedido de parada. O fluxo normal do runner interrompe imediatamente a mídia local e remove watchdog/runtime antes de tentar um report best-effort `failed` com `worker_shutdown`. Esse report não representa encerramento da transmissão: `desired_state` permanece `running`, a lease é liberada quando o report chega e o control plane pode reclamar uma nova geração após o reinício. Cada claim incrementa a geração monotônica `attempt_count`, mas `worker_shutdown` não consome o orçamento separado `failure_count`; falhas reais e lease expirada consomem esse orçamento. O control plane mantém um watermark de cleanup para não revisitar gerações já confirmadas ausentes. `lease_lost` continua impedindo reports por um owner antigo, e um `action=stop` autoritativo mantém a semântica de `stopped`.
 
 A unit do systemd e o provisionamento do serviço serão tratados na etapa seguinte; este diretório ainda não contém arquivos de serviço ou instalação.
 

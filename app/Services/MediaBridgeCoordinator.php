@@ -8,6 +8,7 @@ use Throwable;
 
 final class MediaBridgeCoordinator
 {
+    private const MAX_UNSIGNED_INT = 4294967295;
     private const WORKER_PATTERN = '/^wrk_[a-f0-9]{32}$/';
     private const INSTANCE_PATTERN = '/^[a-f0-9]{32}$/';
     private const INGRESS_PATTERN = '/^[A-Za-z0-9._:-]{1,128}$/';
@@ -17,7 +18,7 @@ final class MediaBridgeCoordinator
         private readonly LiveKitIngressGateway $ingress,
         private readonly LiveKitRoomContext $roomContext,
         private readonly int $leaseSeconds,
-        private readonly int $maxAttempts,
+        private readonly int $maxFailures,
     ) {
     }
 
@@ -29,14 +30,14 @@ final class MediaBridgeCoordinator
 
         $rawToken = bin2hex(random_bytes(32));
         $leaseHash = hash('sha256', $rawToken);
-        $job = $this->jobs->claim($workerId, $leaseHash, $this->leaseSeconds, $this->maxAttempts);
+        $job = $this->jobs->claim($workerId, $leaseHash, $this->leaseSeconds, $this->maxFailures);
         if ($job === null) {
             return null;
         }
         $jobId = (int) $job['id'];
         $instanceId = (string) $job['transmission_instance_id'];
         $attempt = (int) ($job['attempt_count'] ?? 0);
-        if ($attempt < 1 || $attempt > $this->maxAttempts) {
+        if ($attempt < 1 || $attempt > self::MAX_UNSIGNED_INT) {
             throw new MediaBridgeProtocolException('bridge_unavailable', 503);
         }
         if (!$this->jobs->currentTransmissionIsEligible($job)) {
@@ -44,9 +45,13 @@ final class MediaBridgeCoordinator
             throw new MediaBridgeProtocolException('transmission_changed', 409);
         }
 
-        if (!$this->cleanupOwnedIngresses($job, true)) {
-            $this->jobs->recordCleanupPending($jobId);
+        $preCreateTarget = $attempt - 1;
+        if (!$this->cleanupOwnedIngressesThrough($job, $preCreateTarget)) {
+            $this->jobs->recordCleanupPending($jobId, $attempt);
             throw new MediaBridgeProtocolException('ingress_cleanup_pending', 503);
+        }
+        if (!$this->advanceLeasedCleanupThrough($job, $workerId, $leaseHash, $preCreateTarget)) {
+            throw new MediaBridgeProtocolException('lease_lost', 409);
         }
         $oldIngressId = trim((string) ($job['ingress_id'] ?? ''));
         if ($oldIngressId !== '') {
@@ -63,7 +68,7 @@ final class MediaBridgeCoordinator
             );
         } catch (Throwable) {
             $this->jobs->markFailed(
-                $jobId, $instanceId, $workerId, $leaseHash, 'ingress_create_failed', false,
+                $jobId, $instanceId, $workerId, $leaseHash, 'ingress_create_failed', false, true,
             );
             throw new MediaBridgeProtocolException('bridge_unavailable', 503);
         }
@@ -146,6 +151,7 @@ final class MediaBridgeCoordinator
         }
 
         $cleanupSucceeded = $this->cleanupLeasedIngress($job, $workerId, $leaseHash);
+        $consumeFailureBudget = $status === 'failed' && $errorCode !== 'worker_shutdown';
         $saved = $status === 'stopped'
             ? $this->jobs->markStopped($jobId, $instanceId, $workerId, $leaseHash, !$cleanupSucceeded)
             : $this->jobs->markFailed(
@@ -153,8 +159,9 @@ final class MediaBridgeCoordinator
                 $instanceId,
                 $workerId,
                 $leaseHash,
-                $cleanupSucceeded ? (string) $errorCode : 'ingress_cleanup_pending',
+                (string) $errorCode,
                 !$cleanupSucceeded,
+                $consumeFailureBudget,
             );
         if (!$saved) {
             throw new MediaBridgeProtocolException('lease_lost', 409);
@@ -171,10 +178,11 @@ final class MediaBridgeCoordinator
             if ($jobId < 1) {
                 continue;
             }
-            if ($this->cleanupOwnedIngresses($job)) {
-                $this->jobs->completeReconciledCleanup($jobId);
+            $attempt = (int) ($job['attempt_count'] ?? -1);
+            if ($this->cleanupOwnedIngressesThrough($job, $attempt)) {
+                $this->jobs->completeReconciledCleanup($jobId, $attempt);
             } else {
-                $this->jobs->recordCleanupPending($jobId);
+                $this->jobs->recordCleanupPending($jobId, $attempt);
             }
         }
     }
@@ -209,8 +217,12 @@ final class MediaBridgeCoordinator
 
     private function cleanupLeasedIngress(array $job, string $workerId, string $leaseHash): bool
     {
-        if (!$this->cleanupOwnedIngresses($job, true)) {
-            $this->jobs->recordCleanupPending((int) $job['id']);
+        $attempt = (int) ($job['attempt_count'] ?? -1);
+        if (!$this->cleanupOwnedIngressesThrough($job, $attempt)) {
+            $this->jobs->recordCleanupPending((int) $job['id'], $attempt);
+            return false;
+        }
+        if (!$this->advanceLeasedCleanupThrough($job, $workerId, $leaseHash, $attempt)) {
             return false;
         }
         $ingressId = trim((string) ($job['ingress_id'] ?? ''));
@@ -227,23 +239,47 @@ final class MediaBridgeCoordinator
         );
     }
 
-    private function cleanupOwnedIngresses(array $job, bool $leaseBound = false): bool
+    private function advanceLeasedCleanupThrough(
+        array $job,
+        string $workerId,
+        string $leaseHash,
+        int $throughAttempt,
+    ): bool
+    {
+        $current = (int) ($job['cleanup_through_attempt'] ?? 0);
+        if ($throughAttempt === $current) {
+            return true;
+        }
+
+        return $this->jobs->advanceCleanupThrough(
+            (int) $job['id'],
+            (string) $job['transmission_instance_id'],
+            $workerId,
+            $leaseHash,
+            $throughAttempt,
+        );
+    }
+
+    private function cleanupOwnedIngressesThrough(array $job, int $throughAttempt): bool
     {
         $roomId = (int) ($job['room_id'] ?? 0);
         $instanceId = (string) ($job['transmission_instance_id'] ?? '');
         $attemptCount = (int) ($job['attempt_count'] ?? 0);
+        $cleanupThrough = (int) ($job['cleanup_through_attempt'] ?? 0);
         if ($roomId < 1 || preg_match(self::INSTANCE_PATTERN, $instanceId) !== 1
-            || $attemptCount < 0 || ($leaseBound && ($attemptCount < 1 || $attemptCount > $this->maxAttempts))) {
+            || $attemptCount < 0 || $attemptCount > self::MAX_UNSIGNED_INT
+            || $cleanupThrough < 0 || $cleanupThrough > $attemptCount
+            || $throughAttempt < $cleanupThrough || $throughAttempt > $attemptCount) {
             return false;
         }
-        if ($attemptCount === 0) {
+        if ($throughAttempt === $cleanupThrough) {
             return true;
         }
 
         try {
             $roomName = $this->roomContext->roomName($roomId);
             $publisherIdentity = $this->roomContext->publisherIdentity($roomId, $instanceId);
-            for ($attempt = 1; $attempt <= $attemptCount; ++$attempt) {
+            for ($attempt = $cleanupThrough + 1; $attempt <= $throughAttempt; ++$attempt) {
                 $ids = $this->ingress->findOwnedIngressIds(
                     $roomName,
                     MediaBridgeIngressIdentity::name($instanceId, $attempt),

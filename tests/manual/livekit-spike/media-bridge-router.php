@@ -55,7 +55,7 @@ $controller = new MediaBridgeController(
         new ManualMediaBridgeIngressGateway(),
         new LiveKitRoomContext($app['livekit']['namespace']),
         $app['media_bridge']['lease_seconds'],
-        $app['media_bridge']['max_attempts'],
+        $app['media_bridge']['max_failures'],
     ),
 );
 $router = $app['router'];

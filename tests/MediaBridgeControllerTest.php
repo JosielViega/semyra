@@ -86,24 +86,25 @@ final class MediaBridgeControllerTest extends TestCase
 final class ControllerBridgeStore implements MediaBridgeJobStore
 {
     public array $job; public bool $claimable=true;
-    public function __construct(string $instance){$this->job=['id'=>7,'room_id'=>11,'transmission_instance_id'=>$instance,'source_ref'=>'test_source_01','desired_state'=>'running','status'=>'pending','worker_id'=>null,'lease_token_hash'=>null,'lease_active'=>1,'ingress_id'=>null,'attempt_count'=>0];}
+    public function __construct(string $instance){$this->job=['id'=>7,'room_id'=>11,'transmission_instance_id'=>$instance,'source_ref'=>'test_source_01','desired_state'=>'running','status'=>'pending','worker_id'=>null,'lease_token_hash'=>null,'lease_active'=>1,'ingress_id'=>null,'attempt_count'=>0,'failure_count'=>0,'cleanup_through_attempt'=>0];}
     public function create(int $roomId,string $instanceId,string $sourceRef):int{return 7;}
     public function findByInstance(string $instanceId):?array{return $this->job;}
     public function requestStop(string $instanceId):bool{$this->job['desired_state']='stopped';return true;}
     public function reconcileStaleJobs():void{}
     public function staleJobsForCleanup():array{return [];}
-    public function claim(string $workerId,string $leaseHash,int $leaseSeconds,int $maxAttempts):?array{if(!$this->claimable)return null;$this->job['worker_id']=$workerId;$this->job['lease_token_hash']=$leaseHash;$this->job['status']='claimed';$this->job['attempt_count']++;return $this->job;}
+    public function claim(string $workerId,string $leaseHash,int $leaseSeconds,int $maxFailures):?array{if(!$this->claimable||$this->job['failure_count']>=$maxFailures||$this->job['cleanup_through_attempt']!==$this->job['attempt_count'])return null;$this->job['worker_id']=$workerId;$this->job['lease_token_hash']=$leaseHash;$this->job['status']='claimed';$this->job['attempt_count']++;return $this->job;}
     public function currentTransmissionIsEligible(array $job):bool{return true;}
     public function findLeaseContext(int $jobId,string $instanceId,string $workerId):?array{return $this->job['worker_id']===$workerId?array_merge($this->job,['lease_active'=>1]):null;}
     public function renewLease(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $status,int $leaseSeconds):bool{$this->job['status']=$status;return $this->match($workerId,$leaseHash);}
     public function markStopping(int $jobId,string $instanceId,string $workerId,string $leaseHash):bool{$this->job['desired_state']='stopped';return $this->match($workerId,$leaseHash);}
     public function markRunning(int $jobId,string $instanceId,string $workerId,string $leaseHash):bool{$this->job['status']='running';return $this->match($workerId,$leaseHash);}
-    public function markFailed(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $errorCode,bool $keepIngress):bool{return $this->match($workerId,$leaseHash);}
+    public function markFailed(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $errorCode,bool $keepIngress,bool $consumeFailureBudget):bool{return $this->match($workerId,$leaseHash);}
     public function markStopped(int $jobId,string $instanceId,string $workerId,string $leaseHash,bool $keepIngress):bool{if(!$this->match($workerId,$leaseHash))return false;$this->job['status']='stopped';$this->job['desired_state']='stopped';return true;}
     public function setIngress(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $ingressId):bool{if(!$this->match($workerId,$leaseHash))return false;$this->job['ingress_id']=$ingressId;return true;}
     public function clearIngress(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $ingressId):bool{$this->job['ingress_id']=null;return $this->match($workerId,$leaseHash);}
-    public function completeReconciledCleanup(int $jobId):void{}
-    public function recordCleanupPending(int $jobId):void{}
+    public function advanceCleanupThrough(int $jobId,string $instanceId,string $workerId,string $leaseHash,int $throughAttempt):bool{$this->job['cleanup_through_attempt']=$throughAttempt;return $this->match($workerId,$leaseHash);}
+    public function completeReconciledCleanup(int $jobId,int $throughAttempt):bool{return true;}
+    public function recordCleanupPending(int $jobId,int $expectedAttempt):bool{return $this->job['attempt_count']===$expectedAttempt;}
     private function match(string $worker,string $hash):bool{return $this->job['worker_id']===$worker&&$this->job['lease_token_hash']===$hash;}
 }
 

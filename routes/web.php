@@ -134,7 +134,7 @@ $mediaBridge = new MediaBridgeController(
         new SdkLiveKitIngressGateway($app['livekit']),
         new LiveKitRoomContext($app['livekit']['namespace']),
         $app['media_bridge']['lease_seconds'],
-        $app['media_bridge']['max_attempts'],
+        $app['media_bridge']['max_failures'],
     ),
 );
 $health = new HealthController();

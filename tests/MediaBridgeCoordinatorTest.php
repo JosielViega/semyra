@@ -24,6 +24,9 @@ final class MediaBridgeCoordinatorTest extends TestCase
         self::assertSame(7, $claim['job_id']);
         self::assertSame(self::INSTANCE, $claim['transmission_instance_id']);
         self::assertSame('test_source_01', $claim['source_ref']);
+        self::assertArrayNotHasKey('failure_count', $claim);
+        self::assertArrayNotHasKey('max_failures', $claim);
+        self::assertArrayNotHasKey('cleanup_through_attempt', $claim);
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $claim['lease_token']);
         self::assertNotSame($claim['lease_token'], $store->job['lease_token_hash']);
         self::assertSame(hash('sha256', $claim['lease_token']), $store->job['lease_token_hash']);
@@ -42,19 +45,16 @@ final class MediaBridgeCoordinatorTest extends TestCase
 
         [$coordinator, $store] = $this->system();
         $store->eligible = false;
-        try {
-            $coordinator->claim(self::WORKER);
-            self::fail('Expected stale transmission conflict.');
-        } catch (MediaBridgeProtocolException $exception) {
-            self::assertSame(409, $exception->status);
-            self::assertSame('transmission_changed', $exception->error);
-        }
+        self::assertNull($coordinator->claim(self::WORKER));
         self::assertSame('stopped', $store->job['desired_state']);
+        self::assertSame(0, $store->job['failure_count']);
     }
 
     public function testReclaimDeletesOldIngressBeforeCreatingNewOne(): void
     {
         [$coordinator, $store, $gateway] = $this->system();
+        $store->job['attempt_count'] = 1;
+        $store->job['status'] = 'failed';
         $store->job['ingress_id'] = 'INGRESS_OLD';
         $gateway->addOwnedIngress('INGRESS_OLD', 11, self::INSTANCE, 1);
         $coordinator->claim(self::WORKER);
@@ -112,8 +112,9 @@ final class MediaBridgeCoordinatorTest extends TestCase
 
     public function testLeaseAIsFencedAfterReclaimIssuesLeaseB(): void
     {
-        [$coordinator] = $this->system();
+        [$coordinator, $store] = $this->system();
         $leaseA = $coordinator->claim(self::WORKER);
+        $store->leaseActive = false;
         $leaseB = $coordinator->claim(self::WORKER);
 
         self::assertNotSame($leaseA['lease_token'], $leaseB['lease_token']);
@@ -131,15 +132,15 @@ final class MediaBridgeCoordinatorTest extends TestCase
 
     public function testEachClaimUsesItsAttemptGenerationAndReclaimCleansOnlyThroughCurrentAttempt(): void
     {
-        [$coordinator, , $gateway] = $this->system();
+        [$coordinator, $store, $gateway] = $this->system();
         $coordinator->claim(self::WORKER);
         $gateway->findNames = [];
+        $store->leaseActive = false;
 
         $coordinator->claim(self::WORKER);
 
         self::assertSame([
             'smy_b_' . self::INSTANCE . '_a1',
-            'smy_b_' . self::INSTANCE . '_a2',
         ], $gateway->findNames);
         self::assertSame([
             'smy_b_' . self::INSTANCE . '_a1',
@@ -213,7 +214,9 @@ final class MediaBridgeCoordinatorTest extends TestCase
         $coordinator->report(7, self::INSTANCE, self::WORKER, $claim['lease_token'], 'failed', 'source_failed');
 
         self::assertSame('INGRESS_NEW', $store->job['ingress_id']);
-        self::assertSame('ingress_cleanup_pending', $store->job['last_error_code']);
+        self::assertSame('source_failed', $store->job['last_error_code']);
+        self::assertSame(1, $store->job['failure_count']);
+        self::assertSame(0, $store->job['cleanup_through_attempt']);
     }
 
     public function testClaimOpportunisticallyCleansStaleTransmissionIngress(): void
@@ -237,6 +240,8 @@ final class MediaBridgeCoordinatorTest extends TestCase
     public function testNullStoredIdOrphanIsDeletedBeforeNewIngress(): void
     {
         [$coordinator, $store, $gateway] = $this->system();
+        $store->job['attempt_count'] = 1;
+        $store->job['status'] = 'failed';
         $gateway->addOwnedIngress('INGRESS_ORPHAN', 11, self::INSTANCE, 1);
 
         $coordinator->claim(self::WORKER);
@@ -261,9 +266,13 @@ final class MediaBridgeCoordinatorTest extends TestCase
         self::assertSame(['INGRESS_X'], array_keys($gateway->ingresses));
 
         $store->throwOnSetIngress = false;
+        $store->leaseActive = false;
+        $gateway->findNames = [];
         $coordinator->claim(self::WORKER);
 
         self::assertContains('INGRESS_X', $gateway->deleted);
+        self::assertSame(['smy_b_' . self::INSTANCE . '_a1'], $gateway->findNames);
+        self::assertSame(1, $store->job['cleanup_through_attempt']);
         self::assertSame(['INGRESS_Y'], array_keys($gateway->ingresses));
         self::assertSame('INGRESS_Y', $store->job['ingress_id']);
         self::assertSame([
@@ -274,7 +283,9 @@ final class MediaBridgeCoordinatorTest extends TestCase
 
     public function testStrictOwnershipLeavesAnotherInstanceInSameRoomUntouched(): void
     {
-        [$coordinator, , $gateway] = $this->system();
+        [$coordinator, $store, $gateway] = $this->system();
+        $store->job['attempt_count'] = 1;
+        $store->job['status'] = 'failed';
         $other = 'cccccccccccccccccccccccccccccccc';
         $gateway->addOwnedIngress('INGRESS_AAA', 11, self::INSTANCE, 1);
         $gateway->addOwnedIngress('INGRESS_BBB', 11, $other, 1);
@@ -288,7 +299,9 @@ final class MediaBridgeCoordinatorTest extends TestCase
 
     public function testAllExactMatchesAreDeletedBeforeCreate(): void
     {
-        [$coordinator, , $gateway] = $this->system();
+        [$coordinator, $store, $gateway] = $this->system();
+        $store->job['attempt_count'] = 1;
+        $store->job['status'] = 'failed';
         $gateway->addOwnedIngress('INGRESS_OLD_A', 11, self::INSTANCE, 1);
         $gateway->addOwnedIngress('INGRESS_OLD_B', 11, self::INSTANCE, 1);
 
@@ -304,25 +317,19 @@ final class MediaBridgeCoordinatorTest extends TestCase
     public function testListOrDeleteFailurePreventsCreateAndMarksCleanupPending(): void
     {
         [$coordinator, $store, $gateway] = $this->system();
+        $store->job['attempt_count'] = 1;
+        $store->job['status'] = 'failed';
         $gateway->failList = true;
-        try {
-            $coordinator->claim(self::WORKER);
-            self::fail('Expected listing failure.');
-        } catch (MediaBridgeProtocolException $exception) {
-            self::assertSame('ingress_cleanup_pending', $exception->error);
-        }
+        self::assertNull($coordinator->claim(self::WORKER));
         self::assertSame([], $gateway->created);
         self::assertSame('ingress_cleanup_pending', $store->job['last_error_code']);
 
         [$coordinator, $store, $gateway] = $this->system();
+        $store->job['attempt_count'] = 1;
+        $store->job['status'] = 'failed';
         $gateway->addOwnedIngress('INGRESS_ORPHAN', 11, self::INSTANCE, 1);
         $gateway->failDelete = true;
-        try {
-            $coordinator->claim(self::WORKER);
-            self::fail('Expected delete failure.');
-        } catch (MediaBridgeProtocolException $exception) {
-            self::assertSame('ingress_cleanup_pending', $exception->error);
-        }
+        self::assertNull($coordinator->claim(self::WORKER));
         self::assertSame([], $gateway->created);
         self::assertArrayHasKey('INGRESS_ORPHAN', $gateway->ingresses);
         self::assertSame('ingress_cleanup_pending', $store->job['last_error_code']);
@@ -413,6 +420,8 @@ final class MediaBridgeCoordinatorTest extends TestCase
         self::assertSame('running', $store->job['desired_state']);
         self::assertSame('failed', $store->job['status']);
         self::assertSame('worker_shutdown', $store->job['last_error_code']);
+        self::assertSame(0, $store->job['failure_count']);
+        self::assertSame(1, $store->job['cleanup_through_attempt']);
 
         $coordinator->claim(self::WORKER);
 
@@ -423,10 +432,250 @@ final class MediaBridgeCoordinatorTest extends TestCase
         ], array_column($gateway->created, 'name'));
     }
 
-    public function testMaxAttemptsPreventsAnotherClaim(): void
+    public function testFiveAdministrativeRestartsDoNotConsumeFailureBudget(): void
     {
         [$coordinator, $store] = $this->system();
-        $store->job['attempt_count'] = 3;
+        for ($generation = 1; $generation <= 5; ++$generation) {
+            $claim = $coordinator->claim(self::WORKER);
+            self::assertNotNull($claim);
+            $coordinator->report(
+                7, self::INSTANCE, self::WORKER, $claim['lease_token'], 'failed', 'worker_shutdown',
+            );
+            self::assertSame($generation, $store->job['attempt_count']);
+            self::assertSame(0, $store->job['failure_count']);
+            self::assertSame($generation, $store->job['cleanup_through_attempt']);
+        }
+
+        self::assertNotNull($coordinator->claim(self::WORKER));
+        self::assertSame(6, $store->job['attempt_count']);
+        self::assertSame(0, $store->job['failure_count']);
+    }
+
+    public function testMixedAdministrativeAndRealFailuresUseIndependentCounters(): void
+    {
+        [$coordinator, $store] = $this->system();
+        foreach (['worker_shutdown', 'source_failed', 'worker_shutdown', 'pipeline_failed'] as $errorCode) {
+            $claim = $coordinator->claim(self::WORKER);
+            self::assertNotNull($claim);
+            $coordinator->report(7, self::INSTANCE, self::WORKER, $claim['lease_token'], 'failed', $errorCode);
+        }
+
+        self::assertSame(4, $store->job['attempt_count']);
+        self::assertSame(2, $store->job['failure_count']);
+        self::assertNotNull($coordinator->claim(self::WORKER));
+        self::assertSame(5, $store->job['attempt_count']);
+    }
+
+    public function testThreeRealFailuresExhaustDefaultBudgetWithoutStoppingDesiredState(): void
+    {
+        [$coordinator, $store] = $this->system();
+        foreach (['source_failed', 'pipeline_failed', 'lease_invalid'] as $errorCode) {
+            $claim = $coordinator->claim(self::WORKER);
+            self::assertNotNull($claim);
+            $coordinator->report(7, self::INSTANCE, self::WORKER, $claim['lease_token'], 'failed', $errorCode);
+        }
+
+        self::assertSame(3, $store->job['failure_count']);
+        self::assertSame('running', $store->job['desired_state']);
+        self::assertNull($coordinator->claim(self::WORKER));
+    }
+
+    public function testExpiredLeaseConsumesFailureExactlyOnceAndClearsLease(): void
+    {
+        [$coordinator, $store] = $this->system();
+        self::assertNotNull($coordinator->claim(self::WORKER));
+        $store->leaseActive = false;
+
+        $store->reconcileStaleJobs();
+        self::assertSame('failed', $store->job['status']);
+        self::assertSame('lease_expired', $store->job['last_error_code']);
+        self::assertSame(1, $store->job['failure_count']);
+        self::assertNull($store->job['lease_token_hash']);
+
+        $store->reconcileStaleJobs();
+        self::assertSame(1, $store->job['failure_count']);
+    }
+
+    public function testExpiredLeaseCanExhaustBudgetAndPreventClaim(): void
+    {
+        [$coordinator, $store] = $this->system();
+        $store->job['failure_count'] = 2;
+        self::assertNotNull($coordinator->claim(self::WORKER));
+        $store->leaseActive = false;
+
+        self::assertNull($coordinator->claim(self::WORKER));
+        self::assertSame(3, $store->job['failure_count']);
+        self::assertSame('running', $store->job['desired_state']);
+        self::assertSame('failed', $store->job['status']);
+        self::assertSame(1, $store->job['cleanup_through_attempt']);
+    }
+
+    public function testStoppedReportDoesNotConsumeFailureBudget(): void
+    {
+        [$coordinator, $store] = $this->system();
+        $claim = $coordinator->claim(self::WORKER);
+        $coordinator->report(7, self::INSTANCE, self::WORKER, $claim['lease_token'], 'stopped', null);
+
+        self::assertSame(0, $store->job['failure_count']);
+        self::assertSame(1, $store->job['cleanup_through_attempt']);
+        self::assertSame('stopped', $store->job['desired_state']);
+    }
+
+    public function testWorkerShutdownCleanupFailureDoesNotAdvanceWatermarkOrConsumeFailure(): void
+    {
+        [$coordinator, $store, $gateway] = $this->system();
+        $claim = $coordinator->claim(self::WORKER);
+        $gateway->failDelete = true;
+        $coordinator->report(
+            7, self::INSTANCE, self::WORKER, $claim['lease_token'], 'failed', 'worker_shutdown',
+        );
+
+        self::assertSame(0, $store->job['cleanup_through_attempt']);
+        self::assertSame(0, $store->job['failure_count']);
+        self::assertSame('failed', $store->job['status']);
+        self::assertSame('worker_shutdown', $store->job['last_error_code']);
+    }
+
+    public function testPreCreateCleanupStartsAfterWatermarkAndStopsBeforeCurrentGeneration(): void
+    {
+        [$coordinator, $store, $gateway] = $this->system();
+        $store->job['attempt_count'] = 10;
+        $store->job['cleanup_through_attempt'] = 9;
+        $store->job['status'] = 'failed';
+        $gateway->addOwnedIngress('INGRESS_10', 11, self::INSTANCE, 10);
+        $gateway->addOwnedIngress('INGRESS_11_FUTURE', 11, self::INSTANCE, 11);
+
+        self::assertNotNull($coordinator->claim(self::WORKER));
+
+        self::assertSame(['smy_b_' . self::INSTANCE . '_a10'], $gateway->findNames);
+        self::assertSame(10, $store->job['cleanup_through_attempt']);
+        self::assertContains('INGRESS_10', $gateway->deleted);
+        self::assertArrayHasKey('INGRESS_11_FUTURE', $gateway->ingresses);
+        self::assertSame('smy_b_' . self::INSTANCE . '_a11', $gateway->created[0]['name']);
+    }
+
+    public function testLateReconciledCompletionCannotMutateClaimedNextGeneration(): void
+    {
+        [, $store] = $this->system();
+        $store->job['attempt_count'] = 5;
+        $store->job['cleanup_through_attempt'] = 4;
+        $store->job['status'] = 'claimed';
+        $store->job['worker_id'] = 'wrk_' . str_repeat('c', 32);
+        $store->job['lease_token_hash'] = str_repeat('d', 64);
+        $store->job['ingress_id'] = 'INGRESS_GENERATION_5';
+        $store->job['last_error_code'] = null;
+
+        self::assertFalse($store->completeReconciledCleanup(7, 4));
+        self::assertSame(5, $store->job['attempt_count']);
+        self::assertSame(4, $store->job['cleanup_through_attempt']);
+        self::assertSame('INGRESS_GENERATION_5', $store->job['ingress_id']);
+        self::assertSame('wrk_' . str_repeat('c', 32), $store->job['worker_id']);
+        self::assertSame(str_repeat('d', 64), $store->job['lease_token_hash']);
+        self::assertSame('claimed', $store->job['status']);
+    }
+
+    public function testLateCleanupFailureCannotOverwriteClaimedNextGeneration(): void
+    {
+        [, $store] = $this->system();
+        $store->job['attempt_count'] = 5;
+        $store->job['cleanup_through_attempt'] = 4;
+        $store->job['status'] = 'claimed';
+        $store->job['worker_id'] = 'wrk_' . str_repeat('c', 32);
+        $store->job['lease_token_hash'] = str_repeat('d', 64);
+        $store->job['ingress_id'] = 'INGRESS_GENERATION_5';
+        $store->job['last_error_code'] = null;
+
+        self::assertFalse($store->recordCleanupPending(7, 4));
+        self::assertNull($store->job['last_error_code']);
+        self::assertSame('INGRESS_GENERATION_5', $store->job['ingress_id']);
+        self::assertSame('wrk_' . str_repeat('c', 32), $store->job['worker_id']);
+        self::assertSame(str_repeat('d', 64), $store->job['lease_token_hash']);
+        self::assertSame('claimed', $store->job['status']);
+    }
+
+    public function testNormalReconciledCompletionAdvancesOnlySnapshotGeneration(): void
+    {
+        [, $store] = $this->system();
+        $store->job['attempt_count'] = 4;
+        $store->job['cleanup_through_attempt'] = 3;
+        $store->job['status'] = 'failed';
+        $store->job['ingress_id'] = 'INGRESS_GENERATION_4';
+
+        self::assertTrue($store->completeReconciledCleanup(7, 4));
+        self::assertSame(4, $store->job['cleanup_through_attempt']);
+        self::assertNull($store->job['ingress_id']);
+        self::assertSame('failed', $store->job['status']);
+        self::assertSame('running', $store->job['desired_state']);
+    }
+
+    public function testNormalCleanupFailureRecordsDiagnosticWithoutAdvancingWatermark(): void
+    {
+        [, $store] = $this->system();
+        $store->job['attempt_count'] = 4;
+        $store->job['cleanup_through_attempt'] = 3;
+        $store->job['status'] = 'failed';
+
+        self::assertTrue($store->recordCleanupPending(7, 4));
+        self::assertSame(3, $store->job['cleanup_through_attempt']);
+        self::assertSame('ingress_cleanup_pending', $store->job['last_error_code']);
+    }
+
+    public function testCreateSideEffectBeforeExceptionRemainsReconciliableAfterBudgetExhaustion(): void
+    {
+        [$coordinator, $store, $gateway] = $this->system();
+        $store->job['failure_count'] = 2;
+        $gateway->throwAfterCreate = true;
+
+        try {
+            $coordinator->claim(self::WORKER);
+            self::fail('Expected create failure after external side effect.');
+        } catch (MediaBridgeProtocolException $exception) {
+            self::assertSame('bridge_unavailable', $exception->error);
+        }
+
+        self::assertSame(1, $store->job['attempt_count']);
+        self::assertSame(3, $store->job['failure_count']);
+        self::assertSame(0, $store->job['cleanup_through_attempt']);
+        self::assertSame('failed', $store->job['status']);
+        self::assertArrayHasKey('INGRESS_NEW', $gateway->ingresses);
+
+        $gateway->throwAfterCreate = false;
+        self::assertNull($coordinator->claim(self::WORKER));
+        self::assertSame(1, $store->job['cleanup_through_attempt']);
+        self::assertContains('INGRESS_NEW', $gateway->deleted);
+        self::assertSame([], $gateway->ingresses);
+        self::assertSame(3, $store->job['failure_count']);
+    }
+
+    public function testInvalidCreateResponseNeverMarksCurrentGenerationClean(): void
+    {
+        [$coordinator, $store, $gateway] = $this->system();
+        $store->job['failure_count'] = 2;
+        $gateway->invalidResponse = true;
+        $gateway->failDelete = true;
+
+        try {
+            $coordinator->claim(self::WORKER);
+            self::fail('Expected invalid create response.');
+        } catch (MediaBridgeProtocolException $exception) {
+            self::assertSame('bridge_unavailable', $exception->error);
+        }
+        self::assertSame(0, $store->job['cleanup_through_attempt']);
+        self::assertArrayHasKey('INGRESS_NEW', $gateway->ingresses);
+
+        $gateway->invalidResponse = false;
+        $gateway->failDelete = false;
+        $store->leaseActive = false;
+        self::assertNull($coordinator->claim(self::WORKER));
+        self::assertSame(3, $store->job['failure_count']);
+        self::assertSame(1, $store->job['cleanup_through_attempt']);
+        self::assertSame([], $gateway->ingresses);
+    }
+
+    public function testMaxFailuresPreventsAnotherClaim(): void
+    {
+        [$coordinator, $store] = $this->system();
+        $store->job['failure_count'] = 3;
         self::assertNull($coordinator->claim(self::WORKER));
     }
 
@@ -453,16 +702,38 @@ final class FakeMediaBridgeStore implements MediaBridgeJobStore
         $this->job = ['id' => 7, 'room_id' => 11, 'transmission_instance_id' => $instance,
             'source_ref' => 'test_source_01', 'desired_state' => 'running', 'status' => 'pending',
             'worker_id' => null, 'lease_token_hash' => null, 'lease_active' => 1,
-            'ingress_id' => null, 'attempt_count' => 0, 'last_error_code' => null];
+            'ingress_id' => null, 'attempt_count' => 0, 'failure_count' => 0,
+            'cleanup_through_attempt' => 0, 'last_error_code' => null];
     }
     public function create(int $roomId, string $instanceId, string $sourceRef): int { return 7; }
     public function findByInstance(string $instanceId): ?array { return $this->job; }
     public function requestStop(string $instanceId): bool { $this->job['desired_state']='stopped'; $this->job['status']='stopping'; return true; }
-    public function reconcileStaleJobs(): void {}
-    public function staleJobsForCleanup(): array { return $this->staleRows; }
-    public function claim(string $workerId, string $leaseHash, int $leaseSeconds, int $maxAttempts): ?array
+    public function reconcileStaleJobs(): void
     {
-        if (!$this->claimable || $this->job['attempt_count'] >= $maxAttempts) return null;
+        if (!$this->leaseActive && in_array($this->job['status'], ['claimed', 'starting', 'running'], true)
+            && $this->job['desired_state'] === 'running' && $this->eligible) {
+            $this->job['status']='failed'; ++$this->job['failure_count'];
+            $this->job['last_error_code']='lease_expired'; $this->clearLease();
+        } elseif (!$this->eligible && $this->job['desired_state'] === 'running') {
+            $this->job['desired_state']='stopped'; $this->job['status']='stopping';
+        }
+    }
+    public function staleJobsForCleanup(): array
+    {
+        $rows = $this->staleRows;
+        if ((($this->job['desired_state'] === 'running' && $this->job['status'] === 'failed')
+                || ($this->job['desired_state'] === 'stopped' && $this->job['status'] === 'stopping'))
+            && $this->job['cleanup_through_attempt'] < $this->job['attempt_count']) {
+            $rows[] = $this->job;
+        }
+        return $rows;
+    }
+    public function claim(string $workerId, string $leaseHash, int $leaseSeconds, int $maxFailures): ?array
+    {
+        if (!$this->claimable || $this->job['failure_count'] >= $maxFailures
+            || !in_array($this->job['status'], ['pending', 'failed'], true)
+            || $this->job['cleanup_through_attempt'] !== $this->job['attempt_count']
+            || $this->job['attempt_count'] >= 4294967295) return null;
         $old = $this->job;
         $this->job['worker_id']=$workerId; $this->job['lease_token_hash']=$leaseHash;
         $this->job['status']='claimed'; ++$this->job['attempt_count']; $this->leaseActive=true;
@@ -481,16 +752,29 @@ final class FakeMediaBridgeStore implements MediaBridgeJobStore
     { if (!$this->matches($workerId,$leaseHash)) return false; $this->job['desired_state']='stopped'; $this->job['status']='stopping'; return true; }
     public function markRunning(int $jobId,string $instanceId,string $workerId,string $leaseHash): bool
     { if (!$this->matches($workerId,$leaseHash)) return false; $this->job['status']='running'; return true; }
-    public function markFailed(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $errorCode,bool $keepIngress): bool
-    { if (!$this->matches($workerId,$leaseHash)) return false; $this->job['status']='failed'; $this->job['last_error_code']=$errorCode; $this->clearLease(); if (!$keepIngress) $this->job['ingress_id']=null; return true; }
+    public function markFailed(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $errorCode,bool $keepIngress,bool $consumeFailureBudget): bool
+    { if (!$this->matches($workerId,$leaseHash)) return false; $this->job['status']='failed'; $this->job['last_error_code']=$errorCode; if($consumeFailureBudget)++$this->job['failure_count']; $this->clearLease(); if (!$keepIngress) $this->job['ingress_id']=null; return true; }
     public function markStopped(int $jobId,string $instanceId,string $workerId,string $leaseHash,bool $keepIngress): bool
     { if (!$this->matches($workerId,$leaseHash)) return false; $this->job['status']='stopped'; $this->job['desired_state']='stopped'; $this->clearLease(); if (!$keepIngress) $this->job['ingress_id']=null; return true; }
     public function setIngress(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $ingressId): bool
     { if ($this->throwOnSetIngress) throw new \RuntimeException('simulated_crash_before_ingress_persistence'); if (!$this->matches($workerId,$leaseHash)) return false; $this->job['ingress_id']=$ingressId; return true; }
     public function clearIngress(int $jobId,string $instanceId,string $workerId,string $leaseHash,string $ingressId): bool
     { if (!$this->matches($workerId,$leaseHash) || $this->job['ingress_id'] !== $ingressId) return false; $this->job['ingress_id']=null; return true; }
-    public function completeReconciledCleanup(int $jobId): void { $this->reconciledCleared[]=$jobId; }
-    public function recordCleanupPending(int $jobId): void { $this->job['last_error_code']='ingress_cleanup_pending'; }
+    public function advanceCleanupThrough(int $jobId,string $instanceId,string $workerId,string $leaseHash,int $throughAttempt): bool
+    { if(!$this->matches($workerId,$leaseHash)||$throughAttempt<$this->job['cleanup_through_attempt']||$throughAttempt>$this->job['attempt_count'])return false;$this->job['cleanup_through_attempt']=$throughAttempt;return true; }
+    public function completeReconciledCleanup(int $jobId,int $throughAttempt): bool
+    {
+        if($jobId===$this->job['id']&&$throughAttempt===$this->job['attempt_count']){
+            $this->reconciledCleared[]=$jobId;$this->job['cleanup_through_attempt']=max($this->job['cleanup_through_attempt'],$throughAttempt);$this->job['ingress_id']=null;if($this->job['desired_state']==='stopped'&&$this->job['status']==='stopping')$this->job['status']='stopped';return true;
+        }
+        foreach($this->staleRows as &$row){
+            if((int)($row['id']??0)===$jobId&&(int)($row['attempt_count']??-1)===$throughAttempt){$row['cleanup_through_attempt']=$throughAttempt;$row['ingress_id']=null;$this->reconciledCleared[]=$jobId;return true;}
+        }
+        unset($row);
+        return false;
+    }
+    public function recordCleanupPending(int $jobId,int $expectedAttempt): bool
+    { if($jobId!==$this->job['id']||$expectedAttempt!==$this->job['attempt_count']||$this->job['cleanup_through_attempt']>=$expectedAttempt)return false;$this->job['last_error_code']='ingress_cleanup_pending';return true; }
     private function matches(string $worker,string $hash): bool { return $this->leaseActive && $this->job['worker_id']===$worker && $this->job['lease_token_hash']===$hash; }
     private function clearLease(): void { $this->job['worker_id']=null; $this->job['lease_token_hash']=null; $this->leaseActive=false; }
 }
@@ -506,6 +790,8 @@ final class FakeIngressGateway implements LiveKitIngressGateway
     public array $findNames=[];
     public bool $failList=false;
     public bool $failDelete=false;
+    public bool $throwAfterCreate=false;
+    public bool $invalidResponse=false;
     public $afterCreate=null;
     public $afterFind=null;
     public function createWhipIngress(string $name,string $roomName,string $publisherIdentity): array
@@ -516,6 +802,8 @@ final class FakeIngressGateway implements LiveKitIngressGateway
         $this->ingresses[$id]=['id'=>$id,'name'=>$name,'roomName'=>$roomName,
             'publisherIdentity'=>$publisherIdentity,'inputType'=>\Livekit\IngressInput::WHIP_INPUT];
         if (is_callable($this->afterCreate)) ($this->afterCreate)();
+        if ($this->throwAfterCreate) throw new \RuntimeException('safe create failure after side effect');
+        if ($this->invalidResponse) return ['ingress_id'=>'','whip_endpoint'=>'invalid'];
         return ['ingress_id'=>$id,'whip_endpoint'=>'https://whip.invalid/SAFE_TEST_CREDENTIAL'];
     }
     public function findOwnedIngressIds(string $roomName,string $ingressName,string $publisherIdentity): array
