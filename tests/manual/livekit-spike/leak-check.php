@@ -81,6 +81,8 @@ $authorRoots = [
     $root . '/tests/manual/livekit-spike',
     $root . '/tests',
     $root . '/bridge-worker',
+    $root . '/deploy/bridge-worker',
+    $root . '/deploy/hostgator/mirror',
     $root . '/docs',
 ];
 

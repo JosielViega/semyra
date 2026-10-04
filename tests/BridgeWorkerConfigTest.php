@@ -26,10 +26,47 @@ final class BridgeWorkerConfigTest extends TestCase
 
     public function testAcceptsPinnedLocalConfiguration(): void
     {
-        $config = WorkerConfig::fromEnvironment($this->environment(), dirname(__DIR__) . '/bridge-worker', true);
+        $workerRoot = dirname(__DIR__) . '/bridge-worker';
+        $config = WorkerConfig::fromEnvironment($this->environment(), $workerRoot, true);
 
         self::assertSame(WorkerConfig::IMAGE, $config->gstreamerImage);
         self::assertSame(5, $config->heartbeatSeconds);
+        self::assertSame($workerRoot . DIRECTORY_SEPARATOR . 'runtime', $config->runtimePath);
+    }
+
+    public function testUsesCustomRuntimePath(): void
+    {
+        $environment = $this->environment();
+        $environment['SEMYRA_RUNTIME_PATH'] = 'C:\\Semyra\\runtime';
+
+        $config = WorkerConfig::fromEnvironment($environment, dirname(__DIR__) . '/bridge-worker', true);
+
+        self::assertSame('C:\\Semyra\\runtime', $config->runtimePath);
+    }
+
+    public function testRejectsRelativeRuntimePathInProduction(): void
+    {
+        $environment = $this->environment();
+        $environment['APP_ENV'] = 'production';
+        $environment['SEMYRA_CONTROL_URL'] = 'https://example.invalid';
+        $environment['SEMYRA_RUNTIME_PATH'] = 'runtime';
+
+        $this->expectException(WorkerException::class);
+        WorkerConfig::fromEnvironment($environment, dirname(__DIR__) . '/bridge-worker', true);
+    }
+
+    public function testRejectsExplicitEmptyOrUnsafeRuntimePath(): void
+    {
+        foreach (['', "safe\0unsafe", '/run/../tmp'] as $runtimePath) {
+            $environment = $this->environment();
+            $environment['SEMYRA_RUNTIME_PATH'] = $runtimePath;
+            try {
+                WorkerConfig::fromEnvironment($environment, dirname(__DIR__) . '/bridge-worker', true);
+                self::fail('Unsafe runtime path was accepted.');
+            } catch (WorkerException) {
+                self::assertTrue(true);
+            }
+        }
     }
 
     #[DataProvider('leaseTimingProvider')]

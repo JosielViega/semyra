@@ -1,0 +1,47 @@
+[Unit]
+Description=Semyra IPTV bridge worker
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=semyra-bridge
+Group=semyra-bridge
+SupplementaryGroups=docker
+WorkingDirectory=/opt/semyra-bridge/current
+EnvironmentFile=/etc/semyra/bridge-worker.env
+RuntimeDirectory=semyra-bridge
+RuntimeDirectoryMode=0700
+UMask=0077
+
+ExecStartPre=/usr/bin/php /opt/semyra-bridge/current/worker.php --check
+ExecStart=/usr/bin/php /opt/semyra-bridge/current/worker.php --loop
+
+Restart=on-failure
+RestartSec=3s
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=20s
+SendSIGKILL=yes
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/run/semyra-bridge
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=semyra-bridge
+
+[Install]
+WantedBy=multi-user.target

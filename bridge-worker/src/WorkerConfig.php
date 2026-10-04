@@ -56,6 +56,7 @@ final class WorkerConfig
         $pollSeconds = self::integer($environment, 'SEMYRA_POLL_SECONDS', 2);
         $dockerBinary = self::value($environment, 'SEMYRA_DOCKER_BIN', 'docker');
         $image = self::value($environment, 'SEMYRA_GSTREAMER_IMAGE', $requireMedia ? '' : self::IMAGE);
+        $runtimePath = self::runtimePath($environment, $workerRoot, $appEnvironment);
 
         $parts = parse_url($controlUrl);
         $localHttp = in_array($appEnvironment, ['local', 'testing'], true)
@@ -82,8 +83,27 @@ final class WorkerConfig
             $pollSeconds,
             $dockerBinary,
             $image,
-            $workerRoot . DIRECTORY_SEPARATOR . 'runtime',
+            $runtimePath,
         );
+    }
+
+    /** @param array<string, string|false> $environment */
+    private static function runtimePath(array $environment, string $workerRoot, string $appEnvironment): string
+    {
+        $raw = array_key_exists('SEMYRA_RUNTIME_PATH', $environment)
+            ? $environment['SEMYRA_RUNTIME_PATH']
+            : $workerRoot . DIRECTORY_SEPARATOR . 'runtime';
+        $path = is_string($raw) ? trim($raw) : '';
+        if ($path === '' || str_contains($path, "\0")
+            || preg_match('#(^|[\\/])\.\.?(?:[\\/]|$)#', $path) === 1) {
+            throw new WorkerException('invalid_configuration');
+        }
+
+        if ($appEnvironment === 'production' && (!str_starts_with($path, '/') || $path === '/')) {
+            throw new WorkerException('invalid_configuration');
+        }
+
+        return rtrim($path, '/\\');
     }
 
     /** @param array<string, string|false> $environment */

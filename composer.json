@@ -45,7 +45,8 @@
         "deploy:hostgator": [
             "@check",
             "@php bin/build-hostgator-mirror.php"
-        ]
+        ],
+        "build:bridge-worker": "@php bin/build-bridge-worker-release.php"
     },
     "config": {
         "optimize-autoloader": true,

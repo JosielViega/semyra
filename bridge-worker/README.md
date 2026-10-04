@@ -24,7 +24,9 @@ Em Linux/Unix, `--loop` exige `pcntl` com suporte a `SIGTERM` e `SIGINT`; o work
 
 O handler apenas registra o pedido de parada. O fluxo normal do runner interrompe imediatamente a mídia local e remove watchdog/runtime antes de tentar um report best-effort `failed` com `worker_shutdown`. Esse report não representa encerramento da transmissão: `desired_state` permanece `running`, a lease é liberada quando o report chega e o control plane pode reclamar uma nova geração após o reinício. Cada claim incrementa a geração monotônica `attempt_count`, mas `worker_shutdown` não consome o orçamento separado `failure_count`; falhas reais e lease expirada consomem esse orçamento. O control plane mantém um watermark de cleanup para não revisitar gerações já confirmadas ausentes. `lease_lost` continua impedindo reports por um owner antigo, e um `action=stop` autoritativo mantém a semântica de `stopped`.
 
-A unit do systemd e o provisionamento do serviço serão tratados na etapa seguinte; este diretório ainda não contém arquivos de serviço ou instalação.
+`SEMYRA_RUNTIME_PATH` permite manter lock, watchdog e marcadores efêmeros fora do release. Quando ausente, o default permanece `bridge-worker/runtime`, preservando o desenvolvimento local. O pacote Linux define `/run/semyra-bridge`, criado pelo systemd com modo `0700`; em produção o caminho deve ser absoluto. O layout, a unit, permissões, atualização e rollback futuros estão documentados em `deploy/bridge-worker/README.md`.
+
+A unit systemd e o procedimento operacional versionados ficam em `deploy/bridge-worker/`. O provisionamento e a validação em uma VPS Linux continuam reservados para uma etapa futura e não foram executados localmente.
 
 ## Configuração local
 
