@@ -356,10 +356,10 @@ A operação do bridge worker Linux/systemd da 10C.1B permanece documentada e v�
 ```text
 Semyra Desktop
 ├── WebView/UI (aplicativo web existente)
-└── Host Engine local (futuro)
+└── Host Engine local (in-process)
 ```
 
-Na fundação 11A, somente a camada WPF/WebView2 existe. Ela preserva login e sessão web e oferece uma ponte `postMessage` mínima e allowlisted. O boundary do Host Engine está registrado para evolução posterior; não há nesta etapa implementação de IPTV, M3U, Xtream, GStreamer, WHIP, LiveKit de mídia local ou servidor HTTP local.
+Desde a fundação 11B, o Host Engine possui lifecycle mínimo ligado à janela (`Stopped`/`Ready`) e snapshot somente leitura. A ponte `postMessage` permanece allowlisted e aceita `ping` e `host.status`; a única capability atual é `host.status`. O snapshot fica apenas em memória no JavaScript e não expõe identidade da máquina. Não há implementação de IPTV, M3U, Xtream, GStreamer, WHIP, LiveKit de mídia local, processo auxiliar ou servidor HTTP local. O engine poderá ser separado em outro processo no futuro se isso se tornar necessário.
 
 ## Ferramentas de infraestrutura
 

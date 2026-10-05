@@ -30,4 +30,6 @@ Release não possui URL implícita e exige `SEMYRA_DESKTOP_URL` HTTPS. HTTP é a
 
 ## Fronteira futura
 
-O Desktop possui hoje somente a camada WebView/UI e uma ponte `postMessage` mínima, versão 1, para ping/pong. O futuro Host Engine será um componente local separado para mídia hospedada pelo cliente. IPTV, M3U, Xtream, GStreamer, WHIP e integração de mídia com LiveKit não fazem parte desta fundação.
+O Desktop possui a camada WebView/UI, uma ponte `postMessage` allowlisted na versão 1 e um Host Engine local mínimo. O Host Engine roda in-process, nasce parado, acompanha o lifecycle da janela e anuncia somente a capability `host.status`. Seu snapshot não inclui identidade ou dados da máquina.
+
+Ainda não existe processamento de mídia: IPTV, M3U, Xtream, GStreamer, WHIP e integração de mídia com LiveKit permanecem fora desta fundação. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.

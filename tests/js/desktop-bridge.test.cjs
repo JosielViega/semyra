@@ -12,6 +12,7 @@ const browser = {
 const browserBridge = desktop.createDesktopBridge(browser);
 assert.equal(browserBridge.start(), false);
 assert.equal(browserBridge.isReady(), false);
+assert.equal(browserBridge.getHostSnapshot(), null);
 assert.deepEqual(browserEvents, []);
 assert.equal(browserRemember.checked, false);
 
@@ -64,12 +65,49 @@ messageListener({
 });
 assert.equal(webviewBridge.isReady(), true);
 assert.equal(desktopRemember.checked, true);
+assert.deepEqual(posted, [
+    {type: 'semyra.desktop.ping', requestId: 'request-11a'},
+    {type: 'semyra.desktop.host.status', requestId: 'request-11a'},
+]);
 assert.equal(dispatched.length, 1);
 assert.equal(dispatched[0].type, 'semyra:desktop-ready');
 assert.deepEqual(dispatched[0].detail, {
     protocolVersion: 1,
     platform: 'windows',
     appVersion: '1.0.0',
+});
+assert.equal(webviewBridge.getHostSnapshot(), null);
+
+messageListener({data: {
+    type: 'semyra.desktop.host.status-result',
+    requestId: 'wrong-request',
+    protocolVersion: 1,
+    host: {state: 'ready', capabilities: ['host.status']},
+}});
+messageListener({data: {
+    type: 'semyra.desktop.host.status-result',
+    requestId: 'request-11a',
+    protocolVersion: 2,
+    host: {state: 'ready', capabilities: ['host.status']},
+}});
+assert.equal(webviewBridge.getHostSnapshot(), null);
+assert.equal(dispatched.length, 1);
+
+messageListener({data: {
+    type: 'semyra.desktop.host.status-result',
+    requestId: 'request-11a',
+    protocolVersion: 1,
+    host: {state: 'ready', capabilities: ['host.status']},
+}});
+assert.deepEqual(webviewBridge.getHostSnapshot(), {
+    state: 'ready',
+    capabilities: ['host.status'],
+});
+assert.equal(dispatched.length, 2);
+assert.equal(dispatched[1].type, 'semyra:host-ready');
+assert.deepEqual(dispatched[1].detail, {
+    state: 'ready',
+    capabilities: ['host.status'],
 });
 
 let interactedListener = null;

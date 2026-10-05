@@ -14,6 +14,8 @@
 
     const PING_TYPE = 'semyra.desktop.ping';
     const PONG_TYPE = 'semyra.desktop.pong';
+    const HOST_STATUS_TYPE = 'semyra.desktop.host.status';
+    const HOST_STATUS_RESULT_TYPE = 'semyra.desktop.host.status-result';
     const PROTOCOL_VERSION = 1;
     const REMEMBER_PREFERENCE_KEY = 'semyra.desktop.remember';
     const SESSION_MARKER_KEY = 'semyra.desktop.session';
@@ -30,6 +32,8 @@
     function createDesktopBridge(target) {
         let ready = false;
         let requestId = null;
+        let hostRequestId = null;
+        let hostSnapshot = null;
         let webview = null;
         let listening = false;
         let rememberControl = null;
@@ -102,10 +106,15 @@
             }
         }
 
-        function receive(event) {
-            const message = event && event.data;
-            if (!message || typeof message !== 'object'
-                || message.type !== PONG_TYPE
+        function stopListening() {
+            if (listening) {
+                webview.removeEventListener('message', receive);
+                listening = false;
+            }
+        }
+
+        function receivePong(message) {
+            if (ready
                 || message.requestId !== requestId
                 || message.protocolVersion !== PROTOCOL_VERSION
                 || message.desktop !== true
@@ -118,10 +127,6 @@
                 rememberControl.checked = true;
             }
             enforceRememberPreference();
-            if (listening) {
-                webview.removeEventListener('message', receive);
-                listening = false;
-            }
 
             const detail = Object.freeze({
                 protocolVersion: PROTOCOL_VERSION,
@@ -129,6 +134,52 @@
                 appVersion: typeof message.appVersion === 'string' ? message.appVersion : '',
             });
             target.dispatchEvent(new target.CustomEvent('semyra:desktop-ready', {detail}));
+
+            hostRequestId = createRequestId(target);
+            webview.postMessage({type: HOST_STATUS_TYPE, requestId: hostRequestId});
+        }
+
+        function receiveHostStatus(message) {
+            const host = message.host;
+            if (!ready
+                || hostSnapshot !== null
+                || message.requestId !== hostRequestId
+                || message.protocolVersion !== PROTOCOL_VERSION
+                || !host
+                || typeof host !== 'object'
+                || host.state !== 'ready'
+                || !Array.isArray(host.capabilities)
+                || host.capabilities.length !== 1
+                || host.capabilities[0] !== 'host.status') {
+                return;
+            }
+
+            hostSnapshot = Object.freeze({
+                state: host.state,
+                capabilities: Object.freeze(host.capabilities.slice()),
+            });
+            stopListening();
+            target.dispatchEvent(new target.CustomEvent('semyra:host-ready', {
+                detail: hostSnapshot,
+            }));
+        }
+
+        function receive(event) {
+            const message = event && event.data;
+            if (!message || typeof message !== 'object') {
+                return;
+            }
+
+            switch (message.type) {
+                case PONG_TYPE:
+                    receivePong(message);
+                    break;
+                case HOST_STATUS_RESULT_TYPE:
+                    receiveHostStatus(message);
+                    break;
+                default:
+                    break;
+            }
         }
 
         function start() {
@@ -153,12 +204,17 @@
             isReady: function () {
                 return ready;
             },
+            getHostSnapshot: function () {
+                return hostSnapshot;
+            },
         });
     }
 
     return Object.freeze({
         PING_TYPE,
         PONG_TYPE,
+        HOST_STATUS_TYPE,
+        HOST_STATUS_RESULT_TYPE,
         PROTOCOL_VERSION,
         createDesktopBridge,
     });

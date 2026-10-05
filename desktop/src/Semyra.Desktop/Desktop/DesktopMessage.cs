@@ -7,10 +7,13 @@ public static partial class DesktopMessage
 {
     public const string PingType = "semyra.desktop.ping";
     public const string PongType = "semyra.desktop.pong";
+    public const string HostStatusType = "semyra.desktop.host.status";
+    public const string HostStatusResultType = "semyra.desktop.host.status-result";
     public const int ProtocolVersion = 1;
 
-    public static bool TryReadPing(string json, out string requestId)
+    public static bool TryReadRequest(string json, out string type, out string requestId)
     {
+        type = string.Empty;
         requestId = string.Empty;
 
         try
@@ -21,30 +24,35 @@ public static partial class DesktopMessage
                 return false;
             }
 
-            string? type = null;
+            string? candidateType = null;
             string? candidateRequestId = null;
+            var hasType = false;
+            var hasRequestId = false;
             foreach (var property in document.RootElement.EnumerateObject())
             {
                 switch (property.Name)
                 {
-                    case "type" when property.Value.ValueKind == JsonValueKind.String:
-                        type = property.Value.GetString();
+                    case "type" when !hasType && property.Value.ValueKind == JsonValueKind.String:
+                        candidateType = property.Value.GetString();
+                        hasType = true;
                         break;
-                    case "requestId" when property.Value.ValueKind == JsonValueKind.String:
+                    case "requestId" when !hasRequestId && property.Value.ValueKind == JsonValueKind.String:
                         candidateRequestId = property.Value.GetString();
+                        hasRequestId = true;
                         break;
                     default:
                         return false;
                 }
             }
 
-            if (type != PingType
+            if ((candidateType != PingType && candidateType != HostStatusType)
                 || candidateRequestId is null
                 || !RequestIdPattern().IsMatch(candidateRequestId))
             {
                 return false;
             }
 
+            type = candidateType;
             requestId = candidateRequestId;
             return true;
         }

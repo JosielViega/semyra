@@ -2,12 +2,14 @@ using System.Diagnostics;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using Semyra.Desktop.Desktop;
+using Semyra.Desktop.Host;
 
 namespace Semyra.Desktop;
 
 public partial class MainWindow : Window
 {
     private NavigationPolicy? _navigationPolicy;
+    private readonly HostEngine _hostEngine = new();
 
     public MainWindow()
     {
@@ -21,6 +23,7 @@ public partial class MainWindow : Window
 
         try
         {
+            _hostEngine.Start();
             var configuration = SemyraWebConfiguration.Load();
             _navigationPolicy = new NavigationPolicy(configuration.BaseUri);
 
@@ -110,10 +113,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (DesktopBridge.TryHandle(e.WebMessageAsJson, out var response))
+        if (DesktopBridge.TryHandle(e.WebMessageAsJson, _hostEngine, out var response))
         {
             Browser.CoreWebView2.PostWebMessageAsJson(response);
         }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _hostEngine.Stop();
+        base.OnClosed(e);
     }
 
     private static void OpenExternal(Uri uri)
