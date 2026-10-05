@@ -41,7 +41,7 @@ final class Response
     {
         http_response_code($this->status);
         foreach ($this->headers as $name => $value) {
-            header($name . ': ' . $value);
+            header($name . ': ' . $value, strcasecmp($name, 'Set-Cookie') !== 0);
         }
 
         echo $this->body;
@@ -61,5 +61,15 @@ final class Response
     public function headers(): array
     {
         return $this->headers;
+    }
+
+    public function withHeader(string $name, string $value): self
+    {
+        if (preg_match('/^[!#$%&\'*+.^_`|~0-9A-Za-z-]+$/D', $name) !== 1
+            || preg_match('/[\r\n]/', $value) === 1) {
+            throw new \InvalidArgumentException('Invalid response header.');
+        }
+
+        return new self($this->body, $this->status, array_merge($this->headers, [$name => $value]));
     }
 }

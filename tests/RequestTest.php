@@ -29,6 +29,7 @@ final class RequestTest extends TestCase
             parsedBody: ['_method' => 'PATCH', 'name' => 'Semyra'],
             server: ['REQUEST_METHOD' => 'POST', 'REQUEST_URI' => '/room/A?x=1', 'HTTPS' => 'on'],
             files: ['upload' => ['name' => 'safe.txt']],
+            cookies: ['semyra_remember' => 'synthetic-cookie'],
         );
 
         self::assertSame('PATCH', $request->method());
@@ -36,6 +37,8 @@ final class RequestTest extends TestCase
         self::assertSame('Semyra', $request->input('name'));
         self::assertSame('2', $request->query('page'));
         self::assertSame('safe.txt', $request->file('upload')['name']);
+        self::assertSame('synthetic-cookie', $request->cookie('semyra_remember'));
+        self::assertSame('fallback', $request->cookie('missing', 'fallback'));
         self::assertTrue($request->isSecure());
     }
 }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /** @var string $csrfField */
 /** @var array<string, list<string>> $errors */
-/** @var array{email?: string} $old */
+/** @var array{email?: string, remember?: bool} $old */
 ?>
 <section class="auth-shell" aria-labelledby="login-title">
     <div class="auth-card">
@@ -27,6 +27,10 @@ declare(strict_types=1);
                 <label for="login-password">Senha</label>
                 <input id="login-password" name="password" type="password" minlength="8" maxlength="72" autocomplete="current-password" required>
             </div>
+            <label class="auth-remember" for="login-remember">
+                <input id="login-remember" name="remember" type="checkbox" value="1"<?= !empty($old['remember']) ? ' checked' : '' ?>>
+                <span>Manter conectado neste dispositivo</span>
+            </label>
             <button class="auth-submit" type="submit">Entrar</button>
         </form>
 

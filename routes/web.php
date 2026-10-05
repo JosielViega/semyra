@@ -17,6 +17,7 @@ use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
+use App\Repositories\UserRememberTokenRepository;
 use App\Repositories\UserRoomRepository;
 use App\Repositories\MediaBridgeJobRepository;
 use App\Services\AuthSession;
@@ -30,10 +31,20 @@ use App\Services\RoomTransmissionPlayback;
 use App\Services\YouTubeUrlParser;
 use App\Services\MediaBridgeCoordinator;
 use App\Services\MediaBridgeWorkerAuthenticator;
+use App\Services\RememberMeService;
 use App\Services\SdkLiveKitIngressGateway;
 
 $userRepository = new UserRepository($app['database']);
 $authSession = new AuthSession($app['session']);
+$rememberMe = new RememberMeService(
+    $app['request'],
+    new UserRememberTokenRepository($app['database']),
+    $userRepository,
+    $authSession,
+    $app['config']['auth']['remember_days'],
+    $app['config']['session']['secure'] || $app['https_active'],
+);
+$app['remember_me'] = $rememberMe;
 $home = new HomeController(
     $app['view'],
     $app['session'],
@@ -50,6 +61,7 @@ $auth = new AuthController(
     $app['validator'],
     $userRepository,
     $authSession,
+    $rememberMe,
 );
 $roomRepository = new RoomRepository($app['database']);
 $userRoomRepository = new UserRoomRepository($app['database']);

@@ -84,6 +84,10 @@ $authorRoots = [
     $root . '/deploy/bridge-worker',
     $root . '/deploy/hostgator/mirror',
     $root . '/docs',
+    $root . '/desktop',
+    $root . '/.github/workflows',
+    $root . '/public/assets/js',
+    $root . '/resources/views/layouts',
 ];
 
 foreach ($authorRoots as $authorRoot) {
@@ -103,6 +107,10 @@ foreach ($authorRoots as $authorRoot) {
             str_contains($normalized, '/.private/')
             || str_contains($normalized, '/vendor/')
             || str_contains($normalized, '/vendor-js/')
+            || str_contains($normalized, '/bin/')
+            || str_contains($normalized, '/obj/')
+            || str_contains($normalized, '/.vs/')
+            || str_contains($normalized, '/TestResults/')
         ) {
             continue;
         }

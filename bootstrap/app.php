@@ -64,4 +64,5 @@ return [
     'validator' => new Validator(),
     'database' => new Database($databaseConfig),
     'logger' => $logger,
+    'https_active' => $httpsActive,
 ];

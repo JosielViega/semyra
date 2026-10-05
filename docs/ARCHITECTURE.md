@@ -143,6 +143,8 @@ O e-mail é aparado e normalizado para lowercase antes de consultas e inserçõe
 
 `AuthSession` é deliberadamente separada de `RoomParticipantSession`. Login e logout regeneram o ID da sessão, mas alteram somente `auth_user_id`; identidades físicas por sala continuam intactas. `RoomParticipantSession` guarda `participant_key`, nome e `user_id` opcional. Uma identidade guest pode ser vinculada à conta preservando a chave; a mesma conta reutiliza sua chave, enquanto uma troca de conta sempre gera outra. Ao criar uma sala, um usuário autenticado válido é registrado em `rooms.created_by_user_id`; isso define persistência, não controle do player.
 
+O PHPSESSID permanece um cookie de sessão. Quando solicitado, `RememberMeService` emite `selector.validator` em cookie HttpOnly/SameSite=Lax e persiste apenas selector e SHA-256 do validator. Antes do dispatch, um token válido restaura uma nova sessão por `AuthSession::login()` e rotaciona atomicamente o validator; token inválido, expirado ou órfão é revogado e o cookie é limpo. Logout protegido por CSRF revoga somente o token apresentado pelo dispositivo atual. O Desktop usa exatamente esse mecanismo HTTP, sem token ou CookieManager nativo.
+
 `GET /rooms` usa `MyRoomsController` para exigir uma conta válida e carregar duas consultas sem N+1: `RoomRepository::createdByUser()` lista salas persistentes criadas pela conta, enquanto `UserRoomRepository::participatedByUser()` lista outras salas em que ela participou. `user_rooms` começa a ser preenchida nesta etapa, sem tentar associar registros anônimos antigos.
 
 ## Fluxo de salas
@@ -346,6 +348,18 @@ Este fluxo de telemetria continua observacional e não define autoridade. O play
 Como experimento de estabilização, o owner dispõe de `Sincronizar`: em conteúdo playing, o frontend serializa `pause`, confirmação oficial, espera de 2 segundos e `play` — ou `live` quando estava no ponto AO VIVO. Em paused, republica a posição por `seek` e não inicia reprodução. Instance ID, revisions e ownership são revalidados antes da segunda ação; conflito, substituição ou perda de ownership cancelam a retomada antiga. Viewers continuam reagindo somente ao estado oficial da instância atual.
 
 O owner também pode executar esse pulso automaticamente por nova coorte de instâncias de player ainda não cobertas na revision vigente. Cada `playback_instance_id` precisa permanecer ativo e com telemetria fresh por quatro segundos; chegadas próximas são agrupadas numa única barreira, e somente os IDs ready capturados no início são marcados após sucesso. Um reload preserva `public_id`, mas cria outro `playback_instance_id`, portanto a nova instância recebe warmup e uma única barreira. Saída observada remove a cobertura para permitir novo warmup no rejoin. Em paused, o estado determinístico estabilizado funciona como barreira natural sem Pause/Play. A cobertura local guarda apenas IDs públicos opacos em memória e `sessionStorage`, separada por endpoint, `instance_id` e revision; IDs de uma transmissão nunca são reutilizados pela seguinte. Posições e drift não entram na decisão nem se tornam autoridade; polling da mesma instância não repete a barreira.
+
+## Direção desktop
+
+A operação do bridge worker Linux/systemd da 10C.1B permanece documentada e válida como opção futura, mas a implantação 10C.2 em VPS está adiada. A direção atual para mídia hospedada pelo cliente combina o Semyra web e LiveKit Cloud com um aplicativo Windows local:
+
+```text
+Semyra Desktop
+├── WebView/UI (aplicativo web existente)
+└── Host Engine local (futuro)
+```
+
+Na fundação 11A, somente a camada WPF/WebView2 existe. Ela preserva login e sessão web e oferece uma ponte `postMessage` mínima e allowlisted. O boundary do Host Engine está registrado para evolução posterior; não há nesta etapa implementação de IPTV, M3U, Xtream, GStreamer, WHIP, LiveKit de mídia local ou servidor HTTP local.
 
 ## Ferramentas de infraestrutura
 

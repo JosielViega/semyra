@@ -23,4 +23,16 @@ final class ResponseTest extends TestCase
         self::assertSame('nosniff', $response->headers()['X-Content-Type-Options']);
         self::assertSame(['Content-Type' => 'application/json; charset=UTF-8'], Response::json([])->headers());
     }
+
+    public function testWithHeaderReturnsNewResponseAndRejectsInjection(): void
+    {
+        $original = Response::html('ok');
+        $response = $original->withHeader('Set-Cookie', 'safe=value; HttpOnly');
+
+        self::assertArrayNotHasKey('Set-Cookie', $original->headers());
+        self::assertSame('safe=value; HttpOnly', $response->headers()['Set-Cookie']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $response->withHeader("X-Test\r\nInjected", 'bad');
+    }
 }

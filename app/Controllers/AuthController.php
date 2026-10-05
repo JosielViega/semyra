@@ -11,6 +11,7 @@ use App\Core\Session;
 use App\Core\View;
 use App\Repositories\UserRepository;
 use App\Services\AuthSession;
+use App\Services\RememberMeService;
 use App\Validation\Validator;
 
 final class AuthController
@@ -23,6 +24,7 @@ final class AuthController
         private readonly Validator $validator,
         private readonly UserRepository $users,
         private readonly AuthSession $auth,
+        private readonly RememberMeService $rememberMe,
     ) {
     }
 
@@ -90,7 +92,11 @@ final class AuthController
 
         $email = $this->normalizedEmail($this->request->input('email'));
         $password = $this->request->input('password');
-        $old = ['email' => is_string($email) ? $email : ''];
+        $remember = $this->request->input('remember') === '1';
+        $old = [
+            'email' => is_string($email) ? $email : '',
+            'remember' => $remember,
+        ];
         $validShape = $this->validator->validate(
             ['email' => $email, 'password' => $password],
             ['email' => 'required|string|email|max:191', 'password' => 'required|string'],
@@ -104,6 +110,9 @@ final class AuthController
         }
 
         $this->auth->login($user['id']);
+        if ($remember) {
+            $this->rememberMe->issue($user['id']);
+        }
         $this->session->flash('success', 'Login realizado com sucesso.');
 
         return Response::redirect('/', 303);
@@ -115,6 +124,7 @@ final class AuthController
             return $this->invalidCsrfResponse();
         }
 
+        $this->rememberMe->revokeCurrent();
         $this->auth->logout();
         $this->session->flash('success', 'Você saiu da sua conta.');
 

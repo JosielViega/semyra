@@ -11,7 +11,9 @@ use App\Core\Request;
 use App\Core\Session;
 use App\Core\View;
 use App\Repositories\UserRepository;
+use App\Repositories\UserRememberTokenRepository;
 use App\Services\AuthSession;
+use App\Services\RememberMeService;
 use App\Services\RoomParticipantSession;
 use App\Validation\Validator;
 use PDO;
@@ -46,6 +48,9 @@ final class AuthControllerTest extends TestCase
         self::assertStringContainsString('<label for="login-email">E-mail</label>', $loginResponse->body());
         self::assertStringContainsString('autocomplete="email"', $loginResponse->body());
         self::assertStringContainsString('autocomplete="current-password"', $loginResponse->body());
+        self::assertStringContainsString('name="remember"', $loginResponse->body());
+        self::assertStringContainsString('Manter conectado neste dispositivo', $loginResponse->body());
+        self::assertDoesNotMatchRegularExpression('/id="login-remember"[^>]* checked/', $loginResponse->body());
     }
 
     public function testValidRegistrationNormalizesEmailHashesPasswordAndLogsIn(): void
@@ -143,6 +148,30 @@ final class AuthControllerTest extends TestCase
         self::assertSame(303, $response->status());
         self::assertSame('/', $response->headers()['Location']);
         self::assertSame(1, $auth->userId());
+        self::assertSame([], $pdo->rememberTokens);
+    }
+
+    public function testValidLoginWithRememberIssuesPersistentToken(): void
+    {
+        $pdo = new AuthUserPdo();
+        $pdo->seed('Josiel', 'user@example.com', 'correct-password');
+        [$controller, , $auth, , $remember] = $this->controller([
+            'email' => 'user@example.com',
+            'password' => 'correct-password',
+            'remember' => '1',
+        ], pdo: $pdo);
+
+        $response = $remember->applyTo($controller->login());
+
+        self::assertSame(303, $response->status());
+        self::assertSame(1, $auth->userId());
+        self::assertCount(1, $pdo->rememberTokens);
+        self::assertStringContainsString('semyra_remember=', $response->headers()['Set-Cookie']);
+        self::assertStringContainsString('HttpOnly', $response->headers()['Set-Cookie']);
+        self::assertStringNotContainsString(
+            array_values($pdo->rememberTokens)[0]['validator_hash'],
+            $response->headers()['Set-Cookie'],
+        );
     }
 
     public function testMissingEmailAndWrongPasswordUseSameGenericMessage(): void
@@ -173,6 +202,20 @@ final class AuthControllerTest extends TestCase
         ], useProvidedToken: true);
 
         self::assertSame(419, $controller->login()->status());
+    }
+
+    public function testInvalidCredentialsNeverIssueRememberToken(): void
+    {
+        $pdo = new AuthUserPdo();
+        $pdo->seed('Josiel', 'user@example.com', 'correct-password');
+        [$controller] = $this->controller([
+            'email' => 'user@example.com',
+            'password' => 'wrong-password',
+            'remember' => '1',
+        ], pdo: $pdo);
+
+        self::assertSame(422, $controller->login()->status());
+        self::assertSame([], $pdo->rememberTokens);
     }
 
     public function testAuthenticatedUserIsRedirectedAwayFromLoginAndRegister(): void
@@ -210,11 +253,65 @@ final class AuthControllerTest extends TestCase
         self::assertSame(9, $auth->userId());
     }
 
-    /** @return array{AuthController, AuthUserPdo, AuthSession, Session} */
+    public function testLogoutRevokesCurrentRememberTokenAndClearsCookie(): void
+    {
+        $pdo = new AuthUserPdo();
+        $pdo->seed('Josiel', 'user@example.com', 'correct-password');
+        [$login, , , , $loginRemember] = $this->controller([
+            'email' => 'user@example.com',
+            'password' => 'correct-password',
+            'remember' => '1',
+        ], pdo: $pdo);
+        $loginResponse = $loginRemember->applyTo($login->login());
+        $cookie = explode(';', substr($loginResponse->headers()['Set-Cookie'], strlen('semyra_remember=')), 2)[0];
+
+        $_SESSION = [];
+        [$logout, , $auth, , $logoutRemember] = $this->controller(
+            pdo: $pdo,
+            cookies: [RememberMeService::COOKIE_NAME => $cookie],
+        );
+        $auth->login(1);
+        $response = $logoutRemember->applyTo($logout->logout());
+
+        self::assertNull($auth->userId());
+        self::assertSame([], $pdo->rememberTokens);
+        self::assertStringContainsString('Max-Age=0', $response->headers()['Set-Cookie']);
+    }
+
+    public function testInvalidLogoutCsrfDoesNotRevokeRememberToken(): void
+    {
+        $pdo = new AuthUserPdo();
+        $pdo->seed('Josiel', 'user@example.com', 'correct-password');
+        [$login, , , , $loginRemember] = $this->controller([
+            'email' => 'user@example.com',
+            'password' => 'correct-password',
+            'remember' => '1',
+        ], pdo: $pdo);
+        $loginResponse = $loginRemember->applyTo($login->login());
+        $cookie = explode(';', substr($loginResponse->headers()['Set-Cookie'], strlen('semyra_remember=')), 2)[0];
+
+        $_SESSION = [];
+        [$logout, , $auth, , $logoutRemember] = $this->controller(
+            ['_token' => 'invalid'],
+            true,
+            $pdo,
+            [RememberMeService::COOKIE_NAME => $cookie],
+        );
+        $auth->login(1);
+        $response = $logoutRemember->applyTo($logout->logout());
+
+        self::assertSame(419, $response->status());
+        self::assertSame(1, $auth->userId());
+        self::assertCount(1, $pdo->rememberTokens);
+        self::assertArrayNotHasKey('Set-Cookie', $response->headers());
+    }
+
+    /** @return array{AuthController, AuthUserPdo, AuthSession, Session, RememberMeService} */
     private function controller(
         array $body = [],
         bool $useProvidedToken = false,
         ?AuthUserPdo $pdo = null,
+        array $cookies = [],
     ): array {
         $pdo ??= new AuthUserPdo();
         $database = new Database([]);
@@ -226,16 +323,27 @@ final class AuthControllerTest extends TestCase
             $body['_token'] = $validToken;
         }
         $auth = new AuthSession($session);
+        $request = new Request([], $body, cookies: $cookies);
+        $userRepository = new UserRepository($database);
+        $remember = new RememberMeService(
+            $request,
+            new UserRememberTokenRepository($database),
+            $userRepository,
+            $auth,
+            30,
+            false,
+        );
 
         return [new AuthController(
-            new Request([], $body),
+            $request,
             new View(dirname(__DIR__) . '/resources/views'),
             $session,
             $csrf,
             new Validator(),
-            new UserRepository($database),
+            $userRepository,
             $auth,
-        ), $pdo, $auth, $session];
+            $remember,
+        ), $pdo, $auth, $session, $remember];
     }
 }
 
@@ -243,7 +351,10 @@ final class AuthUserPdo extends PDO
 {
     /** @var array<int, array<string, mixed>> */
     public array $rows = [];
+    /** @var array<string, array<string, mixed>> */
+    public array $rememberTokens = [];
     private int $nextId = 1;
+    private int $nextRememberId = 1;
     private int $lastId = 0;
 
     public function __construct()
@@ -288,11 +399,25 @@ final class AuthUserPdo extends PDO
             'updated_at' => '2026-09-29 12:00:00.000',
         ];
     }
+
+    public function insertRememberToken(array $params): void
+    {
+        $selector = (string) $params['selector'];
+        $this->rememberTokens[$selector] = [
+            'id' => $this->nextRememberId++,
+            'user_id' => (int) $params['user_id'],
+            'selector' => $selector,
+            'validator_hash' => (string) $params['validator_hash'],
+            'expires_at' => '2099-10-05 12:00:00.000',
+            'expired' => false,
+        ];
+    }
 }
 
 final class AuthUserStatement extends PDOStatement
 {
     private array $params = [];
+    private int $affected = 0;
 
     public function __construct(private readonly AuthUserPdo $pdo, private readonly string $query)
     {
@@ -301,14 +426,35 @@ final class AuthUserStatement extends PDOStatement
     public function execute(?array $params = null): bool
     {
         $this->params = $params ?? [];
+        $this->affected = 0;
         if (str_starts_with($this->query, 'INSERT INTO users')) {
             $this->pdo->insert($this->params);
+            $this->affected = 1;
+        } elseif (str_starts_with($this->query, 'INSERT INTO user_remember_tokens')) {
+            $this->pdo->insertRememberToken($this->params);
+            $this->affected = 1;
+        } elseif (str_starts_with($this->query, 'DELETE FROM user_remember_tokens WHERE selector')) {
+            $selector = (string) $this->params['selector'];
+            if (isset($this->pdo->rememberTokens[$selector])) {
+                unset($this->pdo->rememberTokens[$selector]);
+                $this->affected = 1;
+            }
+        } elseif (str_contains($this->query, 'WHERE expires_at <=')) {
+            foreach ($this->pdo->rememberTokens as $selector => $token) {
+                if ($token['expired']) {
+                    unset($this->pdo->rememberTokens[$selector]);
+                    ++$this->affected;
+                }
+            }
         }
         return true;
     }
 
     public function fetch(int $mode = PDO::FETCH_DEFAULT, int $cursorOrientation = PDO::FETCH_ORI_NEXT, int $cursorOffset = 0): mixed
     {
+        if (str_contains($this->query, 'FROM user_remember_tokens')) {
+            return $this->pdo->rememberTokens[(string) ($this->params['selector'] ?? '')] ?? false;
+        }
         if (str_contains($this->query, 'WHERE id =')) {
             return $this->pdo->rows[(int) ($this->params['id'] ?? 0)] ?? false;
         }
@@ -318,5 +464,10 @@ final class AuthUserStatement extends PDOStatement
             }
         }
         return false;
+    }
+
+    public function rowCount(): int
+    {
+        return $this->affected;
     }
 }
