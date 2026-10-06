@@ -139,3 +139,24 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+/* Desktop IPTV catalog */
+.desktop-only-link[hidden], .iptv-desktop-panel[hidden] { display: none !important; }
+.iptv-catalog { width: min(1120px, calc(100% - 32px)); margin: 40px auto 72px; }
+.iptv-catalog-header { margin-bottom: 24px; }
+.iptv-catalog-header h1 { margin: 4px 0 8px; }
+.iptv-browser-notice, .iptv-source-panel, .iptv-channel-panel { padding: 24px; border: 1px solid var(--color-border, #2d3345); border-radius: 18px; background: var(--color-surface, #141824); }
+.iptv-desktop-panel { display: grid; gap: 24px; grid-template-columns: minmax(280px, .8fr) minmax(360px, 1.2fr); }
+.iptv-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.iptv-section-heading h2 { margin: 0; }
+.iptv-url-form, .iptv-search-form { display: grid; gap: 12px; }
+.iptv-url-form label, .iptv-search-form label { display: grid; gap: 6px; color: var(--color-text-muted, #aeb5c7); }
+.iptv-url-form input, .iptv-search-form input, .iptv-search-form select { width: 100%; min-width: 0; }
+.iptv-source-list, .iptv-channel-list { display: grid; gap: 10px; margin-top: 18px; }
+.iptv-source-card, .iptv-channel-card { padding: 14px; border: 1px solid var(--color-border, #2d3345); border-radius: 12px; }
+.iptv-source-card.is-selected { border-color: var(--color-primary, #7c5cff); }
+.iptv-source-card h3, .iptv-channel-card h3 { margin: 0 0 6px; font-size: 1rem; }
+.iptv-source-meta, .iptv-channel-meta, .iptv-feedback { color: var(--color-text-muted, #aeb5c7); font-size: .9rem; }
+.iptv-source-actions, .iptv-pagination { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.iptv-source-actions button { padding: 8px 12px; }
+.iptv-empty { padding: 18px; text-align: center; color: var(--color-text-muted, #aeb5c7); }
+@media (max-width: 780px) { .iptv-desktop-panel { grid-template-columns: 1fr; } .iptv-section-heading { align-items: flex-start; flex-direction: column; } }

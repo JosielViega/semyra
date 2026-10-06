@@ -33,7 +33,7 @@ const createHarness = ({existingHost = false} = {}) => {
     const window = {
         location: {pathname: '/room/ROOM2345'},
         SemyraDesktopBridge: existingHost ? {getHostSnapshot: () => ({
-            state: 'ready', capabilities: ['host.status', 'host.authorize'],
+            state: 'ready', capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog'],
         })} : undefined,
         addEventListener(type, listener) { windowListeners.set(type, listener); },
         dispatchEvent(event) {
@@ -73,7 +73,7 @@ const createHarness = ({existingHost = false} = {}) => {
         requests,
         hostReady() {
             window.dispatchEvent(new CustomEvent('semyra:host-ready', {detail: {
-                state: 'ready', capabilities: ['host.status', 'host.authorize'],
+                state: 'ready', capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog'],
             }}));
         },
         presence(value) {

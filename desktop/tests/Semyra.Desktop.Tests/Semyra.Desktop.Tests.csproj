@@ -21,4 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Semyra.Desktop\Semyra.Desktop.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\sample.m3u" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

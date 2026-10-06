@@ -361,7 +361,9 @@ Semyra Desktop
 
 Desde a fundação 11B, o Host Engine possui lifecycle mínimo ligado à janela (`Stopped`/`Ready`) e snapshot somente leitura. Na 11C, a ponte allowlisted adiciona `host.authorize` e `host.clear`: o owner atual de uma transmissão IPTV Live pode obter do backend uma Host Session curta de `media.publish`, ligada à sala, transmission instance, revision e identidade de ownership. O banco armazena somente o hash do validator; o token bruto permanece apenas na memória nativa, nunca aparece no snapshot e é removido na troca de contexto, em `clear` ou no `Stop()`.
 
-A emissão usa fencing na própria inserção contra a transmissão corrente. Nenhum segredo global do bridge worker é enviado ao Desktop. Ainda não há parsing IPTV, M3U, Xtream, GStreamer, WHIP, publicação LiveKit de mídia local, processo auxiliar ou servidor HTTP local. O engine poderá ser separado em outro processo no futuro se isso se tornar necessário.
+Na 11D, fontes M3U e seu catálogo pertencem exclusivamente ao Host Engine. O SQLite `%LOCALAPPDATA%\Semyra\Data\semyra.db` guarda metadados locais; localização da fonte e URLs de stream são blobs protegidos por DPAPI `CurrentUser`. O parser processa Extended M3U em streaming e importa para tabela temporária antes da substituição transacional por fonte. A WebView recebe apenas DTOs seguros, pesquisa paginada e grupos, através de comandos explícitos da allowlist. Arquivos, credenciais, banco local e catálogo nunca atravessam o backend PHP nem o mirror HostGator.
+
+A emissão usa fencing na própria inserção contra a transmissão corrente. Nenhum segredo global do bridge worker é enviado ao Desktop. Ainda não há Xtream, GStreamer, WHIP, publicação LiveKit de mídia local, processo auxiliar ou servidor HTTP local. O engine poderá ser separado em outro processo no futuro se isso se tornar necessário.
 
 ## Ferramentas de infraestrutura
 

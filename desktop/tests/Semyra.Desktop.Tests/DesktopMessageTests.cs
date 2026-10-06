@@ -42,7 +42,7 @@ public sealed class DesktopMessageTests
         var host = result.RootElement.GetProperty("host");
         Assert.Equal("ready", host.GetProperty("state").GetString());
         Assert.Equal(
-            ["host.status", "host.authorize"],
+            ["host.status", "host.authorize", "iptv.sources", "iptv.catalog"],
             host.GetProperty("capabilities").EnumerateArray().Select(value => value.GetString()));
         Assert.False(host.GetProperty("authorization").GetProperty("authorized").GetBoolean());
     }

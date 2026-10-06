@@ -1,15 +1,17 @@
 using System.Diagnostics;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Win32;
 using Semyra.Desktop.Desktop;
 using Semyra.Desktop.Host;
+using Semyra.Desktop.Iptv;
 
 namespace Semyra.Desktop;
 
 public partial class MainWindow : Window
 {
     private NavigationPolicy? _navigationPolicy;
-    private readonly HostEngine _hostEngine = new();
+    private readonly HostEngine _hostEngine = new(IptvCatalogService.CreateDefault());
 
     public MainWindow()
     {
@@ -104,7 +106,7 @@ public partial class MainWindow : Window
         OpenExternal(uri);
     }
 
-    private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         if (_navigationPolicy is null
             || !Uri.TryCreate(e.Source, UriKind.Absolute, out var source)
@@ -113,10 +115,26 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (DesktopBridge.TryHandle(e.WebMessageAsJson, _hostEngine, out var response))
+        var result = await DesktopBridge.TryHandleAsync(
+            e.WebMessageAsJson,
+            _hostEngine,
+            PickM3uFile);
+        if (result.Handled)
         {
-            Browser.CoreWebView2.PostWebMessageAsJson(response);
+            Browser.CoreWebView2.PostWebMessageAsJson(result.Response);
         }
+    }
+
+    private string? PickM3uFile()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Selecionar playlist IPTV",
+            Filter = "Playlists M3U (*.m3u;*.m3u8)|*.m3u;*.m3u8|Todos os arquivos (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false,
+        };
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
     }
 
     protected override void OnClosed(EventArgs e)

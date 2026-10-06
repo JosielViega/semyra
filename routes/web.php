@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Controllers\HealthController;
 use App\Controllers\AuthController;
+use App\Controllers\DesktopIptvController;
 use App\Controllers\HomeController;
 use App\Controllers\MyRoomsController;
 use App\Controllers\RoomController;
@@ -65,6 +66,12 @@ $auth = new AuthController(
     $userRepository,
     $authSession,
     $rememberMe,
+);
+$desktopIptv = new DesktopIptvController(
+    $app['view'],
+    $app['csrf'],
+    $userRepository,
+    $authSession,
 );
 $roomRepository = new RoomRepository($app['database']);
 $userRoomRepository = new UserRoomRepository($app['database']);
@@ -176,6 +183,7 @@ $router->get('/login', [$auth, 'showLogin']);
 $router->post('/login', [$auth, 'login']);
 $router->post('/logout', [$auth, 'logout']);
 $router->get('/rooms', [$myRooms, 'index']);
+$router->get('/desktop/iptv', [$desktopIptv, 'index']);
 $router->post('/rooms', [$rooms, 'store']);
 $router->get('/room/{code}', [$rooms, 'show']);
 $router->post('/room/{code}/join', [$roomParticipants, 'join']);

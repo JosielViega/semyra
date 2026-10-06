@@ -14,7 +14,7 @@ public sealed record HostEngineSnapshot(
     HostAuthorizationSnapshot Authorization)
 {
     private static readonly ReadOnlyCollection<string> SupportedCapabilities =
-        Array.AsReadOnly(["host.status", "host.authorize"]);
+        Array.AsReadOnly(["host.status", "host.authorize", "iptv.sources", "iptv.catalog"]);
 
     public static HostEngineSnapshot Create(HostEngineState state, HostAuthorization? authorization)
     {
