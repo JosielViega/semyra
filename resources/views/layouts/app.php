@@ -15,7 +15,7 @@ $currentUser = $currentUser ?? null;
     <title><?= e($title ?? 'Semyra') ?></title>
     <link rel="stylesheet" href="/assets/css/tokens.css?v=8b-identity">
     <link rel="stylesheet" href="/assets/css/app.css?v=my-rooms-1">
-    <script src="/assets/js/desktop-bridge.js?v=11b-host" defer></script>
+    <script src="/assets/js/desktop-bridge.js?v=11c-host-session" defer></script>
     <script src="/assets/js/app.js?v=8b-identity" defer></script>
 </head>
 <body>

@@ -7,6 +7,11 @@ if ($rememberDays === false || $rememberDays < 1 || $rememberDays > 90) {
     $rememberDays = 30;
 }
 
+$desktopHostSessionTtl = filter_var(env('DESKTOP_HOST_SESSION_TTL_SECONDS', 600), FILTER_VALIDATE_INT);
+if ($desktopHostSessionTtl === false || $desktopHostSessionTtl < 60 || $desktopHostSessionTtl > 3600) {
+    $desktopHostSessionTtl = 600;
+}
+
 return [
     'name' => (string) env('APP_NAME', 'Semyra'),
     'environment' => (string) env('APP_ENV', 'production'),
@@ -20,5 +25,8 @@ return [
     ],
     'auth' => [
         'remember_days' => $rememberDays,
+    ],
+    'desktop' => [
+        'host_session_ttl_seconds' => $desktopHostSessionTtl,
     ],
 ];

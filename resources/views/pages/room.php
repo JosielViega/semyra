@@ -68,6 +68,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         data-leave-url="/room/<?= e($room['code']) ?>/leave"
         data-playback-url="/room/<?= e($room['code']) ?>/transmission/playback"
         data-livekit-viewer-token-url="/room/<?= e($room['code']) ?>/livekit/viewer-token"
+        data-desktop-host-session-url="/room/<?= e($room['code']) ?>/desktop/host-session"
         data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"
         data-csrf-token="<?= e($csrfToken) ?>"
         data-initial-source="<?= e($transmission['source'] ?? '') ?>"
@@ -228,6 +229,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
     <script src="/assets/js/room-media.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-livekit-player.js?v=10b21-instance" defer></script>
+    <script src="/assets/js/room-desktop-host.js?v=11c-host-session" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
     <script src="/assets/js/room-playback.js?v=10b21-instance" defer></script>

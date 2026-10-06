@@ -19,6 +19,7 @@ assert.equal(browserRemember.checked, false);
 let messageListener = null;
 const posted = [];
 const dispatched = [];
+const windowListeners = new Map();
 const desktopRemember = createCheckbox();
 const webview = {
     addEventListener: (type, listener) => {
@@ -42,6 +43,7 @@ const webviewWindow = {
     crypto: {randomUUID: () => 'request-11a'},
     CustomEvent: MockCustomEvent,
     dispatchEvent: (event) => dispatched.push(event),
+    addEventListener: (type, listener) => windowListeners.set(type, listener),
     document: {getElementById: () => desktopRemember},
 };
 
@@ -97,18 +99,96 @@ messageListener({data: {
     type: 'semyra.desktop.host.status-result',
     requestId: 'request-11a',
     protocolVersion: 1,
-    host: {state: 'ready', capabilities: ['host.status']},
+    host: {
+        state: 'ready',
+        capabilities: ['host.status', 'host.authorize'],
+        authorization: {authorized: false},
+    },
 }});
 assert.deepEqual(webviewBridge.getHostSnapshot(), {
     state: 'ready',
-    capabilities: ['host.status'],
+    capabilities: ['host.status', 'host.authorize'],
+    authorization: {
+        authorized: false,
+        permission: null,
+        transmissionInstanceId: null,
+        transmissionRevision: null,
+    },
 });
 assert.equal(dispatched.length, 2);
 assert.equal(dispatched[1].type, 'semyra:host-ready');
 assert.deepEqual(dispatched[1].detail, {
     state: 'ready',
-    capabilities: ['host.status'],
+    capabilities: ['host.status', 'host.authorize'],
+    authorization: {
+        authorized: false,
+        permission: null,
+        transmissionInstanceId: null,
+        transmissionRevision: null,
+    },
 });
+
+const hostToken = 'a'.repeat(32) + '.' + 'b'.repeat(64);
+windowListeners.get('semyra:host-authorization-request')({detail: {
+    hostSessionToken: hostToken,
+    roomCode: 'ROOM2345',
+    transmissionInstanceId: 'c'.repeat(32),
+    transmissionRevision: 3,
+    permission: 'media.publish',
+    expiresAt: '2099-10-06T12:00:00.000Z',
+}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.host.authorize',
+    requestId: 'request-11a',
+    hostSessionToken: hostToken,
+    roomCode: 'ROOM2345',
+    transmissionInstanceId: 'c'.repeat(32),
+    transmissionRevision: 3,
+    permission: 'media.publish',
+    expiresAt: '2099-10-06T12:00:00.000Z',
+});
+messageListener({data: {
+    type: 'semyra.desktop.host.authorize-result',
+    requestId: 'wrong-request',
+    protocolVersion: 1,
+    authorized: true,
+    permission: 'media.publish',
+    transmissionInstanceId: 'c'.repeat(32),
+    transmissionRevision: 3,
+}});
+assert.equal(dispatched.length, 2);
+messageListener({data: {
+    type: 'semyra.desktop.host.authorize-result',
+    requestId: 'request-11a',
+    protocolVersion: 1,
+    authorized: true,
+    permission: 'media.publish',
+    transmissionInstanceId: 'c'.repeat(32),
+    transmissionRevision: 3,
+}});
+assert.equal(dispatched[2].type, 'semyra:host-authorized');
+assert.deepEqual(dispatched[2].detail, {
+    authorized: true,
+    permission: 'media.publish',
+    transmissionInstanceId: 'c'.repeat(32),
+    transmissionRevision: 3,
+});
+assert.equal(JSON.stringify(dispatched[2]).includes(hostToken), false);
+assert.equal(JSON.stringify(webviewBridge.getHostSnapshot()).includes(hostToken), false);
+
+windowListeners.get('semyra:host-clear-request')({});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.host.clear',
+    requestId: 'request-11a',
+});
+messageListener({data: {
+    type: 'semyra.desktop.host.clear-result',
+    requestId: 'request-11a',
+    protocolVersion: 1,
+    cleared: true,
+}});
+assert.equal(dispatched[3].type, 'semyra:host-cleared');
+assert.equal(webviewBridge.getHostSnapshot().authorization.authorized, false);
 
 let interactedListener = null;
 const interactedRemember = {

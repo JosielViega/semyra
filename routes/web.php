@@ -7,6 +7,7 @@ use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Controllers\MyRoomsController;
 use App\Controllers\RoomController;
+use App\Controllers\RoomDesktopHostSessionController;
 use App\Controllers\RoomParticipantController;
 use App\Controllers\RoomLiveKitController;
 use App\Controllers\RoomTransmissionController;
@@ -14,6 +15,7 @@ use App\Controllers\MediaBridgeController;
 use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\RoomParticipantRepository;
+use App\Repositories\DesktopHostSessionRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
@@ -21,6 +23,7 @@ use App\Repositories\UserRememberTokenRepository;
 use App\Repositories\UserRoomRepository;
 use App\Repositories\MediaBridgeJobRepository;
 use App\Services\AuthSession;
+use App\Services\DesktopHostSessionService;
 use App\Services\RoomCodeGenerator;
 use App\Services\LiveKitRoomContext;
 use App\Services\LiveKitViewerTokenService;
@@ -67,6 +70,7 @@ $roomRepository = new RoomRepository($app['database']);
 $userRoomRepository = new UserRoomRepository($app['database']);
 $participantRepository = new RoomParticipantRepository($app['database']);
 $transmissionRepository = new RoomTransmissionRepository($app['database']);
+$desktopHostSessionRepository = new DesktopHostSessionRepository($app['database']);
 $participantSession = new RoomParticipantSession($app['session']);
 $playbackTelemetry = new RoomPlaybackTelemetry();
 $transmissionPresenter = new RoomTransmissionPresenter();
@@ -137,6 +141,19 @@ $roomLiveKit = new RoomLiveKitController(
     new LiveKitRoomContext($app['livekit']['namespace']),
     new LiveKitViewerTokenService($app['livekit']),
 );
+$roomDesktopHostSessions = new RoomDesktopHostSessionController(
+    $app['request'],
+    $app['csrf'],
+    $roomRepository,
+    $transmissionRepository,
+    $participantSession,
+    $userRepository,
+    $authSession,
+    new DesktopHostSessionService(
+        $desktopHostSessionRepository,
+        $app['config']['desktop']['host_session_ttl_seconds'],
+    ),
+);
 $mediaBridgeJobs = new MediaBridgeJobRepository($app['database']);
 $mediaBridge = new MediaBridgeController(
     $app['request'],
@@ -168,6 +185,7 @@ $router->post('/room/{code}/transmission', [$roomTransmissions, 'start']);
 $router->post('/room/{code}/transmission/end', [$roomTransmissions, 'end']);
 $router->post('/room/{code}/transmission/playback', [$roomTransmissions, 'playback']);
 $router->post('/room/{code}/livekit/viewer-token', [$roomLiveKit, 'viewerToken']);
+$router->post('/room/{code}/desktop/host-session', [$roomDesktopHostSessions, 'issue']);
 $router->post('/internal/media-bridge/claim', [$mediaBridge, 'claim']);
 $router->post('/internal/media-bridge/heartbeat', [$mediaBridge, 'heartbeat']);
 $router->post('/internal/media-bridge/report', [$mediaBridge, 'report']);

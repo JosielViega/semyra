@@ -9,15 +9,20 @@ public static class DesktopBridge
     public static bool TryHandle(string json, HostEngine hostEngine, out string response)
     {
         response = string.Empty;
-        if (!DesktopMessage.TryReadRequest(json, out var type, out var requestId))
+        if (!DesktopMessage.TryReadRequest(json, out var request))
         {
             return false;
         }
 
-        response = type switch
+        response = request.Type switch
         {
-            DesktopMessage.PingType => CreatePong(requestId),
-            DesktopMessage.HostStatusType => CreateHostStatus(requestId, hostEngine.Snapshot()),
+            DesktopMessage.PingType => CreatePong(request.RequestId),
+            DesktopMessage.HostStatusType => CreateHostStatus(request.RequestId, hostEngine.Snapshot()),
+            DesktopMessage.HostAuthorizeType => CreateHostAuthorizeResult(
+                request.RequestId,
+                request.Authorization!,
+                hostEngine.Authorize(request.Authorization!)),
+            DesktopMessage.HostClearType => CreateHostClearResult(request.RequestId, hostEngine),
             _ => string.Empty,
         };
 
@@ -49,7 +54,43 @@ public static class DesktopBridge
             {
                 state = snapshot.State,
                 capabilities = snapshot.Capabilities,
+                authorization = new
+                {
+                    authorized = snapshot.Authorization.Authorized,
+                    permission = snapshot.Authorization.Permission,
+                    transmissionInstanceId = snapshot.Authorization.TransmissionInstanceId,
+                    transmissionRevision = snapshot.Authorization.TransmissionRevision,
+                },
             },
+        });
+    }
+
+    private static string CreateHostAuthorizeResult(
+        string requestId,
+        HostAuthorization authorization,
+        bool authorized)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            type = DesktopMessage.HostAuthorizeResultType,
+            requestId,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            authorized,
+            permission = authorization.Permission,
+            transmissionInstanceId = authorization.TransmissionInstanceId,
+            transmissionRevision = authorization.TransmissionRevision,
+        });
+    }
+
+    private static string CreateHostClearResult(string requestId, HostEngine hostEngine)
+    {
+        hostEngine.ClearAuthorization();
+        return JsonSerializer.Serialize(new
+        {
+            type = DesktopMessage.HostClearResultType,
+            requestId,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            cleared = true,
         });
     }
 }

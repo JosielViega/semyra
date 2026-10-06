@@ -41,7 +41,49 @@ public sealed class DesktopMessageTests
         Assert.Equal(1, result.RootElement.GetProperty("protocolVersion").GetInt32());
         var host = result.RootElement.GetProperty("host");
         Assert.Equal("ready", host.GetProperty("state").GetString());
-        Assert.Equal(["host.status"], host.GetProperty("capabilities").EnumerateArray().Select(value => value.GetString()));
+        Assert.Equal(
+            ["host.status", "host.authorize"],
+            host.GetProperty("capabilities").EnumerateArray().Select(value => value.GetString()));
+        Assert.False(host.GetProperty("authorization").GetProperty("authorized").GetBoolean());
+    }
+
+    [Fact]
+    public void ValidAuthorizationIsStoredWithoutEchoingToken()
+    {
+        var hostEngine = new HostEngine();
+        hostEngine.Start();
+        var token = new string('a', 32) + "." + new string('b', 64);
+        var json = $$"""
+            {"type":"semyra.desktop.host.authorize","requestId":"authorize-1","hostSessionToken":"{{token}}","roomCode":"ROOM2345","transmissionInstanceId":"{{new string('c', 32)}}","transmissionRevision":3,"permission":"media.publish","expiresAt":"2099-10-06T12:00:00.000Z"}
+            """;
+
+        Assert.True(DesktopBridge.TryHandle(json, hostEngine, out var response));
+        Assert.DoesNotContain(token, response);
+        using var result = JsonDocument.Parse(response);
+        Assert.Equal("semyra.desktop.host.authorize-result", result.RootElement.GetProperty("type").GetString());
+        Assert.True(result.RootElement.GetProperty("authorized").GetBoolean());
+        Assert.Equal(3, result.RootElement.GetProperty("transmissionRevision").GetInt64());
+        Assert.True(hostEngine.Snapshot().Authorization.Authorized);
+        Assert.DoesNotContain(token, JsonSerializer.Serialize(hostEngine.Snapshot()));
+    }
+
+    [Fact]
+    public void ClearIsIdempotentAndDoesNotStopHost()
+    {
+        var hostEngine = new HostEngine();
+        hostEngine.Start();
+
+        foreach (var requestId in new[] { "clear-1", "clear-2" })
+        {
+            Assert.True(DesktopBridge.TryHandle(
+                $$"""{"type":"semyra.desktop.host.clear","requestId":"{{requestId}}"}""",
+                hostEngine,
+                out var response));
+            Assert.Contains("semyra.desktop.host.clear-result", response);
+        }
+
+        Assert.Equal(HostEngineState.Ready, hostEngine.State);
+        Assert.False(hostEngine.Snapshot().Authorization.Authorized);
     }
 
     [Theory]
@@ -54,6 +96,12 @@ public sealed class DesktopMessageTests
     [InlineData("{\"type\":\"semyra.desktop.host.status\",\"requestId\":\"ok\",\"extra\":true}")]
     [InlineData("{\"type\":\"semyra.desktop.host.status\",\"requestId\":42}")]
     [InlineData("{\"type\":\"semyra.desktop.host.status\",\"requestId\":\"ok\",\"requestId\":\"duplicate\"}")]
+    [InlineData("{\"type\":\"semyra.desktop.host.clear\",\"requestId\":\"ok\",\"extra\":true}")]
+    [InlineData("{\"type\":\"semyra.desktop.host.authorize\",\"requestId\":\"ok\",\"hostSessionToken\":\"invalid\",\"roomCode\":\"ROOM2345\",\"transmissionInstanceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"transmissionRevision\":1,\"permission\":\"media.publish\",\"expiresAt\":\"2099-10-06T12:00:00Z\"}")]
+    [InlineData("{\"type\":\"semyra.desktop.host.authorize\",\"requestId\":\"ok\",\"hostSessionToken\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"roomCode\":\"ROOM2345\",\"transmissionInstanceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"transmissionRevision\":1,\"permission\":\"admin\",\"expiresAt\":\"2099-10-06T12:00:00Z\"}")]
+    [InlineData("{\"type\":\"semyra.desktop.host.authorize\",\"requestId\":\"ok\",\"hostSessionToken\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"roomCode\":\"ROOM2345\",\"transmissionInstanceId\":\"invalid\",\"transmissionRevision\":1,\"permission\":\"media.publish\",\"expiresAt\":\"2099-10-06T12:00:00Z\"}")]
+    [InlineData("{\"type\":\"semyra.desktop.host.authorize\",\"requestId\":\"ok\",\"hostSessionToken\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"roomCode\":\"ROOM2345\",\"transmissionInstanceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"transmissionRevision\":0,\"permission\":\"media.publish\",\"expiresAt\":\"2099-10-06T12:00:00Z\"}")]
+    [InlineData("{\"type\":\"semyra.desktop.host.authorize\",\"requestId\":\"ok\",\"hostSessionToken\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"roomCode\":\"ROOM2345\",\"transmissionInstanceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"transmissionRevision\":1,\"permission\":\"media.publish\",\"expiresAt\":\"2099-10-06T12:00:00Z\",\"extra\":true}")]
     public void InvalidOrUnknownMessageIsRejected(string json)
     {
         Assert.False(DesktopBridge.TryHandle(json, new HostEngine(), out var response));
