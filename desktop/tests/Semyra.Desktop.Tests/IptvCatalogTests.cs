@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Net;
 using System.Net.Http;
+using Microsoft.Data.Sqlite;
 using Semyra.Desktop.Iptv;
 
 namespace Semyra.Desktop.Tests;
@@ -134,6 +135,38 @@ public sealed class IptvCatalogTests : IDisposable
         Assert.Equal("error", preserved.LastRefreshStatus);
         Assert.Equal(1, preserved.ChannelCount);
         Assert.DoesNotContain(_directory, exception.Message);
+    }
+
+    [Fact]
+    public async Task PlaybackResolutionStaysNativeAndRejectsUnavailableChannels()
+    {
+        var database = DatabasePath();
+        var store = new IptvStore(database, _protector);
+        store.Initialize();
+        var source = store.AddSource("Playback", IptvSourceType.M3uUrl, "https://provider.example/list.m3u");
+        const string streamUrl = "https://provider.example/private/live.ts";
+        await store.ReplaceChannelsAsync(source.Id, Channels(
+            new ParsedM3uChannel("Canal", streamUrl, null, null, "Live")), default);
+        var channelId = store.SearchChannels(source.Id, string.Empty, null, 0, 10).Channels.Single().Id;
+
+        var resolved = store.ResolveChannelForPlayback(channelId);
+
+        Assert.Equal(channelId, resolved.Id);
+        Assert.Equal(source.Id, resolved.SourceId);
+        Assert.Equal(streamUrl, resolved.StreamUri.AbsoluteUri);
+        Assert.Throws<IptvPlaybackException>(() => store.ResolveChannelForPlayback(channelId + 1000));
+
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString();
+        using (var connection = new SqliteConnection(connectionString))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE iptv_sources SET enabled = 0 WHERE id = $id";
+            command.Parameters.AddWithValue("$id", source.Id);
+            command.ExecuteNonQuery();
+        }
+        var unavailable = Assert.Throws<IptvPlaybackException>(() => store.ResolveChannelForPlayback(channelId));
+        Assert.Equal("source_unavailable", unavailable.Code);
     }
 
     public void Dispose()

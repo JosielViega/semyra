@@ -1,5 +1,6 @@
 (function (root, factory) {
     'use strict';
+
     const api = factory();
     if (typeof module === 'object' && module.exports) {
         module.exports = api;
@@ -9,12 +10,22 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
+    function mediaStatusLabel(state, errorCode) {
+        if (state === 'idle') return 'Nenhum teste em andamento.';
+        if (state === 'preparing') return 'Preparando canal...';
+        if (state === 'streaming') return 'Canal conectado.';
+        if (state === 'reconnecting') return 'Reconectando...';
+        if (errorCode === 'media_runtime_unavailable') return 'Runtime de mídia indisponível.';
+        return 'Não foi possível abrir o canal.';
+    }
+
     function createIptvCatalog(target) {
         const document = target && target.document;
         const root = document && document.querySelector('[data-iptv-catalog]');
         let sources = [];
         let selectedSourceId = null;
         let offset = 0;
+        let mediaAvailable = false;
         const limit = 50;
 
         function element(selector) {
@@ -106,6 +117,11 @@
                     card.className = 'iptv-channel-card';
                     card.appendChild(text('h3', '', channel.name));
                     card.appendChild(text('p', 'iptv-channel-meta', channel.groupName || 'Sem grupo'));
+                    const testButton = text('button', 'button-secondary', 'Testar canal');
+                    testButton.type = 'button';
+                    testButton.dataset.iptvMediaStart = String(channel.id);
+                    testButton.disabled = !mediaAvailable;
+                    card.appendChild(testButton);
                     list.appendChild(card);
                 });
             }
@@ -162,21 +178,43 @@
             } else if (detail.action === 'search') {
                 offset = detail.offset;
                 renderChannels(detail.channels || [], detail.hasMore);
+            } else if (detail.action === 'media-start' || detail.action === 'media-stop' || detail.action === 'media-status') {
+                renderMediaState(detail);
             }
         }
 
-        function activate() {
+        function renderMediaState(detail) {
+            const status = element('[data-iptv-media-status]');
+            const stop = element('[data-iptv-media-stop]');
+            if (!status) return;
+            status.textContent = mediaStatusLabel(detail.state, detail.errorCode);
+            status.dataset.state = detail.state || 'failed';
+            if (stop) stop.disabled = !['preparing', 'streaming', 'reconnecting'].includes(detail.state);
+        }
+
+        function onMediaState(event) {
+            if (event && event.detail) renderMediaState(event.detail);
+        }
+
+        function activate(event) {
+            const snapshot = event && event.detail
+                ? event.detail
+                : target.SemyraDesktopBridge && target.SemyraDesktopBridge.getHostSnapshot();
+            mediaAvailable = Boolean(snapshot && snapshot.capabilities.includes('iptv.play'));
             const notice = element('[data-iptv-browser-notice]');
             const panel = element('[data-iptv-desktop-panel]');
             if (notice) notice.hidden = true;
             if (panel) panel.hidden = false;
+            renderMediaState({state: mediaAvailable ? 'idle' : 'failed', errorCode: mediaAvailable ? null : 'media_runtime_unavailable'});
             request('list');
+            if (mediaAvailable) request('media-status');
         }
 
         function start() {
             if (!root || !target || typeof target.addEventListener !== 'function') return false;
             target.addEventListener('semyra:host-ready', activate);
             target.addEventListener('semyra:iptv-result', onResult);
+            target.addEventListener('semyra:iptv-media-state', onMediaState);
             const snapshot = target.SemyraDesktopBridge && target.SemyraDesktopBridge.getHostSnapshot();
             if (snapshot && snapshot.capabilities.includes('iptv.sources')) activate();
 
@@ -196,6 +234,12 @@
                 if (button.dataset.iptvAction === 'refresh') request('refresh', {sourceId});
                 if (button.dataset.iptvAction === 'remove' && target.confirm('Remover esta fonte e seu catálogo local?')) request('remove', {sourceId});
             });
+            element('[data-iptv-channel-list]').addEventListener('click', function (event) {
+                const button = event.target.closest('[data-iptv-media-start]');
+                if (!button || !mediaAvailable) return;
+                request('media-start', {channelId: Number(button.dataset.iptvMediaStart)});
+            });
+            element('[data-iptv-media-stop]').addEventListener('click', function () { request('media-stop'); });
             element('[data-iptv-search-form]').addEventListener('submit', function (event) { event.preventDefault(); offset = 0; search(); });
             element('[data-iptv-previous]').addEventListener('click', function () { offset = Math.max(0, offset - limit); search(); });
             element('[data-iptv-next]').addEventListener('click', function () { offset += limit; search(); });
@@ -205,5 +249,5 @@
         return Object.freeze({start});
     }
 
-    return Object.freeze({createIptvCatalog});
+    return Object.freeze({createIptvCatalog, mediaStatusLabel});
 }));

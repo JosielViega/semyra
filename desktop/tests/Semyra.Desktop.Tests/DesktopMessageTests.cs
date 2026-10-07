@@ -107,4 +107,26 @@ public sealed class DesktopMessageTests
         Assert.False(DesktopBridge.TryHandle(json, new HostEngine(), out var response));
         Assert.Equal(string.Empty, response);
     }
+
+    [Fact]
+    public void MediaProtocolAcceptsOnlyChannelIdBoundary()
+    {
+        Assert.True(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.iptv.media.start","requestId":"media-1","channelId":42}""",
+            out var start));
+        Assert.Equal(42, start.Media!.ChannelId);
+        Assert.True(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.iptv.media.stop","requestId":"media-2"}""",
+            out _));
+        Assert.True(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.iptv.media.status","requestId":"media-3"}""",
+            out _));
+
+        Assert.False(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.iptv.media.start","requestId":"media-4","channelId":42,"url":"https://private.example/live"}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.iptv.media.stop","requestId":"media-5","extra":true}""",
+            out _));
+    }
 }

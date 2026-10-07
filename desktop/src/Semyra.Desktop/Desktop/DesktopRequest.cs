@@ -6,7 +6,8 @@ public sealed record DesktopRequest(
     string Type,
     string RequestId,
     HostAuthorization? Authorization = null,
-    IptvRequest? Iptv = null);
+    IptvRequest? Iptv = null,
+    MediaRequest? Media = null);
 
 public sealed record IptvRequest(
     long? SourceId = null,
@@ -16,3 +17,5 @@ public sealed record IptvRequest(
     string? Group = null,
     int Offset = 0,
     int Limit = 50);
+
+public sealed record MediaRequest(long? ChannelId = null);

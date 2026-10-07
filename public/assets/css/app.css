@@ -159,4 +159,10 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .iptv-source-actions, .iptv-pagination { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .iptv-source-actions button { padding: 8px 12px; }
 .iptv-empty { padding: 18px; text-align: center; color: var(--color-text-muted, #aeb5c7); }
+.iptv-channel-card { display: grid; gap: 8px; }
+.iptv-channel-card button { justify-self: start; padding: 8px 12px; }
+.iptv-media-panel { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 16px; border: 1px solid var(--color-border, #2d3345); border-radius: 12px; background: var(--color-bg-soft, #0d1220); }
+.iptv-media-panel h3, .iptv-media-panel p { margin: 0; }
+.iptv-media-panel p { color: var(--color-text-muted, #aeb5c7); }
+.iptv-media-panel p[data-state="streaming"] { color: var(--color-cyan, #16c7ff); }
 @media (max-width: 780px) { .iptv-desktop-panel { grid-template-columns: 1fr; } .iptv-section-heading { align-items: flex-start; flex-direction: column; } }

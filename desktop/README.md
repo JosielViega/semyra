@@ -7,6 +7,7 @@ Fundação Windows do Semyra: uma janela WPF hospeda o aplicativo web existente 
 - Windows x64;
 - .NET 10 SDK para compilar;
 - Microsoft Edge WebView2 Runtime para executar;
+- GStreamer nativo Windows MSVC x64 com os plugins exigidos para habilitar `iptv.play`;
 - uma instância acessível do Semyra web.
 
 O projeto usa `net10.0-windows`, WPF, `Microsoft.Web.WebView2` 1.0.4258.31 e `Microsoft.Data.Sqlite` 10.0.12. Não é self-contained e não produz instalador nesta etapa.
@@ -32,7 +33,15 @@ Release não possui URL implícita e exige `SEMYRA_DESKTOP_URL` HTTPS. HTTP é a
 
 Fontes M3U por URL HTTP(S) ou arquivo podem ser cadastradas na tela **Fontes IPTV**, visível somente quando a WebView confirma as capabilities nativas. Metadados e canais ficam em `%LOCALAPPDATA%\Semyra\Data\semyra.db`, fora do perfil WebView2. A localização da fonte e cada URL de stream são protegidas com Windows DPAPI no escopo `CurrentUser`; respostas à WebView nunca contêm esses valores.
 
-O refresh lê a playlist em streaming e só substitui o catálogo da fonte em uma transação SQLite válida. A interface consulta grupos e canais com busca e paginação limitada, sem carregar o catálogo inteiro. Nesta etapa não existe reprodução, publicação, EPG, Xtream ou pipeline de mídia.
+O refresh lê a playlist em streaming e só substitui o catálogo da fonte em uma transação SQLite válida. A interface consulta grupos e canais com busca e paginação limitada, sem carregar o catálogo inteiro.
+
+## Media Engine local
+
+O teste de canal envia somente o `channelId` para o native. O Host Engine resolve e descriptografa a URL internamente, conecta ao provider com `HttpClient`, valida os sync bytes MPEG-TS e alimenta o stdin do GStreamer. A URL privada nunca entra em argv, ambiente, snapshot, evento ou resposta para a WebView.
+
+A pipeline preserva H.264 (`h264parse` → `rtph264pay`) e converte AAC para Opus 48 kHz estéreo a 96 kbps antes dos RTP payloaders. Nesta etapa ambos os ramos terminam em `fakesink`: não existe WHIP nem publicação LiveKit. Interrupções inesperadas usam até três reconexões com backoff de 1, 2 e 5 segundos; stop manual e troca de canal cancelam a sessão anterior e removem o processo.
+
+O aplicativo procura primeiro `runtime/gstreamer/bin` ao lado do executável. Em Debug, `SEMYRA_GSTREAMER_HOME` e a instalação oficial MSVC x64 podem ser usados para desenvolvimento. O empacotamento definitivo do runtime será tratado na etapa de distribuição. `iptv.play` só é anunciado depois que `gst-launch`, `gst-inspect` e todos os elementos obrigatórios forem validados.
 
 ## Fronteira futura
 
@@ -40,4 +49,4 @@ O Desktop possui a camada WebView/UI, uma ponte `postMessage` allowlisted na ver
 
 Para uma futura publicação de mídia, o backend pode emitir uma Host Session curta de `media.publish`, ligada à sala, instance, revision e owner atuais. O validator fica somente como hash no banco; o token bruto chega ao Host Engine apenas em memória, é substituído por uma autorização nova e é apagado por `clear` ou `Stop()`. Segredos globais do bridge worker nunca são enviados ao cliente.
 
-Ainda não existe processamento de mídia: Xtream, GStreamer, WHIP e publicação LiveKit permanecem fora desta fundação. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.
+Ainda não existem Xtream, WHIP ou publicação LiveKit. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.

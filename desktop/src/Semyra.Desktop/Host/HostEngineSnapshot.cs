@@ -16,11 +16,14 @@ public sealed record HostEngineSnapshot(
     private static readonly ReadOnlyCollection<string> SupportedCapabilities =
         Array.AsReadOnly(["host.status", "host.authorize", "iptv.sources", "iptv.catalog"]);
 
-    public static HostEngineSnapshot Create(HostEngineState state, HostAuthorization? authorization)
+    public static HostEngineSnapshot Create(HostEngineState state, HostAuthorization? authorization, bool mediaAvailable = false)
     {
+        var capabilities = mediaAvailable
+            ? Array.AsReadOnly(["host.status", "host.authorize", "iptv.sources", "iptv.catalog", "iptv.play"])
+            : SupportedCapabilities;
         return new HostEngineSnapshot(
             state == HostEngineState.Ready ? "ready" : "stopped",
-            SupportedCapabilities,
+            capabilities,
             authorization is null
                 ? new HostAuthorizationSnapshot(false, null, null, null)
                 : new HostAuthorizationSnapshot(

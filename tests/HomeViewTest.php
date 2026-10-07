@@ -24,7 +24,7 @@ final class HomeViewTest extends TestCase
         self::assertStringContainsString('Criar sala', $html);
         self::assertStringContainsString('name="_token" value="csrf-token"', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/css/app.css?v=11d-iptv-catalog', $html);
+        self::assertStringContainsString('/assets/css/app.css?v=11e-media-engine', $html);
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
         self::assertStringContainsString('<strong>SEMYRA</strong>', $html);
         self::assertStringContainsString('tempo real', $html);

@@ -42,7 +42,14 @@
                 <button type="button" class="button-secondary" data-iptv-previous disabled>Anterior</button>
                 <button type="button" class="button-secondary" data-iptv-next disabled>Próxima</button>
             </div>
+            <aside class="iptv-media-panel" data-iptv-media-panel aria-labelledby="iptv-media-title">
+                <div>
+                    <h3 id="iptv-media-title">Teste local do canal</h3>
+                    <p data-iptv-media-status role="status" aria-live="polite">Runtime de mídia indisponível.</p>
+                </div>
+                <button type="button" class="button-secondary" data-iptv-media-stop disabled>Parar teste</button>
+            </aside>
         </section>
     </div>
 </section>
-<script src="/assets/js/desktop-iptv.js?v=11d-iptv-catalog" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11e-media-engine" defer></script>

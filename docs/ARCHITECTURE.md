@@ -363,7 +363,9 @@ Desde a fundação 11B, o Host Engine possui lifecycle mínimo ligado à janela 
 
 Na 11D, fontes M3U e seu catálogo pertencem exclusivamente ao Host Engine. O SQLite `%LOCALAPPDATA%\Semyra\Data\semyra.db` guarda metadados locais; localização da fonte e URLs de stream são blobs protegidos por DPAPI `CurrentUser`. O parser processa Extended M3U em streaming e importa para tabela temporária antes da substituição transacional por fonte. A WebView recebe apenas DTOs seguros, pesquisa paginada e grupos, através de comandos explícitos da allowlist. Arquivos, credenciais, banco local e catálogo nunca atravessam o backend PHP nem o mirror HostGator.
 
-A emissão usa fencing na própria inserção contra a transmissão corrente. Nenhum segredo global do bridge worker é enviado ao Desktop. Ainda não há Xtream, GStreamer, WHIP, publicação LiveKit de mídia local, processo auxiliar ou servidor HTTP local. O engine poderá ser separado em outro processo no futuro se isso se tornar necessário.
+Na 11E, o Media Engine recebe somente o ID local do canal. O native resolve SQLite → DPAPI → URL e mantém o segredo fora de argv, ambiente, logs, snapshots e eventos. O fluxo é `provider → HttpClient streaming → validação MPEG-TS → stdin → GStreamer`: H.264 segue sem reencode para RTP, AAC é decodificado e convertido para Opus 48 kHz estéreo a 96 kbps, e os dois ramos terminam temporariamente em `fakesink`. O lifecycle permite uma sessão por Host Engine, troca atômica de canal, stop idempotente e até três reconexões com backoff 1/2/5 s. A capability `iptv.play` depende da validação do runtime e dos plugins. O runtime definitivo será empacotado com o Desktop na distribuição; WHIP e LiveKit continuam reservados para a 11F.
+
+A emissão usa fencing na própria inserção contra a transmissão corrente. Nenhum segredo global do bridge worker é enviado ao Desktop. Ainda não há Xtream, WHIP, publicação LiveKit de mídia local, servidor HTTP local ou backend adicional de media job. O engine poderá ser separado em outro processo no futuro se isso se tornar necessário.
 
 ## Ferramentas de infraestrutura
 

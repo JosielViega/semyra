@@ -36,6 +36,13 @@ internal sealed record IptvSourceRecord(
     IptvSourceType Type,
     byte[] ProtectedLocation);
 
+internal sealed record IptvPlaybackChannel(
+    long Id,
+    long SourceId,
+    string Name,
+    string? GroupName,
+    Uri StreamUri);
+
 public sealed record ParsedM3uChannel(
     string Name,
     string StreamUrl,

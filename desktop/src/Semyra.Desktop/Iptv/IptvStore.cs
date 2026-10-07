@@ -132,6 +132,51 @@ public sealed class IptvStore
             (byte[])reader[3]);
     }
 
+    internal IptvPlaybackChannel ResolveChannelForPlayback(long channelId)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT c.id, c.source_id, c.name, c.group_name, c.protected_stream_url,
+                   s.enabled, s.refresh_status
+            FROM iptv_channels c
+            INNER JOIN iptv_sources s ON s.id = c.source_id
+            WHERE c.id = $id
+            """;
+        command.Parameters.AddWithValue("$id", channelId);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            throw new IptvPlaybackException("channel_not_found");
+        }
+        if (reader.GetInt64(5) != 1 || !string.Equals(reader.GetString(6), "ready", StringComparison.Ordinal))
+        {
+            throw new IptvPlaybackException("source_unavailable");
+        }
+
+        string plaintext;
+        try
+        {
+            plaintext = _protector.Unprotect((byte[])reader[4]);
+        }
+        catch (CryptographicException exception)
+        {
+            throw new IptvPlaybackException("source_unavailable", exception);
+        }
+        if (!Uri.TryCreate(plaintext, UriKind.Absolute, out var streamUri)
+            || streamUri.Scheme is not ("http" or "https"))
+        {
+            throw new IptvPlaybackException("source_unavailable");
+        }
+
+        return new IptvPlaybackChannel(
+            reader.GetInt64(0),
+            reader.GetInt64(1),
+            reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            streamUri);
+    }
+
     public IReadOnlyList<string> GetGroups(long sourceId)
     {
         using var connection = Open();
@@ -374,4 +419,15 @@ public sealed class IptvStore
     }
 
     private static string EscapeLike(string value) => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+}
+
+internal sealed class IptvPlaybackException : Exception
+{
+    public IptvPlaybackException(string code, Exception? innerException = null)
+        : base(code, innerException)
+    {
+        Code = code;
+    }
+
+    public string Code { get; }
 }

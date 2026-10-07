@@ -1,16 +1,19 @@
 using Semyra.Desktop.Iptv;
+using Semyra.Desktop.Media;
 
 namespace Semyra.Desktop.Host;
 
-public sealed class HostEngine
+public sealed class HostEngine : IDisposable
 {
     public HostEngineState State { get; private set; } = HostEngineState.Stopped;
     private HostAuthorization? _authorization;
     private readonly IptvCatalogService? _iptv;
+    private readonly MediaEngine? _media;
 
-    public HostEngine(IptvCatalogService? iptv = null)
+    public HostEngine(IptvCatalogService? iptv = null, MediaEngine? media = null)
     {
         _iptv = iptv;
+        _media = media;
     }
 
     public void Start()
@@ -21,6 +24,7 @@ public sealed class HostEngine
 
     public void Stop()
     {
+        _media?.StopAsync().GetAwaiter().GetResult();
         _authorization = null;
         State = HostEngineState.Stopped;
     }
@@ -43,7 +47,7 @@ public sealed class HostEngine
 
     public HostEngineSnapshot Snapshot()
     {
-        return HostEngineSnapshot.Create(State, _authorization);
+        return HostEngineSnapshot.Create(State, _authorization, _media?.IsAvailable == true);
     }
 
     public IReadOnlyList<IptvSourceSummary> ListIptvSources() => Catalog().ListSources();
@@ -53,6 +57,9 @@ public sealed class HostEngine
     public Task<IptvSourceSummary> RefreshIptvSourceAsync(long sourceId, CancellationToken cancellationToken) => Catalog().RefreshAsync(sourceId, cancellationToken);
     public IReadOnlyList<string> GetIptvGroups(long sourceId) => Catalog().GetGroups(sourceId);
     public IptvChannelSearchResult SearchIptvChannels(long sourceId, string? query, string? group, int offset, int limit) => Catalog().SearchChannels(sourceId, query, group, offset, limit);
+    public Task<MediaSnapshot> StartIptvMediaAsync(long channelId, CancellationToken cancellationToken) => Media().StartAsync(channelId, cancellationToken);
+    public Task<MediaSnapshot> StopIptvMediaAsync() => Media().StopAsync();
+    public MediaSnapshot IptvMediaSnapshot() => _media?.Snapshot() ?? MediaSnapshot.Idle;
 
     private IptvCatalogService Catalog()
     {
@@ -61,5 +68,21 @@ public sealed class HostEngine
             throw new IptvValidationException("O catálogo IPTV local não está disponível.");
         }
         return _iptv;
+    }
+
+    private MediaEngine Media()
+    {
+        if (State != HostEngineState.Ready || _media is null)
+        {
+            throw new MediaEngineException("media_runtime_unavailable");
+        }
+        return _media;
+    }
+
+    public void Dispose()
+    {
+        Stop();
+        _media?.Dispose();
+        _iptv?.Dispose();
     }
 }

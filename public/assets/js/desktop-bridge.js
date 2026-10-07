@@ -30,7 +30,11 @@
         'pick-file': ['semyra.desktop.iptv.sources.pick-file', 'semyra.desktop.iptv.sources.pick-file-result'],
         groups: ['semyra.desktop.iptv.groups.list', 'semyra.desktop.iptv.groups.list-result'],
         search: ['semyra.desktop.iptv.channels.search', 'semyra.desktop.iptv.channels.search-result'],
+        'media-start': ['semyra.desktop.iptv.media.start', 'semyra.desktop.iptv.media.start-result'],
+        'media-stop': ['semyra.desktop.iptv.media.stop', 'semyra.desktop.iptv.media.stop-result'],
+        'media-status': ['semyra.desktop.iptv.media.status', 'semyra.desktop.iptv.media.status-result'],
     });
+    const IPTV_MEDIA_STATE_TYPE = 'semyra.desktop.iptv.media.state';
     const PROTOCOL_VERSION = 1;
     const REMEMBER_PREFERENCE_KEY = 'semyra.desktop.remember';
     const SESSION_MARKER_KEY = 'semyra.desktop.session';
@@ -161,11 +165,12 @@
                 || typeof host !== 'object'
                 || host.state !== 'ready'
                 || !Array.isArray(host.capabilities)
-                || host.capabilities.length !== 4
+                || ![4, 5].includes(host.capabilities.length)
                 || host.capabilities[0] !== 'host.status'
                 || host.capabilities[1] !== 'host.authorize'
                 || host.capabilities[2] !== 'iptv.sources'
                 || host.capabilities[3] !== 'iptv.catalog'
+                || (host.capabilities.length === 5 && host.capabilities[4] !== 'iptv.play')
                 || !host.authorization
                 || typeof host.authorization !== 'object'
                 || typeof host.authorization.authorized !== 'boolean') {
@@ -345,6 +350,14 @@
                 if (request.sourceId === null) {
                     return;
                 }
+            } else if (action === 'media-start') {
+                if (!hostSnapshot.capabilities.includes('iptv.play')) {
+                    return;
+                }
+                request.channelId = positiveId(detail.channelId);
+                if (request.channelId === null) {
+                    return;
+                }
             }
 
             iptvRequests.set(request.requestId, Object.freeze({action, resultType: command[1]}));
@@ -406,8 +419,30 @@
                 detail.offset = Number.isSafeInteger(message.offset) ? message.offset : 0;
                 detail.limit = Number.isSafeInteger(message.limit) ? message.limit : 50;
                 detail.hasMore = message.hasMore === true;
+            } else if (['media-start', 'media-stop', 'media-status'].includes(pending.action)) {
+                Object.assign(detail, safeMediaState(message));
             }
             target.dispatchEvent(new target.CustomEvent('semyra:iptv-result', {detail: Object.freeze(detail)}));
+        }
+
+        function safeMediaState(message) {
+            const validStates = ['idle', 'preparing', 'streaming', 'reconnecting', 'failed'];
+            return {
+                state: validStates.includes(message.state) ? message.state : 'failed',
+                channelId: positiveId(message.channelId),
+                channelName: typeof message.channelName === 'string' ? message.channelName.slice(0, 240) : null,
+                attempt: Number.isSafeInteger(message.attempt) && message.attempt >= 0 ? message.attempt : 0,
+                errorCode: typeof message.errorCode === 'string' ? message.errorCode.slice(0, 64) : null,
+            };
+        }
+
+        function receiveMediaState(message) {
+            if (!ready || message.protocolVersion !== PROTOCOL_VERSION) {
+                return;
+            }
+            target.dispatchEvent(new target.CustomEvent('semyra:iptv-media-state', {
+                detail: Object.freeze(safeMediaState(message)),
+            }));
         }
 
         function receive(event) {
@@ -428,6 +463,9 @@
                     break;
                 case HOST_CLEAR_RESULT_TYPE:
                     receiveHostClear(message);
+                    break;
+                case IPTV_MEDIA_STATE_TYPE:
+                    receiveMediaState(message);
                     break;
                 default:
                     if (Object.values(IPTV_COMMANDS).some(function (command) { return command[1] === message.type; })) {
@@ -481,6 +519,7 @@
         HOST_CLEAR_RESULT_TYPE,
         PROTOCOL_VERSION,
         IPTV_COMMANDS,
+        IPTV_MEDIA_STATE_TYPE,
         createDesktopBridge,
     });
 }));

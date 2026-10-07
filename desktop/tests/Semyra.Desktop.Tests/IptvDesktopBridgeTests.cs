@@ -71,6 +71,28 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task MediaStatusAndRuntimeErrorsExposeOnlySafeCodes()
+    {
+        var engine = Engine();
+        engine.Start();
+        var status = await DesktopBridge.TryHandleAsync(
+            """{"type":"semyra.desktop.iptv.media.status","requestId":"media-status"}""",
+            engine,
+            () => null);
+        var unavailable = await DesktopBridge.TryHandleAsync(
+            """{"type":"semyra.desktop.iptv.media.start","requestId":"media-start","channelId":1}""",
+            engine,
+            () => null);
+
+        Assert.True(status.Handled);
+        Assert.Contains("\"state\":\"idle\"", status.Response);
+        Assert.True(unavailable.Handled);
+        Assert.Contains("media_runtime_unavailable", unavailable.Response);
+        Assert.DoesNotContain("http", unavailable.Response, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("location", unavailable.Response, StringComparison.OrdinalIgnoreCase);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, true);

@@ -5,16 +5,22 @@ using Microsoft.Win32;
 using Semyra.Desktop.Desktop;
 using Semyra.Desktop.Host;
 using Semyra.Desktop.Iptv;
+using Semyra.Desktop.Media;
 
 namespace Semyra.Desktop;
 
 public partial class MainWindow : Window
 {
     private NavigationPolicy? _navigationPolicy;
-    private readonly HostEngine _hostEngine = new(IptvCatalogService.CreateDefault());
+    private readonly HostEngine _hostEngine;
+    private readonly MediaEngine _mediaEngine;
 
     public MainWindow()
     {
+        var catalog = IptvCatalogService.CreateDefault();
+        _mediaEngine = MediaEngine.CreateDefault(catalog, GStreamerRuntime.DiscoverDefault());
+        _hostEngine = new HostEngine(catalog, _mediaEngine);
+        _mediaEngine.StateChanged += OnMediaStateChanged;
         InitializeComponent();
         Loaded += OnLoaded;
     }
@@ -139,8 +145,20 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        _hostEngine.Stop();
+        _mediaEngine.StateChanged -= OnMediaStateChanged;
+        _hostEngine.Dispose();
         base.OnClosed(e);
+    }
+
+    private void OnMediaStateChanged(object? sender, MediaSnapshot snapshot)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (Browser.CoreWebView2 is not null)
+            {
+                Browser.CoreWebView2.PostWebMessageAsJson(DesktopBridge.CreateMediaStateEvent(snapshot));
+            }
+        });
     }
 
     private static void OpenExternal(Uri uri)

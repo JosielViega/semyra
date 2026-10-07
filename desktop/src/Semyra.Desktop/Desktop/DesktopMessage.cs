@@ -29,6 +29,13 @@ public static partial class DesktopMessage
     public const string IptvCatalogGroupsResultType = "semyra.desktop.iptv.groups.list-result";
     public const string IptvCatalogSearchType = "semyra.desktop.iptv.channels.search";
     public const string IptvCatalogSearchResultType = "semyra.desktop.iptv.channels.search-result";
+    public const string IptvMediaStartType = "semyra.desktop.iptv.media.start";
+    public const string IptvMediaStartResultType = "semyra.desktop.iptv.media.start-result";
+    public const string IptvMediaStopType = "semyra.desktop.iptv.media.stop";
+    public const string IptvMediaStopResultType = "semyra.desktop.iptv.media.stop-result";
+    public const string IptvMediaStatusType = "semyra.desktop.iptv.media.status";
+    public const string IptvMediaStatusResultType = "semyra.desktop.iptv.media.status-result";
+    public const string IptvMediaStateType = "semyra.desktop.iptv.media.state";
     public const int ProtocolVersion = 1;
 
     public static bool TryReadRequest(string json, out DesktopRequest request)
@@ -77,6 +84,26 @@ public static partial class DesktopMessage
                     return false;
                 }
                 request = new DesktopRequest(type, requestId, Iptv: new IptvRequest());
+                return true;
+            }
+
+            if (type is IptvMediaStopType or IptvMediaStatusType)
+            {
+                if (properties.Count != 2)
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Media: new MediaRequest());
+                return true;
+            }
+
+            if (type == IptvMediaStartType)
+            {
+                if (properties.Count != 3 || !TryPositiveInt64(properties, "channelId", out var channelId))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Media: new MediaRequest(channelId));
                 return true;
             }
 

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using Semyra.Desktop.Host;
 using Semyra.Desktop.Iptv;
+using Semyra.Desktop.Media;
 
 namespace Semyra.Desktop.Desktop;
 
@@ -45,6 +46,10 @@ public static class DesktopBridge
 
         if (request.Iptv is null)
         {
+            if (request.Media is not null)
+            {
+                return await HandleMediaAsync(request, hostEngine, cancellationToken);
+            }
             return TryHandle(json, hostEngine, out var response)
                 ? (true, response)
                 : (false, string.Empty);
@@ -99,6 +104,48 @@ public static class DesktopBridge
         {
             return (true, Error(ResultType(request.Type), request.RequestId, "Não foi possível concluir a operação local."));
         }
+    }
+
+    private static async Task<(bool Handled, string Response)> HandleMediaAsync(
+        DesktopRequest request,
+        HostEngine hostEngine,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var snapshot = request.Type switch
+            {
+                DesktopMessage.IptvMediaStartType => await hostEngine.StartIptvMediaAsync(
+                    request.Media!.ChannelId!.Value,
+                    cancellationToken),
+                DesktopMessage.IptvMediaStopType => await hostEngine.StopIptvMediaAsync(),
+                DesktopMessage.IptvMediaStatusType => hostEngine.IptvMediaSnapshot(),
+                _ => throw new MediaEngineException("media_runtime_unavailable"),
+            };
+            return (true, MediaResult(ResultType(request.Type), request.RequestId, snapshot));
+        }
+        catch (OperationCanceledException)
+        {
+            return (true, MediaError(ResultType(request.Type), request.RequestId, "media_cancelled"));
+        }
+        catch (MediaEngineException exception)
+        {
+            return (true, MediaError(ResultType(request.Type), request.RequestId, exception.Code));
+        }
+    }
+
+    public static string CreateMediaStateEvent(MediaSnapshot snapshot)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            type = DesktopMessage.IptvMediaStateType,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            state = snapshot.State,
+            channelId = snapshot.ChannelId,
+            channelName = snapshot.ChannelName,
+            attempt = snapshot.Attempt,
+            errorCode = snapshot.LastErrorCode,
+        }, JsonOptions);
     }
 
     private static string CreatePong(string requestId)
@@ -207,6 +254,34 @@ public static class DesktopBridge
         }, JsonOptions);
     }
 
+    private static string MediaResult(string type, string requestId, MediaSnapshot snapshot)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            type,
+            requestId,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            ok = true,
+            state = snapshot.State,
+            channelId = snapshot.ChannelId,
+            channelName = snapshot.ChannelName,
+            attempt = snapshot.Attempt,
+            errorCode = snapshot.LastErrorCode,
+        }, JsonOptions);
+    }
+
+    private static string MediaError(string type, string requestId, string errorCode)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            type,
+            requestId,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            ok = false,
+            errorCode,
+        }, JsonOptions);
+    }
+
     private static string ResultType(string requestType) => requestType switch
     {
         DesktopMessage.IptvSourcesListType => DesktopMessage.IptvSourcesListResultType,
@@ -216,6 +291,9 @@ public static class DesktopBridge
         DesktopMessage.IptvSourcesPickFileType => DesktopMessage.IptvSourcesPickFileResultType,
         DesktopMessage.IptvCatalogGroupsType => DesktopMessage.IptvCatalogGroupsResultType,
         DesktopMessage.IptvCatalogSearchType => DesktopMessage.IptvCatalogSearchResultType,
+        DesktopMessage.IptvMediaStartType => DesktopMessage.IptvMediaStartResultType,
+        DesktopMessage.IptvMediaStopType => DesktopMessage.IptvMediaStopResultType,
+        DesktopMessage.IptvMediaStatusType => DesktopMessage.IptvMediaStatusResultType,
         _ => "semyra.desktop.iptv.error",
     };
 }

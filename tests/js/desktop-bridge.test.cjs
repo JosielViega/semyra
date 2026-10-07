@@ -101,13 +101,13 @@ messageListener({data: {
     protocolVersion: 1,
     host: {
         state: 'ready',
-        capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog'],
+        capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.play'],
         authorization: {authorized: false},
     },
 }});
 assert.deepEqual(webviewBridge.getHostSnapshot(), {
     state: 'ready',
-    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog'],
+    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.play'],
     authorization: {
         authorized: false,
         permission: null,
@@ -119,7 +119,7 @@ assert.equal(dispatched.length, 2);
 assert.equal(dispatched[1].type, 'semyra:host-ready');
 assert.deepEqual(dispatched[1].detail, {
     state: 'ready',
-    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog'],
+    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.play'],
     authorization: {
         authorized: false,
         permission: null,
@@ -151,6 +151,36 @@ assert.deepEqual(dispatched.at(-1).detail.sources, [{
 }]);
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
 
+webviewWindow.crypto.randomUUID = () => 'media-start';
+windowListeners.get('semyra:iptv-request')({detail: {
+    action: 'media-start', channelId: 7, url: 'https://must-not-cross.example/live.ts',
+}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.media.start', requestId: 'media-start', channelId: 7,
+});
+assert.equal(JSON.stringify(posted.at(-1)).includes('must-not-cross'), false);
+
+for (const [action, type] of [
+    ['media-stop', 'semyra.desktop.iptv.media.stop'],
+    ['media-status', 'semyra.desktop.iptv.media.status'],
+]) {
+    webviewWindow.crypto.randomUUID = () => action;
+    windowListeners.get('semyra:iptv-request')({detail: {action}});
+    assert.deepEqual(posted.at(-1), {type, requestId: action});
+}
+
+messageListener({data: {
+    type: 'semyra.desktop.iptv.media.state', protocolVersion: 1,
+    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null,
+    streamUrl: 'https://must-not-cross.example/live.ts',
+}});
+assert.equal(dispatched.at(-1).type, 'semyra:iptv-media-state');
+assert.deepEqual(dispatched.at(-1).detail, {
+    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null,
+});
+assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+
+webviewWindow.crypto.randomUUID = () => 'request-11a';
 windowListeners.get('semyra:iptv-request')({detail: {action: 'pick-file', path: 'C:\\private.m3u'}});
 assert.deepEqual(posted.at(-1), {
     type: 'semyra.desktop.iptv.sources.pick-file',
@@ -185,7 +215,7 @@ messageListener({data: {
     transmissionInstanceId: 'c'.repeat(32),
     transmissionRevision: 3,
 }});
-assert.equal(dispatched.length, 3);
+assert.equal(dispatched.length, 4);
 messageListener({data: {
     type: 'semyra.desktop.host.authorize-result',
     requestId: 'request-11a',
@@ -195,14 +225,14 @@ messageListener({data: {
     transmissionInstanceId: 'c'.repeat(32),
     transmissionRevision: 3,
 }});
-assert.equal(dispatched[3].type, 'semyra:host-authorized');
-assert.deepEqual(dispatched[3].detail, {
+assert.equal(dispatched[4].type, 'semyra:host-authorized');
+assert.deepEqual(dispatched[4].detail, {
     authorized: true,
     permission: 'media.publish',
     transmissionInstanceId: 'c'.repeat(32),
     transmissionRevision: 3,
 });
-assert.equal(JSON.stringify(dispatched[3]).includes(hostToken), false);
+assert.equal(JSON.stringify(dispatched[4]).includes(hostToken), false);
 assert.equal(JSON.stringify(webviewBridge.getHostSnapshot()).includes(hostToken), false);
 
 windowListeners.get('semyra:host-clear-request')({});
@@ -216,7 +246,7 @@ messageListener({data: {
     protocolVersion: 1,
     cleared: true,
 }});
-assert.equal(dispatched[4].type, 'semyra:host-cleared');
+assert.equal(dispatched[5].type, 'semyra:host-cleared');
 assert.equal(webviewBridge.getHostSnapshot().authorization.authorized, false);
 
 webviewWindow.crypto.randomUUID = () => 'iptv-add';
@@ -371,6 +401,31 @@ restartMessage({data: {
 }});
 assert.equal(logoutSubmits, 1);
 assert.equal(restartedWindow.sessionStorage.getItem('semyra.desktop.session'), '1');
+
+let noPlayMessage = null;
+const noPlayPosted = [];
+const noPlayListeners = new Map();
+const noPlayWindow = {
+    chrome: {webview: {
+        addEventListener: (type, listener) => { noPlayMessage = listener; },
+        removeEventListener: () => {},
+        postMessage: (message) => noPlayPosted.push(message),
+    }},
+    crypto: {randomUUID: () => 'no-play'},
+    CustomEvent: MockCustomEvent,
+    dispatchEvent: () => {},
+    addEventListener: (type, listener) => noPlayListeners.set(type, listener),
+    document: {getElementById: () => null, querySelectorAll: () => []},
+};
+desktop.createDesktopBridge(noPlayWindow).start();
+noPlayMessage({data: {type: 'semyra.desktop.pong', requestId: 'no-play', protocolVersion: 1, desktop: true, platform: 'windows'}});
+noPlayMessage({data: {
+    type: 'semyra.desktop.host.status-result', requestId: 'no-play', protocolVersion: 1,
+    host: {state: 'ready', capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog'], authorization: {authorized: false}},
+}});
+const beforeNoPlayRequest = noPlayPosted.length;
+noPlayListeners.get('semyra:iptv-request')({detail: {action: 'media-start', channelId: 7}});
+assert.equal(noPlayPosted.length, beforeNoPlayRequest);
 
 console.log('desktop-bridge tests passed');
 

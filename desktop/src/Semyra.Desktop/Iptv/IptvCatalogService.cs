@@ -74,6 +74,11 @@ public sealed class IptvCatalogService : IDisposable
 
     public bool RemoveSource(long sourceId) => _store.RemoveSource(sourceId);
 
+    internal IptvPlaybackChannel ResolveChannelForPlayback(long channelId)
+    {
+        return _store.ResolveChannelForPlayback(PositiveId(channelId));
+    }
+
     public IReadOnlyList<string> GetGroups(long sourceId) => _store.GetGroups(PositiveId(sourceId));
 
     public IptvChannelSearchResult SearchChannels(
