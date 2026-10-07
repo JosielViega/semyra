@@ -118,7 +118,12 @@ public static class DesktopBridge
                 DesktopMessage.IptvMediaStartType => await hostEngine.StartIptvMediaAsync(
                     request.Media!.ChannelId!.Value,
                     cancellationToken),
+                DesktopMessage.IptvPublishStartType => await hostEngine.StartIptvPublishAsync(
+                    request.Media!.ChannelId!.Value,
+                    cancellationToken),
                 DesktopMessage.IptvMediaStopType => await hostEngine.StopIptvMediaAsync(),
+                DesktopMessage.IptvPublishStopType => await hostEngine.StopIptvMediaAsync(),
+                DesktopMessage.IptvPublishStatusType => hostEngine.IptvMediaSnapshot(),
                 DesktopMessage.IptvMediaStatusType => hostEngine.IptvMediaSnapshot(),
                 _ => throw new MediaEngineException("media_runtime_unavailable"),
             };
@@ -145,6 +150,7 @@ public static class DesktopBridge
             channelName = snapshot.ChannelName,
             attempt = snapshot.Attempt,
             errorCode = snapshot.LastErrorCode,
+            mode = snapshot.Mode,
         }, JsonOptions);
     }
 
@@ -267,6 +273,7 @@ public static class DesktopBridge
             channelName = snapshot.ChannelName,
             attempt = snapshot.Attempt,
             errorCode = snapshot.LastErrorCode,
+            mode = snapshot.Mode,
         }, JsonOptions);
     }
 
@@ -294,6 +301,9 @@ public static class DesktopBridge
         DesktopMessage.IptvMediaStartType => DesktopMessage.IptvMediaStartResultType,
         DesktopMessage.IptvMediaStopType => DesktopMessage.IptvMediaStopResultType,
         DesktopMessage.IptvMediaStatusType => DesktopMessage.IptvMediaStatusResultType,
+        DesktopMessage.IptvPublishStartType => DesktopMessage.IptvPublishStartResultType,
+        DesktopMessage.IptvPublishStopType => DesktopMessage.IptvPublishStopResultType,
+        DesktopMessage.IptvPublishStatusType => DesktopMessage.IptvPublishStatusResultType,
         _ => "semyra.desktop.iptv.error",
     };
 }

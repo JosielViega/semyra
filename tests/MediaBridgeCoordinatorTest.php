@@ -781,6 +781,7 @@ final class FakeMediaBridgeStore implements MediaBridgeJobStore
 
 final class FakeIngressGateway implements LiveKitIngressGateway
 {
+    public function findIngressIdsByRoomAndName(string $roomName, string $ingressName): array { return []; }
     public array $created=[];
     public array $deleted=[];
     public array $events=[];

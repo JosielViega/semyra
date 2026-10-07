@@ -15,6 +15,7 @@
 /bridge-worker/runtime/
 
 /desktop/.vs/
+/desktop/**/.vs/
 /desktop/**/bin/
 /desktop/**/obj/
 /desktop/**/TestResults/

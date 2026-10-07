@@ -5,9 +5,10 @@ public sealed record MediaSnapshot(
     long? ChannelId,
     string? ChannelName,
     int Attempt,
-    string? LastErrorCode)
+    string? LastErrorCode,
+    string Mode = "local")
 {
-    public static MediaSnapshot Idle { get; } = new("idle", null, null, 0, null);
+    public static MediaSnapshot Idle { get; } = new("idle", null, null, 0, null, "local");
 }
 
 public sealed class MediaEngineException : Exception

@@ -88,6 +88,46 @@ final class RoomTransmissionController
         return Response::redirect('/room/' . $room['code'], 303);
     }
 
+    public function startIptv(string $code): Response
+    {
+        if (!$this->csrf->verify($this->request->input('_token'))) {
+            return Response::json(['error' => 'invalid_csrf'], 419, ['Cache-Control' => 'no-store']);
+        }
+        $room = $this->rooms->findByCode($code);
+        if ($room === null) {
+            return Response::json(['error' => 'room_not_found'], 404, ['Cache-Control' => 'no-store']);
+        }
+        $identity = $this->participantSession->identityFor($room['code']);
+        if ($identity === null) {
+            return Response::json(['error' => 'join_required'], 403, ['Cache-Control' => 'no-store']);
+        }
+        $currentUser = $this->authenticatedUser();
+        $identity = $this->identityForCurrentAccount($room['code'], $identity, $currentUser);
+        if ($identity === null) {
+            return Response::json(['error' => 'join_required'], 403, ['Cache-Control' => 'no-store']);
+        }
+        $participantKeyHash = hash('sha256', $identity['participant_key']);
+        $this->transmissions->startOrReplace(
+            (int) $room['id'],
+            $participantKeyHash,
+            'iptv',
+            null,
+            'live',
+            $currentUser['id'] ?? null,
+        );
+        $current = $this->transmissions->findByRoom((int) $room['id']);
+        if ($current === null) {
+            return Response::json(['error' => 'transmission_start_failed'], 503, ['Cache-Control' => 'no-store']);
+        }
+        return Response::json([
+            'transmission' => $this->transmissionPresenter->present(
+                $current,
+                $participantKeyHash,
+                $currentUser['id'] ?? null,
+            ),
+        ], 201, ['Cache-Control' => 'no-store']);
+    }
+
     public function end(string $code): Response
     {
         if (!$this->csrf->verify($this->request->input('_token'))) {

@@ -36,6 +36,12 @@ public static partial class DesktopMessage
     public const string IptvMediaStatusType = "semyra.desktop.iptv.media.status";
     public const string IptvMediaStatusResultType = "semyra.desktop.iptv.media.status-result";
     public const string IptvMediaStateType = "semyra.desktop.iptv.media.state";
+    public const string IptvPublishStartType = "semyra.desktop.iptv.publish.start";
+    public const string IptvPublishStartResultType = "semyra.desktop.iptv.publish.start-result";
+    public const string IptvPublishStopType = "semyra.desktop.iptv.publish.stop";
+    public const string IptvPublishStopResultType = "semyra.desktop.iptv.publish.stop-result";
+    public const string IptvPublishStatusType = "semyra.desktop.iptv.publish.status";
+    public const string IptvPublishStatusResultType = "semyra.desktop.iptv.publish.status-result";
     public const int ProtocolVersion = 1;
 
     public static bool TryReadRequest(string json, out DesktopRequest request)
@@ -87,7 +93,7 @@ public static partial class DesktopMessage
                 return true;
             }
 
-            if (type is IptvMediaStopType or IptvMediaStatusType)
+            if (type is IptvMediaStopType or IptvMediaStatusType or IptvPublishStopType or IptvPublishStatusType)
             {
                 if (properties.Count != 2)
                 {
@@ -97,7 +103,7 @@ public static partial class DesktopMessage
                 return true;
             }
 
-            if (type == IptvMediaStartType)
+            if (type is IptvMediaStartType or IptvPublishStartType)
             {
                 if (properties.Count != 3 || !TryPositiveInt64(properties, "channelId", out var channelId))
                 {

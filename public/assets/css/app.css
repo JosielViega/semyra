@@ -166,3 +166,4 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .iptv-media-panel p { color: var(--color-text-muted, #aeb5c7); }
 .iptv-media-panel p[data-state="streaming"] { color: var(--color-cyan, #16c7ff); }
 @media (max-width: 780px) { .iptv-desktop-panel { grid-template-columns: 1fr; } .iptv-section-heading { align-items: flex-start; flex-direction: column; } }
+.room-source-tabs,.room-iptv-results{display:flex;flex-wrap:wrap;gap:.65rem;margin:.75rem 0}.room-iptv-publish{display:grid;gap:.65rem}.room-iptv-results{max-height:14rem;overflow:auto}.room-iptv-results button{max-width:100%;text-align:left}

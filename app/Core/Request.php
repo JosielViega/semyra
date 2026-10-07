@@ -12,12 +12,15 @@ final class Request
         private readonly array $server = [],
         private readonly array $files = [],
         private readonly array $cookies = [],
+        private readonly ?string $rawBody = null,
     ) {
     }
 
     public static function capture(): self
     {
-        return new self($_GET, $_POST, $_SERVER, $_FILES, $_COOKIE);
+        $rawBody = file_get_contents('php://input');
+
+        return new self($_GET, $_POST, $_SERVER, $_FILES, $_COOKIE, is_string($rawBody) ? $rawBody : null);
     }
 
     public function input(string $key, mixed $default = null): mixed
@@ -43,6 +46,21 @@ final class Request
         $value = $this->server[$serverKey] ?? null;
 
         return is_string($value) ? $value : $default;
+    }
+
+    /** @return null|array<string, mixed> */
+    public function json(): ?array
+    {
+        if ($this->rawBody === null || trim($this->rawBody) === '') {
+            return null;
+        }
+        try {
+            $decoded = json_decode($this->rawBody, true, 32, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null;
+        }
+
+        return is_array($decoded) && !array_is_list($decoded) ? $decoded : null;
     }
 
     public function file(string $key): ?array

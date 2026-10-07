@@ -1,5 +1,11 @@
 # Semyra Desktop
 
+## Publicação IPTV
+
+Quando o runtime oficial do GStreamer também oferece `whipsink`, o Desktop anuncia `media.whip` e `livekit.publish`. O canal continua resolvido exclusivamente no catálogo SQLite local; a aplicação web envia somente o identificador opaco do canal. O Desktop provisiona um endpoint WHIP efêmero com sua Host Session, publica áudio/vídeo no LiveKit e remove o ingress ao parar ou trocar a autorização. URLs e credenciais da fonte IPTV nunca atravessam o JavaScript ou o backend PHP.
+
+A reprodução local (`iptv.play`) permanece disponível mesmo quando `whipsink` não está instalado.
+
 Fundação Windows do Semyra: uma janela WPF hospeda o aplicativo web existente em Microsoft Edge WebView2. Login, cadastro e sessão continuam sendo os fluxos web normais; o perfil persistente do WebView fica em `%LOCALAPPDATA%\Semyra\WebView2`. Na página de login, o handshake Desktop pré-marca “Manter conectado” sem impedir que o usuário desmarque. A persistência usa somente o cookie HttpOnly emitido pelo servidor; o aplicativo nativo não lê nem armazena tokens de autenticação.
 
 ## Requisitos
@@ -39,7 +45,9 @@ O refresh lê a playlist em streaming e só substitui o catálogo da fonte em um
 
 O teste de canal envia somente o `channelId` para o native. O Host Engine resolve e descriptografa a URL internamente, conecta ao provider com `HttpClient`, valida os sync bytes MPEG-TS e alimenta o stdin do GStreamer. A URL privada nunca entra em argv, ambiente, snapshot, evento ou resposta para a WebView.
 
-A pipeline preserva H.264 (`h264parse` → `rtph264pay`) e converte AAC para Opus 48 kHz estéreo a 96 kbps antes dos RTP payloaders. Nesta etapa ambos os ramos terminam em `fakesink`: não existe WHIP nem publicação LiveKit. Interrupções inesperadas usam até três reconexões com backoff de 1, 2 e 5 segundos; stop manual e troca de canal cancelam a sessão anterior e removem o processo.
+A pipeline preserva H.264 (`h264parse` → `rtph264pay`) e converte AAC para Opus 48 kHz estéreo a 96 kbps antes dos RTP payloaders. O teste local termina em `fakesink`; a publicação da sala conecta os mesmos ramos ao `whipsink`. Interrupções inesperadas usam até três reconexões com backoff de 1, 2 e 5 segundos, reprovisionando o ingress; stop manual e troca de canal cancelam a sessão anterior e removem processo e ingress.
+
+O Media Engine atual valida somente entrada MPEG-TS contínua. VODs MP4, HLS, MKV e HEVC não são suportados nesta etapa e devem ser tratados por uma evolução separada do produto.
 
 O aplicativo procura primeiro `runtime/gstreamer/bin` ao lado do executável. Em Debug, `SEMYRA_GSTREAMER_HOME` e a instalação oficial MSVC x64 podem ser usados para desenvolvimento. O empacotamento definitivo do runtime será tratado na etapa de distribuição. `iptv.play` só é anunciado depois que `gst-launch`, `gst-inspect` e todos os elementos obrigatórios forem validados.
 
@@ -49,4 +57,4 @@ O Desktop possui a camada WebView/UI, uma ponte `postMessage` allowlisted na ver
 
 Para uma futura publicação de mídia, o backend pode emitir uma Host Session curta de `media.publish`, ligada à sala, instance, revision e owner atuais. O validator fica somente como hash no banco; o token bruto chega ao Host Engine apenas em memória, é substituído por uma autorização nova e é apagado por `clear` ou `Stop()`. Segredos globais do bridge worker nunca são enviados ao cliente.
 
-Ainda não existem Xtream, WHIP ou publicação LiveKit. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.
+Ainda não existem Xtream, EPG, gravação ou distribuição do runtime GStreamer. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.

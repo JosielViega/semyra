@@ -11,6 +11,7 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Publicação IPTV do Semyra Desktop por WHIP para o LiveKit, autorizada por Host Session e cercada por instância/revisão da transmissão.
 - Worker externo capaz de transportar uma fonte MPEG-TS privada para WHIP, com H.264 passthrough, áudio AAC convertido para Opus e supervisão fail-closed por lease; a seleção IPTV ainda não está disponível ao usuário final.
 - Fundação do lifecycle externo do bridge IPTV por control plane pull, jobs persistentes, leases com fencing por `instance_id` e gerenciamento de WHIP Ingress, inicialmente validada em dry-run antes do transporte de mídia.
 - Viewer browser LiveKit para transmissões `iptv`/`live`, com bundle local lazy-loaded, token subscribe-only vinculado à revisão e filtro do publisher esperado; a criação e seleção IPTV pelo usuário ainda não fazem parte do produto.

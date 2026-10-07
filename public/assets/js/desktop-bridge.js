@@ -33,6 +33,9 @@
         'media-start': ['semyra.desktop.iptv.media.start', 'semyra.desktop.iptv.media.start-result'],
         'media-stop': ['semyra.desktop.iptv.media.stop', 'semyra.desktop.iptv.media.stop-result'],
         'media-status': ['semyra.desktop.iptv.media.status', 'semyra.desktop.iptv.media.status-result'],
+        'publish-start': ['semyra.desktop.iptv.publish.start', 'semyra.desktop.iptv.publish.start-result'],
+        'publish-stop': ['semyra.desktop.iptv.publish.stop', 'semyra.desktop.iptv.publish.stop-result'],
+        'publish-status': ['semyra.desktop.iptv.publish.status', 'semyra.desktop.iptv.publish.status-result'],
     });
     const IPTV_MEDIA_STATE_TYPE = 'semyra.desktop.iptv.media.state';
     const PROTOCOL_VERSION = 1;
@@ -165,12 +168,17 @@
                 || typeof host !== 'object'
                 || host.state !== 'ready'
                 || !Array.isArray(host.capabilities)
-                || ![4, 5].includes(host.capabilities.length)
+                || ![4, 5, 7].includes(host.capabilities.length)
+                || new Set(host.capabilities).size !== host.capabilities.length
                 || host.capabilities[0] !== 'host.status'
                 || host.capabilities[1] !== 'host.authorize'
                 || host.capabilities[2] !== 'iptv.sources'
                 || host.capabilities[3] !== 'iptv.catalog'
                 || (host.capabilities.length === 5 && host.capabilities[4] !== 'iptv.play')
+                || (host.capabilities.length === 7
+                    && (host.capabilities[4] !== 'iptv.play'
+                        || host.capabilities[5] !== 'media.whip'
+                        || host.capabilities[6] !== 'livekit.publish'))
                 || !host.authorization
                 || typeof host.authorization !== 'object'
                 || typeof host.authorization.authorized !== 'boolean') {
@@ -350,8 +358,8 @@
                 if (request.sourceId === null) {
                     return;
                 }
-            } else if (action === 'media-start') {
-                if (!hostSnapshot.capabilities.includes('iptv.play')) {
+            } else if (action === 'media-start' || action === 'publish-start') {
+                if (!hostSnapshot.capabilities.includes(action === 'publish-start' ? 'livekit.publish' : 'iptv.play')) {
                     return;
                 }
                 request.channelId = positiveId(detail.channelId);
@@ -393,7 +401,9 @@
             const detail = {
                 action: pending.action,
                 ok: message.ok,
-                error: message.ok ? null : (typeof message.error === 'string' ? message.error.slice(0, 240) : 'Operação indisponível.'),
+                error: message.ok ? null : (typeof message.errorCode === 'string'
+                    ? message.errorCode.slice(0, 64)
+                    : (typeof message.error === 'string' ? message.error.slice(0, 240) : 'Operação indisponível.')),
             };
             if (pending.action === 'list' && Array.isArray(message.sources)) {
                 detail.sources = message.sources.map(safeSource).filter(Boolean);
@@ -419,7 +429,7 @@
                 detail.offset = Number.isSafeInteger(message.offset) ? message.offset : 0;
                 detail.limit = Number.isSafeInteger(message.limit) ? message.limit : 50;
                 detail.hasMore = message.hasMore === true;
-            } else if (['media-start', 'media-stop', 'media-status'].includes(pending.action)) {
+            } else if (['media-start', 'media-stop', 'media-status', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
                 Object.assign(detail, safeMediaState(message));
             }
             target.dispatchEvent(new target.CustomEvent('semyra:iptv-result', {detail: Object.freeze(detail)}));
@@ -433,6 +443,7 @@
                 channelName: typeof message.channelName === 'string' ? message.channelName.slice(0, 240) : null,
                 attempt: Number.isSafeInteger(message.attempt) && message.attempt >= 0 ? message.attempt : 0,
                 errorCode: typeof message.errorCode === 'string' ? message.errorCode.slice(0, 64) : null,
+                mode: message.mode === 'publish' ? 'publish' : 'local',
             };
         }
 

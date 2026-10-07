@@ -18,11 +18,12 @@ const transmission = (overrides = {}) => ({
     ...overrides,
 });
 
-const createHarness = ({existingHost = false} = {}) => {
+const createHarness = ({existingHost = false, expiresAt = '2099-10-06T12:00:00.000Z', timers = false, failRequests = 0} = {}) => {
     const windowListeners = new Map();
     const documentListeners = new Map();
     const events = [];
     const requests = [];
+    const scheduled = [];
     const shell = {dataset: {
         desktopHostSessionUrl: '/room/ROOM2345/desktop/host-session',
         csrfToken: 'csrf',
@@ -40,6 +41,8 @@ const createHarness = ({existingHost = false} = {}) => {
             events.push(event);
             windowListeners.get(event.type)?.(event);
         },
+        setTimeout: timers ? ((callback, delay) => { scheduled.push({callback, delay}); return scheduled.length; }) : undefined,
+        clearTimeout() {},
     };
     const document = {
         querySelector: (selector) => selector === '[data-room-shell]' ? shell : null,
@@ -52,12 +55,15 @@ const createHarness = ({existingHost = false} = {}) => {
     const fetch = async (url, options) => {
         const body = new URLSearchParams(options.body);
         requests.push({url, options, body});
+        if (requests.length <= failRequests) {
+            throw new Error('synthetic failure');
+        }
         return {
             ok: true,
             status: 201,
             json: async () => ({
                 host_session_token: token,
-                expires_at: '2099-10-06T12:00:00.000Z',
+                expires_at: expiresAt,
                 permission: 'media.publish',
                 transmission_instance_id: body.get('transmission_instance_id'),
                 transmission_revision: Number(body.get('transmission_revision')),
@@ -71,6 +77,7 @@ const createHarness = ({existingHost = false} = {}) => {
     return {
         events,
         requests,
+        scheduled,
         hostReady() {
             window.dispatchEvent(new CustomEvent('semyra:host-ready', {detail: {
                 state: 'ready', capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog'],
@@ -96,6 +103,21 @@ test('normal browser and ineligible transmissions never request Host Session', a
     harness.presence(transmission({source: 'youtube'}));
     await flush();
     assert.equal(harness.requests.length, 0);
+});
+
+test('renews approximately sixty seconds before expiry without clearing the active publish', async () => {
+    const expiresAt = new Date(Date.now() + 120000).toISOString();
+    const harness = createHarness({expiresAt, timers: true});
+    harness.hostReady();
+    harness.presence(transmission());
+    await flush();
+
+    assert.equal(harness.scheduled.length, 1);
+    assert.ok(harness.scheduled[0].delay >= 59000 && harness.scheduled[0].delay <= 61000);
+    harness.scheduled[0].callback();
+    await flush();
+    assert.equal(harness.requests.length, 2);
+    assert.equal(harness.events.filter((event) => event.type === 'semyra:host-clear-request').length, 0);
 });
 
 test('IPTV Live owner requests once per instance and revision', async () => {
@@ -130,6 +152,21 @@ test('replacement clears and authorizes the new context', async () => {
 
     assert.equal(harness.requests.length, 2);
     assert.equal(harness.events.filter((event) => event.type === 'semyra:host-clear-request').length, 1);
+    assert.equal(harness.requests[1].body.get('transmission_instance_id'), 'd'.repeat(32));
+});
+
+test('replacement during retry backoff requests the new context immediately', async () => {
+    const harness = createHarness({timers: true, failRequests: 1});
+    harness.hostReady();
+    harness.presence(transmission());
+    await flush();
+    assert.equal(harness.requests.length, 1);
+    assert.equal(harness.scheduled.length, 1);
+
+    harness.presence(transmission({instanceId: 'd'.repeat(32), revision: 1}));
+    await flush();
+
+    assert.equal(harness.requests.length, 2);
     assert.equal(harness.requests[1].body.get('transmission_instance_id'), 'd'.repeat(32));
 });
 

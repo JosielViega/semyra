@@ -12,6 +12,7 @@ internal interface IMediaPipeline : IAsyncDisposable
 internal interface IMediaPipelineFactory
 {
     IMediaPipeline Create();
+    IMediaPipeline CreatePublish(Uri whipEndpoint);
 }
 
 internal sealed class MediaPipelineFactory(GStreamerRuntime runtime) : IMediaPipelineFactory
@@ -23,6 +24,15 @@ internal sealed class MediaPipelineFactory(GStreamerRuntime runtime) : IMediaPip
             throw new MediaEngineException("media_runtime_unavailable");
         }
         return new GStreamerProcess(runtime.LaunchPath, MediaPipeline.Arguments);
+    }
+
+    public IMediaPipeline CreatePublish(Uri whipEndpoint)
+    {
+        if (!runtime.IsWhipAvailable || runtime.LaunchPath is null || whipEndpoint.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new MediaEngineException("whip_runtime_unavailable");
+        }
+        return new GStreamerProcess(runtime.LaunchPath, MediaPipeline.PublishArguments(whipEndpoint));
     }
 }
 
@@ -40,5 +50,18 @@ internal static class MediaPipeline
         "audio/x-raw,rate=48000,channels=2", "!", "opusenc", "bitrate=96000", "!", "rtpopuspay", "pt=96", "!",
         "application/x-rtp,media=audio,encoding-name=OPUS,payload=96,clock-rate=48000,encoding-params=(string)2", "!",
         "fakesink", "sync=false",
+    ];
+
+    internal static IReadOnlyList<string> PublishArguments(Uri endpoint) =>
+    [
+        "-e",
+        "fdsrc", "fd=0", "!", "queue", "max-size-time=3000000000", "!", "tsdemux", "name=demux",
+        "whipsink", "name=whip", $"whip-endpoint={endpoint.AbsoluteUri}",
+        "demux.", "!", "queue", "!", "h264parse", "config-interval=-1", "!",
+        "rtph264pay", "config-interval=1", "aggregate-mode=zero-latency", "pt=97", "!",
+        "application/x-rtp,media=video,encoding-name=H264,payload=97,clock-rate=90000,packetization-mode=(string)1", "!", "whip.sink_0",
+        "demux.", "!", "queue", "!", "aacparse", "!", "avdec_aac", "!", "audioconvert", "!", "audioresample", "!",
+        "audio/x-raw,rate=48000,channels=2", "!", "opusenc", "bitrate=96000", "!", "rtpopuspay", "pt=96", "!",
+        "application/x-rtp,media=audio,encoding-name=OPUS,payload=96,clock-rate=48000,encoding-params=(string)2", "!", "whip.sink_1",
     ];
 }

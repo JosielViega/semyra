@@ -1,5 +1,11 @@
 # Arquitetura
 
+## Publicação IPTV pelo Desktop
+
+O fluxo Desktop é `catálogo local → Media Engine → GStreamer/whipsink → WHIP ingress → LiveKit → viewer da sala`. O backend aceita apenas uma Host Session curta vinculada a sala, permissão, `transmission_instance_id` e `revision`; ele nunca recebe `channelId`, URL do provedor ou credenciais IPTV. Cada sala usa um nome de ingress Desktop determinístico e opaco com prefixo `smy_d_`. A limpeza lista e remove somente esse nome exato, mantendo isolados os ingressos do worker `smy_b_*`.
+
+O processo GStreamer recebe o endpoint WHIP efêmero por `ArgumentList`. A URL privada do provedor entra apenas no `HttpClient` nativo e os bytes MPEG-TS seguem por stdin. Snapshots, eventos e logs expõem somente estado, tentativa, modo e códigos de erro sanitizados.
+
 O projeto usa uma arquitetura em camadas pequena. Cada classe deve existir por uma responsabilidade concreta; Services e Models não são obrigatórios para fluxos simples.
 
 ```text
@@ -75,7 +81,7 @@ Semyra / HostGator
             ↓ JWT curto subscribe-only
 LiveKit
     realtime media plane
-            ↑ WHIP (etapa futura)
+            ↑ WHIP (bridge externo ou Semyra Desktop autorizado)
 bridge privado futuro
     media ingest plane: provider → H.264/Opus
 ```
@@ -363,9 +369,11 @@ Desde a fundação 11B, o Host Engine possui lifecycle mínimo ligado à janela 
 
 Na 11D, fontes M3U e seu catálogo pertencem exclusivamente ao Host Engine. O SQLite `%LOCALAPPDATA%\Semyra\Data\semyra.db` guarda metadados locais; localização da fonte e URLs de stream são blobs protegidos por DPAPI `CurrentUser`. O parser processa Extended M3U em streaming e importa para tabela temporária antes da substituição transacional por fonte. A WebView recebe apenas DTOs seguros, pesquisa paginada e grupos, através de comandos explícitos da allowlist. Arquivos, credenciais, banco local e catálogo nunca atravessam o backend PHP nem o mirror HostGator.
 
-Na 11E, o Media Engine recebe somente o ID local do canal. O native resolve SQLite → DPAPI → URL e mantém o segredo fora de argv, ambiente, logs, snapshots e eventos. O fluxo é `provider → HttpClient streaming → validação MPEG-TS → stdin → GStreamer`: H.264 segue sem reencode para RTP, AAC é decodificado e convertido para Opus 48 kHz estéreo a 96 kbps, e os dois ramos terminam temporariamente em `fakesink`. O lifecycle permite uma sessão por Host Engine, troca atômica de canal, stop idempotente e até três reconexões com backoff 1/2/5 s. A capability `iptv.play` depende da validação do runtime e dos plugins. O runtime definitivo será empacotado com o Desktop na distribuição; WHIP e LiveKit continuam reservados para a 11F.
+O Media Engine recebe somente o ID local do canal. O native resolve SQLite → DPAPI → URL e mantém o segredo fora de argv, ambiente, logs, snapshots e eventos. O fluxo é `provider → HttpClient streaming → validação MPEG-TS → stdin → GStreamer`: H.264 segue sem reencode para RTP e AAC é convertido para Opus 48 kHz estéreo a 96 kbps. O teste local termina em `fakesink`; a publicação autorizada liga os ramos a `whipsink` e ao LiveKit. O lifecycle permite uma sessão por Host Engine, troca atômica, stop idempotente e até três reconexões com backoff 1/2/5 s. `iptv.play` depende do runtime base; `media.whip` e `livekit.publish` exigem também `whipsink`. O runtime definitivo ainda será empacotado com o Desktop na distribuição.
 
-A emissão usa fencing na própria inserção contra a transmissão corrente. Nenhum segredo global do bridge worker é enviado ao Desktop. Ainda não há Xtream, WHIP, publicação LiveKit de mídia local, servidor HTTP local ou backend adicional de media job. O engine poderá ser separado em outro processo no futuro se isso se tornar necessário.
+O contrato de mídia desta etapa continua restrito a MPEG-TS contínuo. A amostra real de VOD examinada continha quatro arquivos MP4 acessíveis e um item indisponível; nenhum era compatível com esse contrato. Reprodução MP4, HLS, MKV, HEVC e controles de VOD ficam fora da 11F.
+
+A emissão usa fencing na própria inserção contra a transmissão corrente. Nenhum segredo global do bridge worker ou do LiveKit é enviado ao Desktop. Ainda não há Xtream, servidor HTTP local ou backend adicional de media job. O engine poderá ser separado em outro processo no futuro se isso se tornar necessário.
 
 ## Ferramentas de infraestrutura
 

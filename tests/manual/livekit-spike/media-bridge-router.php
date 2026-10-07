@@ -18,6 +18,7 @@ if (!in_array($app['config']['environment'], ['local', 'testing'], true)) {
 
 final class ManualMediaBridgeIngressGateway implements LiveKitIngressGateway
 {
+    public function findIngressIdsByRoomAndName(string $roomName, string $ingressName): array { return []; }
     /** @var array<string, array{name: string, room: string, publisher: string}> */
     private array $ingresses = [];
 

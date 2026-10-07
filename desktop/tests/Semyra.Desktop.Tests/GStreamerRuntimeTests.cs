@@ -15,9 +15,21 @@ public sealed class GStreamerRuntimeTests : IDisposable
         var runtime = GStreamerRuntime.Discover(_directory, runner);
 
         Assert.True(runtime.IsAvailable);
+        Assert.True(runtime.IsWhipAvailable);
         Assert.Equal("GStreamer 1.26.11", runtime.Snapshot.Version);
-        Assert.Equal(GStreamerRuntime.RequiredElements, runner.Inspected);
+        Assert.Equal([.. GStreamerRuntime.RequiredElements, "whipsink"], runner.Inspected);
         Assert.StartsWith(binaryDirectory, runtime.LaunchPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MissingWhipSinkPreservesLocalPlaybackCapability()
+    {
+        CreateExecutables();
+        var runtime = GStreamerRuntime.Discover(_directory, new RecordingRunner("whipsink"));
+
+        Assert.True(runtime.IsAvailable);
+        Assert.False(runtime.IsWhipAvailable);
+        Assert.Null(runtime.Snapshot.ErrorCode);
     }
 
     [Fact]

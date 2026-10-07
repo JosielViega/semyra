@@ -84,6 +84,26 @@ final class SdkLiveKitIngressGateway implements LiveKitIngressGateway
         return array_keys($ids);
     }
 
+    public function findIngressIdsByRoomAndName(string $roomName, string $ingressName): array
+    {
+        if ($roomName === '' || $ingressName === '') {
+            throw new RuntimeException('LiveKit ingress ownership context is invalid.');
+        }
+        $ids = [];
+        foreach ($this->client()->listIngress($roomName)->getItems() as $info) {
+            if ($info->getRoomName() !== $roomName
+                || $info->getName() !== $ingressName
+                || $info->getInputType() !== IngressInput::WHIP_INPUT) {
+                continue;
+            }
+            $id = trim($info->getIngressId());
+            if ($id !== '') {
+                $ids[$id] = true;
+            }
+        }
+        return array_keys($ids);
+    }
+
     public function apiUrl(): string
     {
         $url = trim((string) ($this->config['url'] ?? ''));

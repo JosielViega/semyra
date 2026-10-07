@@ -42,12 +42,16 @@ public sealed class HostEngine : IDisposable
 
     public void ClearAuthorization()
     {
+        if (_media?.Snapshot().Mode == "publish")
+        {
+            _media.StopAsync().GetAwaiter().GetResult();
+        }
         _authorization = null;
     }
 
     public HostEngineSnapshot Snapshot()
     {
-        return HostEngineSnapshot.Create(State, _authorization, _media?.IsAvailable == true);
+        return HostEngineSnapshot.Create(State, _authorization, _media?.IsAvailable == true, _media?.Runtime.IsWhipAvailable == true);
     }
 
     public IReadOnlyList<IptvSourceSummary> ListIptvSources() => Catalog().ListSources();
@@ -58,6 +62,14 @@ public sealed class HostEngine : IDisposable
     public IReadOnlyList<string> GetIptvGroups(long sourceId) => Catalog().GetGroups(sourceId);
     public IptvChannelSearchResult SearchIptvChannels(long sourceId, string? query, string? group, int offset, int limit) => Catalog().SearchChannels(sourceId, query, group, offset, limit);
     public Task<MediaSnapshot> StartIptvMediaAsync(long channelId, CancellationToken cancellationToken) => Media().StartAsync(channelId, cancellationToken);
+    public Task<MediaSnapshot> StartIptvPublishAsync(long channelId, CancellationToken cancellationToken)
+    {
+        if (_authorization is null || _authorization.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            throw new MediaEngineException("host_authorization_required");
+        }
+        return Media().StartPublishAsync(channelId, () => _authorization, cancellationToken);
+    }
     public Task<MediaSnapshot> StopIptvMediaAsync() => Media().StopAsync();
     public MediaSnapshot IptvMediaSnapshot() => _media?.Snapshot() ?? MediaSnapshot.Idle;
 

@@ -171,12 +171,12 @@ for (const [action, type] of [
 
 messageListener({data: {
     type: 'semyra.desktop.iptv.media.state', protocolVersion: 1,
-    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null,
+    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null, mode: 'local',
     streamUrl: 'https://must-not-cross.example/live.ts',
 }});
 assert.equal(dispatched.at(-1).type, 'semyra:iptv-media-state');
 assert.deepEqual(dispatched.at(-1).detail, {
-    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null,
+    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null, mode: 'local',
 });
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
 

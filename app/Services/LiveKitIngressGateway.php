@@ -12,5 +12,8 @@ interface LiveKitIngressGateway
     /** @return list<string> */
     public function findOwnedIngressIds(string $roomName, string $ingressName, string $publisherIdentity): array;
 
+    /** @return list<string> */
+    public function findIngressIdsByRoomAndName(string $roomName, string $ingressName): array;
+
     public function deleteIngress(string $ingressId): void;
 }

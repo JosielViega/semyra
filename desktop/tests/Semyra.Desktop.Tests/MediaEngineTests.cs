@@ -41,6 +41,60 @@ public sealed class MediaEngineTests
     }
 
     [Fact]
+    public void PublishPipelineUsesWhipEndpointOnlyInArgumentList()
+    {
+        var endpoint = new Uri("https://whip.example/ephemeral");
+        var process = new GStreamerProcess("gst-launch-1.0.exe", MediaPipeline.PublishArguments(endpoint));
+        var startInfo = process.CreateStartInfo();
+        var arguments = startInfo.ArgumentList.ToArray();
+
+        Assert.Contains("whipsink", arguments);
+        Assert.Contains("whip.sink_0", arguments);
+        Assert.Contains("whip.sink_1", arguments);
+        Assert.Contains("whip-endpoint=" + endpoint.AbsoluteUri, arguments);
+        Assert.DoesNotContain(arguments, value => value.Contains("provider.example", StringComparison.Ordinal));
+        Assert.DoesNotContain(startInfo.Environment, pair => pair.Value?.Contains(endpoint.AbsoluteUri, StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public async Task PublishModeProvisionsAndCleansIngressWhileRenewedAuthorizationIsReadFromMemory()
+    {
+        var provider = new FakeProvider();
+        var pipelines = new FakePipelineFactory();
+        var publish = new FakePublishClient();
+        var authorization = Authorization("a");
+        using var engine = new MediaEngine(Resolve, GStreamerRuntime.AvailableForTests(), provider, pipelines,
+            publishClient: publish);
+
+        var snapshot = await engine.StartPublishAsync(10, () => authorization);
+        authorization = Authorization("b");
+        await engine.StopAsync();
+
+        Assert.Equal("publish", snapshot.Mode);
+        Assert.Single(publish.Starts);
+        Assert.Single(publish.Stops);
+        Assert.EndsWith(new string('b', 64), publish.Stops[0].Token);
+    }
+
+    [Fact]
+    public async Task HostClearStopsPublishBeforeDroppingAuthorization()
+    {
+        var publish = new FakePublishClient();
+        var media = new MediaEngine(Resolve, GStreamerRuntime.AvailableForTests(), new FakeProvider(), new FakePipelineFactory(),
+            publishClient: publish);
+        using var host = new HostEngine(media: media);
+        host.Start();
+        Assert.True(host.Authorize(Authorization("a")));
+        await host.StartIptvPublishAsync(10, default);
+
+        host.ClearAuthorization();
+
+        Assert.Equal("idle", host.IptvMediaSnapshot().State);
+        Assert.False(host.Snapshot().Authorization.Authorized);
+        Assert.Single(publish.Stops);
+    }
+
+    [Fact]
     public async Task StartStreamsOnceForSameChannelAndStopIsIdempotent()
     {
         var provider = new FakeProvider();
@@ -223,6 +277,10 @@ public sealed class MediaEngineTests
         return bytes;
     }
 
+    private static HostAuthorization Authorization(string validator) => new(
+        new string('a', 32) + "." + new string(validator[0], 64), "ROOM2345", new string('c', 32), 2,
+        "media.publish", DateTimeOffset.UtcNow.AddMinutes(5));
+
     private sealed class FakeProvider : IProviderStreamClient
     {
         public int OpenCount { get; private set; }
@@ -249,6 +307,23 @@ public sealed class MediaEngineTests
                 startGate);
             Pipelines.Add(pipeline);
             return pipeline;
+        }
+        public IMediaPipeline CreatePublish(Uri whipEndpoint) => Create();
+    }
+
+    private sealed class FakePublishClient : IDesktopPublishClient
+    {
+        public List<HostAuthorization> Starts { get; } = [];
+        public List<HostAuthorization> Stops { get; } = [];
+        public Task<DesktopPublishLease> StartAsync(HostAuthorization authorization, CancellationToken cancellationToken)
+        {
+            Starts.Add(authorization);
+            return Task.FromResult(new DesktopPublishLease("INGRESS_TEST", new Uri("https://whip.example/test")));
+        }
+        public Task StopAsync(HostAuthorization authorization, string ingressId, CancellationToken cancellationToken)
+        {
+            Stops.Add(authorization);
+            return Task.CompletedTask;
         }
     }
 

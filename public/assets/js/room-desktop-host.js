@@ -20,6 +20,15 @@
     let activeContext = null;
     let generation = 0;
     let retryAfter = 0;
+    let renewalTimer = null;
+    let retryCount = 0;
+    let retryContext = null;
+    const schedule = typeof window.setTimeout === 'function'
+        ? (callback, delay) => window.setTimeout(callback, delay)
+        : () => null;
+    const cancelScheduled = typeof window.clearTimeout === 'function'
+        ? (timer) => window.clearTimeout(timer)
+        : () => {};
 
     const existingHost = typeof window.SemyraDesktopBridge?.getHostSnapshot === 'function'
         ? window.SemyraDesktopBridge.getHostSnapshot()
@@ -38,6 +47,13 @@
         && value.revision > 0;
 
     const clearAuthorization = () => {
+        if (renewalTimer !== null) {
+            cancelScheduled(renewalTimer);
+            renewalTimer = null;
+        }
+        retryAfter = 0;
+        retryCount = 0;
+        retryContext = null;
         if (requestedContext === null && activeContext === null) {
             return;
         }
@@ -54,8 +70,17 @@
         }
 
         const key = contextKey(transmission);
-        if (key === requestedContext || key === activeContext || Date.now() < retryAfter) {
+        if (key === requestedContext || key === activeContext || (key === retryContext && Date.now() < retryAfter)) {
             return;
+        }
+        if (key !== retryContext) {
+            if (renewalTimer !== null) {
+                cancelScheduled(renewalTimer);
+                renewalTimer = null;
+            }
+            retryAfter = 0;
+            retryCount = 0;
+            retryContext = null;
         }
         if (requestedContext !== null || activeContext !== null) {
             clearAuthorization();
@@ -92,6 +117,8 @@
 
             activeContext = key;
             requestedContext = null;
+            retryCount = 0;
+            retryContext = null;
             window.dispatchEvent(new CustomEvent('semyra:host-authorization-request', {
                 detail: {
                     hostSessionToken: payload.host_session_token,
@@ -102,10 +129,23 @@
                     expiresAt: payload.expires_at,
                 },
             }));
+            const renewIn = Math.max(1000, Date.parse(payload.expires_at) - Date.now() - 60000);
+            renewalTimer = schedule(() => {
+                if (activeContext === key) {
+                    activeContext = null;
+                    void apply();
+                }
+            }, renewIn);
         } catch {
             if (requestGeneration === generation) {
                 requestedContext = null;
-                retryAfter = Date.now() + 5000;
+                retryCount += 1;
+                retryContext = key;
+                const delay = [5000, 15000, 30000][Math.min(retryCount - 1, 2)];
+                retryAfter = Date.now() + delay;
+                if (retryCount <= 3) {
+                    renewalTimer = schedule(() => { void apply(); }, delay);
+                }
             }
         }
     };
@@ -119,6 +159,10 @@
 
     document.addEventListener('semyra:presence-updated', (event) => {
         transmission = event.detail?.transmission ?? null;
+        void apply();
+    });
+    window.addEventListener('semyra:transmission-updated', (event) => {
+        transmission = event.detail ?? null;
         void apply();
     });
 })();

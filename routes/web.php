@@ -9,6 +9,7 @@ use App\Controllers\HomeController;
 use App\Controllers\MyRoomsController;
 use App\Controllers\RoomController;
 use App\Controllers\RoomDesktopHostSessionController;
+use App\Controllers\RoomDesktopMediaPublishController;
 use App\Controllers\RoomParticipantController;
 use App\Controllers\RoomLiveKitController;
 use App\Controllers\RoomTransmissionController;
@@ -25,6 +26,8 @@ use App\Repositories\UserRoomRepository;
 use App\Repositories\MediaBridgeJobRepository;
 use App\Services\AuthSession;
 use App\Services\DesktopHostSessionService;
+use App\Services\DesktopMediaIngressIdentity;
+use App\Services\DesktopMediaPublishService;
 use App\Services\RoomCodeGenerator;
 use App\Services\LiveKitRoomContext;
 use App\Services\LiveKitViewerTokenService;
@@ -148,6 +151,10 @@ $roomLiveKit = new RoomLiveKitController(
     new LiveKitRoomContext($app['livekit']['namespace']),
     new LiveKitViewerTokenService($app['livekit']),
 );
+$desktopHostSessions = new DesktopHostSessionService(
+    $desktopHostSessionRepository,
+    $app['config']['desktop']['host_session_ttl_seconds'],
+);
 $roomDesktopHostSessions = new RoomDesktopHostSessionController(
     $app['request'],
     $app['csrf'],
@@ -156,9 +163,18 @@ $roomDesktopHostSessions = new RoomDesktopHostSessionController(
     $participantSession,
     $userRepository,
     $authSession,
-    new DesktopHostSessionService(
-        $desktopHostSessionRepository,
-        $app['config']['desktop']['host_session_ttl_seconds'],
+    $desktopHostSessions,
+);
+$roomDesktopMediaPublish = new RoomDesktopMediaPublishController(
+    $app['request'],
+    $roomRepository,
+    new DesktopMediaPublishService(
+        $desktopHostSessions,
+        $transmissionRepository,
+        new SdkLiveKitIngressGateway($app['livekit']),
+        new LiveKitRoomContext($app['livekit']['namespace']),
+        new DesktopMediaIngressIdentity($app['livekit']['namespace']),
+        ($app['livekit']['enabled'] ?? false) === true,
     ),
 );
 $mediaBridgeJobs = new MediaBridgeJobRepository($app['database']);
@@ -190,10 +206,13 @@ $router->post('/room/{code}/join', [$roomParticipants, 'join']);
 $router->post('/room/{code}/presence', [$roomParticipants, 'presence']);
 $router->post('/room/{code}/leave', [$roomParticipants, 'leave']);
 $router->post('/room/{code}/transmission', [$roomTransmissions, 'start']);
+$router->post('/room/{code}/transmission/iptv', [$roomTransmissions, 'startIptv']);
 $router->post('/room/{code}/transmission/end', [$roomTransmissions, 'end']);
 $router->post('/room/{code}/transmission/playback', [$roomTransmissions, 'playback']);
 $router->post('/room/{code}/livekit/viewer-token', [$roomLiveKit, 'viewerToken']);
 $router->post('/room/{code}/desktop/host-session', [$roomDesktopHostSessions, 'issue']);
+$router->post('/room/{code}/desktop/media-publish/start', [$roomDesktopMediaPublish, 'start']);
+$router->post('/room/{code}/desktop/media-publish/stop', [$roomDesktopMediaPublish, 'stop']);
 $router->post('/internal/media-bridge/claim', [$mediaBridge, 'claim']);
 $router->post('/internal/media-bridge/heartbeat', [$mediaBridge, 'heartbeat']);
 $router->post('/internal/media-bridge/report', [$mediaBridge, 'report']);

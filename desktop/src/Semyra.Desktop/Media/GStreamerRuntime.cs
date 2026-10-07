@@ -3,7 +3,7 @@ using System.IO;
 
 namespace Semyra.Desktop.Media;
 
-public sealed record GStreamerRuntimeSnapshot(bool Available, string? Version, string? ErrorCode);
+public sealed record GStreamerRuntimeSnapshot(bool Available, bool WhipAvailable, string? Version, string? ErrorCode);
 
 internal interface IGStreamerCommandRunner
 {
@@ -57,6 +57,7 @@ public sealed class GStreamerRuntime
     public string? InspectPath { get; }
     public GStreamerRuntimeSnapshot Snapshot { get; }
     public bool IsAvailable => Snapshot.Available;
+    public bool IsWhipAvailable => Snapshot.Available && Snapshot.WhipAvailable;
 
     public static GStreamerRuntime DiscoverDefault()
     {
@@ -85,25 +86,26 @@ public sealed class GStreamerRuntime
                     if (runner.Run(inspect, [element]).ExitCode != 0)
                     {
                         return new GStreamerRuntime(launch, inspect,
-                            new GStreamerRuntimeSnapshot(false, SafeVersion(versionResult.Output), "media_runtime_unavailable"));
+                            new GStreamerRuntimeSnapshot(false, false, SafeVersion(versionResult.Output), "media_runtime_unavailable"));
                     }
                 }
+                var whipAvailable = runner.Run(inspect, ["whipsink"]).ExitCode == 0;
                 return new GStreamerRuntime(launch, inspect,
-                    new GStreamerRuntimeSnapshot(true, SafeVersion(versionResult.Output), null));
+                    new GStreamerRuntimeSnapshot(true, whipAvailable, SafeVersion(versionResult.Output), null));
             }
             catch
             {
                 return new GStreamerRuntime(null, null,
-                    new GStreamerRuntimeSnapshot(false, null, "media_runtime_unavailable"));
+                    new GStreamerRuntimeSnapshot(false, false, null, "media_runtime_unavailable"));
             }
         }
         return new GStreamerRuntime(null, null,
-            new GStreamerRuntimeSnapshot(false, null, "media_runtime_unavailable"));
+            new GStreamerRuntimeSnapshot(false, false, null, "media_runtime_unavailable"));
     }
 
-    internal static GStreamerRuntime AvailableForTests(string launchPath = "gst-launch-1.0.exe")
+    internal static GStreamerRuntime AvailableForTests(string launchPath = "gst-launch-1.0.exe", bool whipAvailable = true)
     {
-        return new GStreamerRuntime(launchPath, "gst-inspect-1.0.exe", new GStreamerRuntimeSnapshot(true, "test", null));
+        return new GStreamerRuntime(launchPath, "gst-inspect-1.0.exe", new GStreamerRuntimeSnapshot(true, whipAvailable, "test", null));
     }
 
     internal static void ConfigureProcessEnvironment(ProcessStartInfo startInfo, string executable)
