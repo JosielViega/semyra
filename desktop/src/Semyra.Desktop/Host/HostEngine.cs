@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Semyra.Desktop.Iptv;
 using Semyra.Desktop.Media;
 
@@ -5,29 +6,120 @@ namespace Semyra.Desktop.Host;
 
 public sealed class HostEngine : IDisposable
 {
-    public HostEngineState State { get; private set; } = HostEngineState.Stopped;
     private HostAuthorization? _authorization;
-    private readonly IptvCatalogService? _iptv;
-    private readonly MediaEngine? _media;
+    private IptvCatalogService? _iptv;
+    private MediaEngine? _media;
+    private string? _activeProfileId;
+    private string? _accountContextId;
+    private readonly Func<string, IptvCatalogService> _catalogFactory;
+    private readonly Func<IptvCatalogService, MediaEngine> _mediaFactory;
 
-    public HostEngine(IptvCatalogService? iptv = null, MediaEngine? media = null)
+    public HostEngine()
+        : this(IptvCatalogService.CreateDefault, catalog => MediaEngine.CreateDefault(catalog, GStreamerRuntime.DiscoverDefault()))
     {
-        _iptv = iptv;
+    }
+
+    internal HostEngine(Func<string, IptvCatalogService> catalogFactory, Func<IptvCatalogService, MediaEngine> mediaFactory)
+    {
+        _catalogFactory = catalogFactory;
+        _mediaFactory = mediaFactory;
+    }
+
+    internal HostEngine(IptvCatalogService catalog, MediaEngine? media = null)
+        : this(_ => catalog, value => media ?? MediaEngine.CreateDefault(value, GStreamerRuntime.DiscoverDefault()))
+    {
+    }
+
+    internal HostEngine(MediaEngine media)
+        : this(_ => throw new InvalidOperationException("Test catalog unavailable."), _ => media)
+    {
         _media = media;
+        _activeProfileId = new string('f', 64);
+        _accountContextId = new string('e', 32);
     }
 
-    public void Start()
-    {
-        _iptv?.Initialize();
-        State = HostEngineState.Ready;
-    }
+    public HostEngineState State { get; private set; } = HostEngineState.Stopped;
+    public event EventHandler<MediaSnapshot>? MediaStateChanged;
+    internal string? CurrentAccountContextId => _accountContextId;
+
+    public void Start() => State = HostEngineState.Ready;
 
     public void Stop()
     {
-        _media?.StopAsync().GetAwaiter().GetResult();
-        _authorization = null;
+        ClearAccount();
         State = HostEngineState.Stopped;
     }
+
+    public string ActivateAccount(string profileId)
+    {
+        if (State != HostEngineState.Ready || !ValidProfileId(profileId))
+        {
+            throw new IptvValidationException("Perfil local inválido.");
+        }
+        if (!string.Equals(_activeProfileId, profileId, StringComparison.Ordinal))
+        {
+            ClearAccount();
+            IptvCatalogService? catalog = null;
+            MediaEngine? media = null;
+            try
+            {
+                catalog = _catalogFactory(profileId);
+                catalog.Initialize();
+                media = _mediaFactory(catalog);
+                media.StateChanged += OnMediaStateChanged;
+                _iptv = catalog;
+                _media = media;
+                _activeProfileId = profileId;
+            }
+            catch
+            {
+                if (media is not null)
+                {
+                    media.StateChanged -= OnMediaStateChanged;
+                    media.Dispose();
+                }
+                catalog?.Dispose();
+                throw;
+            }
+        }
+        _accountContextId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        return _accountContextId;
+    }
+
+    public void ClearAccount()
+    {
+        var media = _media;
+        var catalog = _iptv;
+        _accountContextId = null;
+        _authorization = null;
+        _media = null;
+        _iptv = null;
+        _activeProfileId = null;
+        try
+        {
+            if (media is not null)
+            {
+                media.StateChanged -= OnMediaStateChanged;
+                try
+                {
+                    media.StopAsync().GetAwaiter().GetResult();
+                }
+                finally
+                {
+                    media.Dispose();
+                }
+            }
+        }
+        finally
+        {
+            catalog?.Dispose();
+        }
+    }
+
+    public bool IsCurrentAccountContext(string? contextId) =>
+        _accountContextId is not null && contextId is not null && CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.ASCII.GetBytes(_accountContextId),
+            System.Text.Encoding.ASCII.GetBytes(contextId));
 
     public bool Authorize(HostAuthorization authorization)
     {
@@ -35,7 +127,6 @@ public sealed class HostEngine : IDisposable
         {
             return false;
         }
-
         _authorization = authorization;
         return true;
     }
@@ -49,10 +140,12 @@ public sealed class HostEngine : IDisposable
         _authorization = null;
     }
 
-    public HostEngineSnapshot Snapshot()
-    {
-        return HostEngineSnapshot.Create(State, _authorization, _media?.IsAvailable == true, _media?.Runtime.IsWhipAvailable == true);
-    }
+    public HostEngineSnapshot Snapshot() => HostEngineSnapshot.Create(
+        State,
+        _authorization,
+        _accountContextId is not null,
+        _media?.IsAvailable == true,
+        _media?.Runtime.IsWhipAvailable == true);
 
     public IReadOnlyList<IptvSourceSummary> ListIptvSources() => Catalog().ListSources();
     public IptvSourceSummary AddIptvUrl(string name, string location) => Catalog().AddUrlSource(name, location);
@@ -62,6 +155,7 @@ public sealed class HostEngine : IDisposable
     public IReadOnlyList<string> GetIptvGroups(long sourceId) => Catalog().GetGroups(sourceId);
     public IptvChannelSearchResult SearchIptvChannels(long sourceId, string? query, string? group, int offset, int limit) => Catalog().SearchChannels(sourceId, query, group, offset, limit);
     public Task<MediaSnapshot> StartIptvMediaAsync(long channelId, CancellationToken cancellationToken) => Media().StartAsync(channelId, cancellationToken);
+
     public Task<MediaSnapshot> StartIptvPublishAsync(long channelId, CancellationToken cancellationToken)
     {
         if (_authorization is null || _authorization.ExpiresAt <= DateTimeOffset.UtcNow)
@@ -70,31 +164,16 @@ public sealed class HostEngine : IDisposable
         }
         return Media().StartPublishAsync(channelId, () => _authorization, cancellationToken);
     }
+
     public Task<MediaSnapshot> StopIptvMediaAsync() => Media().StopAsync();
     public MediaSnapshot IptvMediaSnapshot() => _media?.Snapshot() ?? MediaSnapshot.Idle;
 
-    private IptvCatalogService Catalog()
-    {
-        if (State != HostEngineState.Ready || _iptv is null)
-        {
-            throw new IptvValidationException("O catálogo IPTV local não está disponível.");
-        }
-        return _iptv;
-    }
+    private IptvCatalogService Catalog() => State == HostEngineState.Ready && _iptv is not null
+        ? _iptv : throw new IptvValidationException("O catálogo IPTV local não está disponível.");
+    private MediaEngine Media() => State == HostEngineState.Ready && _media is not null
+        ? _media : throw new MediaEngineException("media_runtime_unavailable");
+    private void OnMediaStateChanged(object? sender, MediaSnapshot snapshot) => MediaStateChanged?.Invoke(this, snapshot);
+    private static bool ValidProfileId(string value) => value.Length == 64 && value.All(character => character is >= 'a' and <= 'f' or >= '0' and <= '9');
 
-    private MediaEngine Media()
-    {
-        if (State != HostEngineState.Ready || _media is null)
-        {
-            throw new MediaEngineException("media_runtime_unavailable");
-        }
-        return _media;
-    }
-
-    public void Dispose()
-    {
-        Stop();
-        _media?.Dispose();
-        _iptv?.Dispose();
-    }
+    public void Dispose() => Stop();
 }

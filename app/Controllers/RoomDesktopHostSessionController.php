@@ -52,6 +52,9 @@ final class RoomDesktopHostSessionController
         }
 
         $currentUser = $this->authenticatedUser();
+        if ($currentUser === null) {
+            return $this->jsonError('authentication_required', 403);
+        }
         $identity = $this->identityForCurrentAccount($room['code'], $identity, $currentUser);
         if ($identity === null) {
             return $this->jsonError('join_required', 403);
@@ -64,6 +67,9 @@ final class RoomDesktopHostSessionController
         if (($transmission['source_type'] ?? null) !== 'iptv'
             || ($transmission['media_mode'] ?? null) !== 'live') {
             return $this->jsonError('host_session_not_applicable', 409);
+        }
+        if (($transmission['owner_user_id'] ?? null) === null) {
+            return $this->jsonError('authentication_required', 403);
         }
 
         $participantKeyHash = hash('sha256', $identity['participant_key']);

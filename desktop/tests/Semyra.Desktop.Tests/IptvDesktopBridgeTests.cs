@@ -17,7 +17,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         engine.Start();
         const string location = "https://provider.example/user/password/list.m3u";
         var result = await DesktopBridge.TryHandleAsync(
-            $$"""{"type":"semyra.desktop.iptv.sources.add","requestId":"add-1","sourceType":"m3u_url","name":"Minha lista","location":"{{location}}"}""",
+            $$"""{"type":"semyra.desktop.iptv.sources.add","requestId":"add-1","accountContextId":"{{engine.CurrentAccountContextId}}","sourceType":"m3u_url","name":"Minha lista","location":"{{location}}"}""",
             engine,
             () => null);
 
@@ -38,7 +38,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         var engine = Engine();
         engine.Start();
         var result = await DesktopBridge.TryHandleAsync(
-            """{"type":"semyra.desktop.iptv.sources.pick-file","requestId":"pick-1"}""",
+            $$"""{"type":"semyra.desktop.iptv.sources.pick-file","requestId":"pick-1","accountContextId":"{{engine.CurrentAccountContextId}}"}""",
             engine,
             () => playlist);
 
@@ -51,7 +51,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     }
 
     [Theory]
-    [InlineData("{\"type\":\"semyra.desktop.iptv.sources.add\",\"requestId\":\"x\",\"sourceType\":\"m3u_url\",\"name\":\"Fonte\",\"location\":\"file:///private.m3u\"}")]
+    [InlineData("{\"type\":\"semyra.desktop.iptv.sources.add\",\"requestId\":\"x\",\"accountContextId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"sourceType\":\"m3u_url\",\"name\":\"Fonte\",\"location\":\"file:///private.m3u\"}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.sources.remove\",\"requestId\":\"x\",\"sourceId\":0}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.channels.search\",\"requestId\":\"x\",\"sourceId\":1,\"query\":\"\",\"group\":null,\"offset\":0,\"limit\":101}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.sources.list\",\"requestId\":\"x\",\"extra\":true}")]
@@ -59,6 +59,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     {
         var engine = Engine();
         engine.Start();
+        json = json.Replace(new string('e', 32), engine.CurrentAccountContextId, StringComparison.Ordinal);
         var result = await DesktopBridge.TryHandleAsync(json, engine, () => null);
         if (json.Contains("file:///", StringComparison.Ordinal))
         {
@@ -77,11 +78,11 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         var engine = Engine();
         engine.Start();
         var status = await DesktopBridge.TryHandleAsync(
-            """{"type":"semyra.desktop.iptv.media.status","requestId":"media-status"}""",
+            $$"""{"type":"semyra.desktop.iptv.media.status","requestId":"media-status","accountContextId":"{{engine.CurrentAccountContextId}}"}""",
             engine,
             () => null);
         var unavailable = await DesktopBridge.TryHandleAsync(
-            """{"type":"semyra.desktop.iptv.media.start","requestId":"media-start","channelId":1}""",
+            $$"""{"type":"semyra.desktop.iptv.media.start","requestId":"media-start","accountContextId":"{{engine.CurrentAccountContextId}}","channelId":1}""",
             engine,
             () => null);
 
@@ -91,6 +92,34 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         Assert.Contains("media_runtime_unavailable", unavailable.Response);
         Assert.DoesNotContain("http", unavailable.Response, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("location", unavailable.Response, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OldOrWrongAccountContextCannotOperateOnCurrentCatalog()
+    {
+        var engine = Engine();
+        var oldContext = engine.CurrentAccountContextId!;
+        var currentContext = engine.ActivateAccount(new string('a', 64));
+
+        var stale = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.sources.list","requestId":"stale","accountContextId":"{{oldContext}}"}""",
+            engine,
+            () => null);
+        var wrong = await DesktopBridge.TryHandleAsync(
+            """{"type":"semyra.desktop.iptv.sources.list","requestId":"wrong","accountContextId":"ffffffffffffffffffffffffffffffff"}""",
+            engine,
+            () => null);
+        var current = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.sources.list","requestId":"current","accountContextId":"{{currentContext}}"}""",
+            engine,
+            () => null);
+
+        Assert.True(stale.Handled);
+        Assert.Contains("account_context_changed", stale.Response);
+        Assert.True(wrong.Handled);
+        Assert.Contains("account_context_changed", wrong.Response);
+        Assert.True(current.Handled);
+        Assert.Contains("\"ok\":true", current.Response);
     }
 
     public void Dispose()
@@ -107,7 +136,10 @@ public sealed class IptvDesktopBridgeTests : IDisposable
             protector,
             new M3uParser(),
             new HttpClient());
-        return new HostEngine(catalog);
+        var engine = new HostEngine(catalog);
+        engine.Start();
+        engine.ActivateAccount(new string('a', 64));
+        return engine;
     }
 
     private sealed class TestProtector : ISecretProtector

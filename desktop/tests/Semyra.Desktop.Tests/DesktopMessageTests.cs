@@ -42,7 +42,7 @@ public sealed class DesktopMessageTests
         var host = result.RootElement.GetProperty("host");
         Assert.Equal("ready", host.GetProperty("state").GetString());
         Assert.Equal(
-            ["host.status", "host.authorize", "iptv.sources", "iptv.catalog"],
+            ["host.status", "host.authorize"],
             host.GetProperty("capabilities").EnumerateArray().Select(value => value.GetString()));
         Assert.False(host.GetProperty("authorization").GetProperty("authorized").GetBoolean());
     }
@@ -111,15 +111,16 @@ public sealed class DesktopMessageTests
     [Fact]
     public void MediaProtocolAcceptsOnlyChannelIdBoundary()
     {
+        var context = new string('e', 32);
         Assert.True(DesktopMessage.TryReadRequest(
-            """{"type":"semyra.desktop.iptv.media.start","requestId":"media-1","channelId":42}""",
+            $$"""{"type":"semyra.desktop.iptv.media.start","requestId":"media-1","accountContextId":"{{context}}","channelId":42}""",
             out var start));
         Assert.Equal(42, start.Media!.ChannelId);
         Assert.True(DesktopMessage.TryReadRequest(
-            """{"type":"semyra.desktop.iptv.media.stop","requestId":"media-2"}""",
+            $$"""{"type":"semyra.desktop.iptv.media.stop","requestId":"media-2","accountContextId":"{{context}}"}""",
             out _));
         Assert.True(DesktopMessage.TryReadRequest(
-            """{"type":"semyra.desktop.iptv.media.status","requestId":"media-3"}""",
+            $$"""{"type":"semyra.desktop.iptv.media.status","requestId":"media-3","accountContextId":"{{context}}"}""",
             out _));
 
         Assert.False(DesktopMessage.TryReadRequest(
@@ -128,5 +129,21 @@ public sealed class DesktopMessageTests
         Assert.False(DesktopMessage.TryReadRequest(
             """{"type":"semyra.desktop.iptv.media.stop","requestId":"media-5","extra":true}""",
             out _));
+    }
+
+    [Fact]
+    public void AccountProtocolIsStrictAndProducesEphemeralFence()
+    {
+        var profile = new string('a', 64);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.account.activate","requestId":"account-1","profileId":"{{profile}}"}""",
+            out var activate));
+        Assert.Equal(profile, activate.Account!.ProfileId);
+        Assert.True(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.account.clear","requestId":"account-2"}""", out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.account.activate","requestId":"account-3","profileId":"{{profile}}","extra":true}""", out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.account.activate","requestId":"account-4","profileId":"../bad"}""", out _));
     }
 }

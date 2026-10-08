@@ -97,11 +97,14 @@ final class RoomTransmissionController
         if ($room === null) {
             return Response::json(['error' => 'room_not_found'], 404, ['Cache-Control' => 'no-store']);
         }
+        $currentUser = $this->authenticatedUser();
+        if ($currentUser === null) {
+            return Response::json(['error' => 'authentication_required'], 403, ['Cache-Control' => 'no-store']);
+        }
         $identity = $this->participantSession->identityFor($room['code']);
         if ($identity === null) {
             return Response::json(['error' => 'join_required'], 403, ['Cache-Control' => 'no-store']);
         }
-        $currentUser = $this->authenticatedUser();
         $identity = $this->identityForCurrentAccount($room['code'], $identity, $currentUser);
         if ($identity === null) {
             return Response::json(['error' => 'join_required'], 403, ['Cache-Control' => 'no-store']);

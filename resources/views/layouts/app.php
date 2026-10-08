@@ -15,7 +15,7 @@ $currentUser = $currentUser ?? null;
     <title><?= e($title ?? 'Semyra') ?></title>
     <link rel="stylesheet" href="/assets/css/tokens.css?v=8b-identity">
     <link rel="stylesheet" href="/assets/css/app.css?v=11e-media-engine">
-    <script src="/assets/js/desktop-bridge.js?v=11e-media-engine" defer></script>
+    <script src="/assets/js/desktop-bridge.js?v=11g-account-isolation" defer></script>
     <script src="/assets/js/app.js?v=8b-identity" defer></script>
 </head>
 <body>
@@ -23,8 +23,8 @@ $currentUser = $currentUser ?? null;
         <div class="site-header-inner">
             <a class="site-brand" href="/" aria-label="Semyra — início"><img src="/assets/images/logo_semyra_symbol.png?v=8b-polish-2" alt=""><strong>SEMYRA</strong></a>
             <nav class="site-navigation" aria-label="Navegação principal">
-                <a class="account-link desktop-only-link" href="/desktop/iptv" data-desktop-iptv-link hidden>Fontes IPTV</a>
                 <?php if (is_array($currentUser)): ?>
+                    <a class="account-link desktop-only-link" href="/desktop/iptv" data-desktop-iptv-link hidden>Minha IPTV</a>
                     <span class="account-greeting">Olá, <?= e($currentUser['display_name']) ?></span>
                     <a class="account-link" href="/rooms">Minhas salas</a>
                     <form class="account-logout" method="post" action="/logout">

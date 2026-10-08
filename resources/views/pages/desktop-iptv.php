@@ -2,8 +2,8 @@
     <header class="iptv-catalog-header">
         <div>
             <p class="eyebrow">Semyra Desktop</p>
-            <h1 id="iptv-title">Fontes IPTV</h1>
-            <p>Organize suas playlists locais sem enviar credenciais ou endereços ao site.</p>
+            <h1 id="iptv-title">Minha IPTV</h1>
+            <p>Seu catálogo IPTV fica protegido neste dispositivo, sem enviar credenciais ou endereços ao site.</p>
         </div>
     </header>
 
@@ -52,4 +52,4 @@
         </section>
     </div>
 </section>
-<script src="/assets/js/desktop-iptv.js?v=11e-media-engine" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11g-account-isolation" defer></script>

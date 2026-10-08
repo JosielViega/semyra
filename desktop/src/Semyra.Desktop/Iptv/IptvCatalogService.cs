@@ -32,11 +32,11 @@ public sealed class IptvCatalogService : IDisposable
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SemyraDesktop", "1.0"));
     }
 
-    public static IptvCatalogService CreateDefault()
+    public static IptvCatalogService CreateDefault(string profileId)
     {
         var protector = new DpapiSecretProtector();
         return new IptvCatalogService(
-            new IptvStore(IptvPaths.DatabasePath(), protector),
+            new IptvStore(IptvPaths.DatabasePath(profileId), protector),
             protector,
             new M3uParser());
     }

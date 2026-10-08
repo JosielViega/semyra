@@ -107,13 +107,41 @@ final class RoomTransmissionControllerTest extends TestCase
         self::assertSame(self::INSTANCE_A, $body['transmission']['instance_id']);
     }
 
+    public function testGuestCannotStartIptvTransmission(): void
+    {
+        [$controller, $pdo] = $this->controller([]);
+
+        $response = $controller->startIptv('ROOM1234');
+
+        self::assertSame(403, $response->status());
+        self::assertSame('authentication_required', json_decode($response->body(), true)['error']);
+        self::assertSame('youtube', $pdo->transmission['source_type']);
+    }
+
+    public function testAuthenticatedParticipantStartsAccountOwnedIptvTransmission(): void
+    {
+        [$controller, $pdo] = $this->controller([], [], true);
+
+        $response = $controller->startIptv('ROOM1234');
+
+        self::assertSame(201, $response->status());
+        self::assertSame('iptv', $pdo->transmission['source_type']);
+        self::assertSame('live', $pdo->transmission['media_mode']);
+        self::assertSame(9, $pdo->transmission['owner_user_id']);
+    }
+
     /** @return array{RoomTransmissionController, TransmissionControllerPdo} */
-    private function controller(array $body, array $transmissionOverrides = []): array
+    private function controller(array $body, array $transmissionOverrides = [], bool $authenticated = false): array
     {
         $session = new Session(false);
         $csrf = new Csrf($session);
         $participants = new RoomParticipantSession($session);
         $identity = $participants->rememberGuest('ROOM1234', 'Pedro');
+        $auth = new AuthSession($session);
+        if ($authenticated) {
+            $identity = $participants->rememberAccount('ROOM1234', 9, 'Pedro');
+            $auth->login(9);
+        }
         $pdo = new TransmissionControllerPdo(array_replace([
             'room_id' => 7,
             'instance_id' => self::INSTANCE_A,
@@ -149,7 +177,7 @@ final class RoomTransmissionControllerTest extends TestCase
             $playback,
             new RoomTransmissionPresenter($playback),
             new UserRepository($database),
-            new AuthSession($session),
+            $auth,
         ), $pdo];
     }
 
@@ -202,6 +230,23 @@ final class TransmissionControllerStatement extends PDOStatement
                 $this->pdo->transmission = null;
                 $this->affectedRows = 1;
             }
+        } elseif (str_starts_with($this->query, 'INSERT INTO room_transmissions')) {
+            $this->pdo->transmission = array_replace($this->pdo->transmission ?? [], [
+                'room_id' => (int) $this->params['room_id'],
+                'instance_id' => $this->params['instance_id'],
+                'owner_participant_key_hash' => $this->params['owner_participant_key_hash'],
+                'owner_user_id' => $this->params['owner_user_id'],
+                'source_type' => $this->params['source_type'],
+                'youtube_video_id' => $this->params['youtube_video_id'],
+                'media_mode' => $this->params['media_mode'],
+                'revision' => ($this->pdo->transmission['revision'] ?? 0) + 1,
+                'playback_state' => 'playing',
+                'playback_position_ms' => 0,
+                'playback_at_live_edge' => $this->params['playback_at_live_edge'],
+                'playback_revision' => 1,
+                'owner_name' => 'Pedro',
+            ]);
+            $this->affectedRows = 1;
         } elseif (str_starts_with($this->query, 'UPDATE room_transmissions SET playback_state')) {
             if ($this->matchesCurrentContext()
                 && $this->pdo->transmission['playback_revision'] === (int) $this->params['playback_revision']) {
@@ -220,6 +265,11 @@ final class TransmissionControllerStatement extends PDOStatement
     {
         if (str_contains($this->query, 'FROM rooms')) {
             return ['id' => 7, 'code' => 'ROOM1234', 'created_at' => '2026-10-01 12:00:00.000'];
+        }
+        if (str_contains($this->query, 'FROM users')) {
+            return (int) ($this->params['id'] ?? 0) === 9
+                ? ['id' => 9, 'display_name' => 'Pedro', 'email' => 'pedro@example.com', 'created_at' => '2026-10-01', 'updated_at' => '2026-10-01']
+                : false;
         }
         if (str_contains($this->query, 'FROM room_transmissions transmission')) {
             return $this->pdo->transmission ?? false;

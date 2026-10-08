@@ -37,7 +37,13 @@ Release não possui URL implícita e exige `SEMYRA_DESKTOP_URL` HTTPS. HTTP é a
 
 ## Catálogo IPTV local
 
-Fontes M3U por URL HTTP(S) ou arquivo podem ser cadastradas na tela **Fontes IPTV**, visível somente quando a WebView confirma as capabilities nativas. Metadados e canais ficam em `%LOCALAPPDATA%\Semyra\Data\semyra.db`, fora do perfil WebView2. A localização da fonte e cada URL de stream são protegidas com Windows DPAPI no escopo `CurrentUser`; respostas à WebView nunca contêm esses valores.
+O recurso **Minha IPTV** exige uma conta Semyra autenticada, mas continua gratuito e sem qualquer regra Premium. O backend fornece ao Desktop somente um `desktop_profile_id` opaco, aleatório e estável; ele não é credencial nem autoriza operações. Cada ativação cria ainda um `accountContextId` efêmero que protege os comandos nativos contra páginas e `channelId` antigos.
+
+Cada conta usa um banco fisicamente separado em `%LOCALAPPDATA%\Semyra\Data\Profiles\<desktop_profile_id>\semyra.db`. URLs, arquivos, credenciais, canais e catálogo permanecem somente nesse computador e continuam protegidos por DPAPI `CurrentUser`; nada disso é sincronizado com o servidor. O banco legado sem dono em `%LOCALAPPDATA%\Semyra\Data\semyra.db` não é lido, apagado nem associado automaticamente a qualquer conta.
+
+Logout ou troca de conta invalida imediatamente o contexto, para mídia/publicação, limpa a autorização e desmonta catálogo e Media Engine. Reativar a mesma conta restaura seu catálogo local; a mesma conta em outro computador possui catálogo independente.
+
+Fontes M3U por URL HTTP(S) ou arquivo podem ser cadastradas na tela **Minha IPTV**, visível somente quando a sessão web está autenticada e a WebView confirma o contexto da conta e as capabilities nativas. A localização da fonte e cada URL de stream são protegidas com Windows DPAPI no escopo `CurrentUser`; respostas à WebView nunca contêm esses valores.
 
 O refresh lê a playlist em streaming e só substitui o catálogo da fonte em uma transação SQLite válida. A interface consulta grupos e canais com busca e paginação limitada, sem carregar o catálogo inteiro.
 
@@ -53,8 +59,8 @@ O aplicativo procura primeiro `runtime/gstreamer/bin` ao lado do executável. Em
 
 ## Fronteira futura
 
-O Desktop possui a camada WebView/UI, uma ponte `postMessage` allowlisted na versão 1 e um Host Engine local in-process. Ele nasce parado, acompanha o lifecycle da janela e anuncia somente `host.status`, `host.authorize`, `iptv.sources` e `iptv.catalog`. Seu snapshot não inclui identidade, dados da máquina nem credenciais.
+O Desktop possui a camada WebView/UI, uma ponte `postMessage` allowlisted na versão 1 e um Host Engine local in-process. Sem conta ativa ele anuncia somente `host.status` e `host.authorize`; as capabilities IPTV aparecem apenas depois de `account.activate`. Seu snapshot não inclui `desktop_profile_id`, identidade, dados da máquina nem credenciais.
 
-Para uma futura publicação de mídia, o backend pode emitir uma Host Session curta de `media.publish`, ligada à sala, instance, revision e owner atuais. O validator fica somente como hash no banco; o token bruto chega ao Host Engine apenas em memória, é substituído por uma autorização nova e é apagado por `clear` ou `Stop()`. Segredos globais do bridge worker nunca são enviados ao cliente.
+Para a publicação de mídia, o backend emite uma Host Session curta de `media.publish`, ligada à sala, instance, revision e owner atuais. O validator fica somente como hash no banco; o token bruto chega ao Host Engine apenas em memória, é substituído por uma autorização nova e é apagado por `clear` ou `Stop()`. Segredos globais do bridge worker nunca são enviados ao cliente.
 
-Ainda não existem Xtream, EPG, gravação ou distribuição do runtime GStreamer. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.
+Ainda não existem Premium, player visual local, Xtream, EPG, gravação ou distribuição do runtime GStreamer. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.

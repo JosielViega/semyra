@@ -73,6 +73,20 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
         self::assertStringContainsString('e assista junto com seus amigos.', $html);
         self::assertStringContainsString('<use href="#room-icon-video-plus"></use>', $html);
+        self::assertStringNotContainsString('data-desktop-publish-tabs', $html);
+        self::assertStringNotContainsString('data-iptv-source-panel', $html);
+    }
+
+    public function testAuthenticatedParticipantGetsDesktopIptvControlsInRoomMarkup(): void
+    {
+        $html = $this->renderRoom([
+            'identity' => array_replace($this->identity(), ['user_id' => 7]),
+            'currentUser' => ['id' => 7, 'display_name' => 'Josiel'],
+        ]);
+
+        self::assertStringContainsString('data-desktop-publish-tabs', $html);
+        self::assertStringContainsString('data-iptv-source-panel', $html);
+        self::assertStringContainsString('IPTV local', $html);
     }
 
     public function testOwnerSeesActiveTransmissionHudAndEndAction(): void

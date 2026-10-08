@@ -72,6 +72,47 @@ final class UserRepository
         return (int) $this->database->connection()->lastInsertId();
     }
 
+    public function ensureDesktopProfileId(int $userId): ?string
+    {
+        if ($userId < 1) {
+            return null;
+        }
+        $connection = $this->database->connection();
+        for ($attempt = 0; $attempt < 3; ++$attempt) {
+            $existing = $this->desktopProfileId($userId);
+            if ($existing !== null) {
+                return $existing;
+            }
+            $candidate = bin2hex(random_bytes(32));
+            $statement = $connection->prepare(
+                'UPDATE users SET desktop_profile_id = :profile_id WHERE id = :id AND desktop_profile_id IS NULL',
+            );
+            try {
+                $statement->execute(['profile_id' => $candidate, 'id' => $userId]);
+            } catch (PDOException $exception) {
+                if (!$this->isDuplicateEntry($exception)) {
+                    throw $exception;
+                }
+                continue;
+            }
+            $stored = $this->desktopProfileId($userId);
+            if ($stored !== null) {
+                return $stored;
+            }
+        }
+        return $this->desktopProfileId($userId);
+    }
+
+    private function desktopProfileId(int $userId): ?string
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT desktop_profile_id FROM users WHERE id = :id LIMIT 1',
+        );
+        $statement->execute(['id' => $userId]);
+        $value = $statement->fetchColumn();
+        return is_string($value) && preg_match('/^[a-f0-9]{64}$/D', $value) === 1 ? $value : null;
+    }
+
     private function normalizeEmail(string $email): string
     {
         return strtolower(trim($email));
@@ -94,6 +135,11 @@ final class UserRepository
     }
 
     private function isDuplicateEmail(PDOException $exception): bool
+    {
+        return $this->isDuplicateEntry($exception);
+    }
+
+    private function isDuplicateEntry(PDOException $exception): bool
     {
         return ($exception->errorInfo[0] ?? null) === '23000'
             && (int) ($exception->errorInfo[1] ?? 0) === self::MYSQL_DUPLICATE_ENTRY;

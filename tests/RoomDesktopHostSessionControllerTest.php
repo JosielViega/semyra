@@ -29,24 +29,11 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
         $_SESSION = [];
     }
 
-    public function testGuestOwnerReceivesBoundTokenWithNoStoreHeaders(): void
+    public function testGuestOwnerIsRejected(): void
     {
-        [$controller, $pdo] = $this->controller();
+        [$controller] = $this->controller(authenticated: false);
         $response = $controller->issue('ROOM2345');
-        $body = json_decode($response->body(), true, flags: JSON_THROW_ON_ERROR);
-
-        self::assertSame(201, $response->status());
-        self::assertSame('media.publish', $body['permission']);
-        self::assertSame(self::INSTANCE, $body['transmission_instance_id']);
-        self::assertSame(3, $body['transmission_revision']);
-        self::assertMatchesRegularExpression('/^[a-f0-9]{32}\.[a-f0-9]{64}$/', $body['host_session_token']);
-        self::assertSame('no-store', $response->headers()['Cache-Control']);
-        self::assertSame('no-cache', $response->headers()['Pragma']);
-        self::assertSame('nosniff', $response->headers()['X-Content-Type-Options']);
-        [$selector, $validator] = explode('.', $body['host_session_token'], 2);
-        self::assertSame(hash('sha256', $validator), $pdo->sessions[$selector]['validator_hash']);
-        self::assertArrayNotHasKey('owner_user_id', $body);
-        self::assertArrayNotHasKey('owner_participant_key_hash', $body);
+        $this->assertError($response, 403, 'authentication_required');
     }
 
     public function testAuthenticatedOwnerIsAccepted(): void
@@ -100,7 +87,7 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
     /** @return array{RoomDesktopHostSessionController, DesktopHostSessionPdo} */
     private function controller(
         bool $validCsrf = true,
-        bool $authenticated = false,
+        bool $authenticated = true,
         bool $owner = true,
         string $source = 'iptv',
         string $mediaMode = 'live',

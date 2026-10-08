@@ -31,8 +31,12 @@ final class DesktopIptvController
             }
         }
 
+        if ($currentUser === null) {
+            return Response::redirect('/login', 303);
+        }
+
         return Response::html($this->view->render('pages/desktop-iptv', [
-            'title' => 'Fontes IPTV — Semyra',
+            'title' => 'Minha IPTV — Semyra',
             'csrfField' => $this->csrf->field(),
             'currentUser' => $currentUser,
         ]));

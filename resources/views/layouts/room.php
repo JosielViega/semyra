@@ -13,7 +13,7 @@ declare(strict_types=1);
     <title><?= e($title ?? 'Semyra') ?></title>
     <link rel="stylesheet" href="/assets/css/tokens.css?v=8b-identity">
     <link rel="stylesheet" href="/assets/css/room.css?v=8b-polish-2">
-    <script src="/assets/js/desktop-bridge.js?v=11c-host-session" defer></script>
+    <script src="/assets/js/desktop-bridge.js?v=11g-account-isolation" defer></script>
 </head>
 <body class="room-body">
     <?= $content ?>

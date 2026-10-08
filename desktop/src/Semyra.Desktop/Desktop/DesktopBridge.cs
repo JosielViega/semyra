@@ -27,6 +27,8 @@ public static class DesktopBridge
                 request.Authorization!,
                 hostEngine.Authorize(request.Authorization!)),
             DesktopMessage.HostClearType => CreateHostClearResult(request.RequestId, hostEngine),
+            DesktopMessage.AccountActivateType => CreateAccountActivateResult(request.RequestId, hostEngine, request.Account!.ProfileId!),
+            DesktopMessage.AccountClearType => CreateAccountClearResult(request.RequestId, hostEngine),
             _ => string.Empty,
         };
 
@@ -53,6 +55,11 @@ public static class DesktopBridge
             return TryHandle(json, hostEngine, out var response)
                 ? (true, response)
                 : (false, string.Empty);
+        }
+
+        if (!hostEngine.IsCurrentAccountContext(request.Iptv.AccountContextId))
+        {
+            return (true, Error(ResultType(request.Type), request.RequestId, "account_context_changed"));
         }
 
         try
@@ -111,6 +118,10 @@ public static class DesktopBridge
         HostEngine hostEngine,
         CancellationToken cancellationToken)
     {
+        if (!hostEngine.IsCurrentAccountContext(request.Media!.AccountContextId))
+        {
+            return (true, MediaError(ResultType(request.Type), request.RequestId, "account_context_changed"));
+        }
         try
         {
             var snapshot = request.Type switch
@@ -139,7 +150,7 @@ public static class DesktopBridge
         }
     }
 
-    public static string CreateMediaStateEvent(MediaSnapshot snapshot)
+    public static string CreateMediaStateEvent(MediaSnapshot snapshot, string? accountContextId = null)
     {
         return JsonSerializer.Serialize(new
         {
@@ -151,6 +162,7 @@ public static class DesktopBridge
             attempt = snapshot.Attempt,
             errorCode = snapshot.LastErrorCode,
             mode = snapshot.Mode,
+            accountContextId,
         }, JsonOptions);
     }
 
@@ -213,6 +225,45 @@ public static class DesktopBridge
         return JsonSerializer.Serialize(new
         {
             type = DesktopMessage.HostClearResultType,
+            requestId,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            cleared = true,
+        }, JsonOptions);
+    }
+
+    private static string CreateAccountActivateResult(string requestId, HostEngine hostEngine, string profileId)
+    {
+        try
+        {
+            var contextId = hostEngine.ActivateAccount(profileId);
+            return JsonSerializer.Serialize(new
+            {
+                type = DesktopMessage.AccountActivateResultType,
+                requestId,
+                protocolVersion = DesktopMessage.ProtocolVersion,
+                activated = true,
+                accountContextId = contextId,
+            }, JsonOptions);
+        }
+        catch
+        {
+            return JsonSerializer.Serialize(new
+            {
+                type = DesktopMessage.AccountActivateResultType,
+                requestId,
+                protocolVersion = DesktopMessage.ProtocolVersion,
+                activated = false,
+                errorCode = "account_context_unavailable",
+            }, JsonOptions);
+        }
+    }
+
+    private static string CreateAccountClearResult(string requestId, HostEngine hostEngine)
+    {
+        hostEngine.ClearAccount();
+        return JsonSerializer.Serialize(new
+        {
+            type = DesktopMessage.AccountClearResultType,
             requestId,
             protocolVersion = DesktopMessage.ProtocolVersion,
             cleared = true,

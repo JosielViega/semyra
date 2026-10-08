@@ -42,7 +42,7 @@ public sealed class HostEngineTests
         var snapshot = engine.Snapshot();
 
         Assert.Equal("ready", snapshot.State);
-        Assert.Equal(["host.status", "host.authorize", "iptv.sources", "iptv.catalog"], snapshot.Capabilities);
+        Assert.Equal(["host.status", "host.authorize"], snapshot.Capabilities);
         Assert.False(snapshot.Authorization.Authorized);
     }
 

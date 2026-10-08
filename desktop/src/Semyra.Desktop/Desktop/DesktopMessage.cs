@@ -15,6 +15,10 @@ public static partial class DesktopMessage
     public const string HostAuthorizeResultType = "semyra.desktop.host.authorize-result";
     public const string HostClearType = "semyra.desktop.host.clear";
     public const string HostClearResultType = "semyra.desktop.host.clear-result";
+    public const string AccountActivateType = "semyra.desktop.account.activate";
+    public const string AccountActivateResultType = "semyra.desktop.account.activate-result";
+    public const string AccountClearType = "semyra.desktop.account.clear";
+    public const string AccountClearResultType = "semyra.desktop.account.clear-result";
     public const string IptvSourcesListType = "semyra.desktop.iptv.sources.list";
     public const string IptvSourcesListResultType = "semyra.desktop.iptv.sources.list-result";
     public const string IptvSourcesAddType = "semyra.desktop.iptv.sources.add";
@@ -72,7 +76,7 @@ public static partial class DesktopMessage
                 return false;
             }
 
-            if (type is PingType or HostStatusType or HostClearType)
+            if (type is PingType or HostStatusType or HostClearType or AccountClearType)
             {
                 if (properties.Count != 2)
                 {
@@ -83,39 +87,50 @@ public static partial class DesktopMessage
                 return true;
             }
 
-            if (type is IptvSourcesListType or IptvSourcesPickFileType)
+            if (type == AccountActivateType)
             {
-                if (properties.Count != 2)
+                if (properties.Count != 3 || !TryString(properties, "profileId", out var profileId) || !ProfileIdPattern().IsMatch(profileId))
                 {
                     return false;
                 }
-                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest());
+                request = new DesktopRequest(type, requestId, Account: new AccountRequest(profileId));
+                return true;
+            }
+
+            if (type is IptvSourcesListType or IptvSourcesPickFileType)
+            {
+                if (properties.Count != 3 || !TryAccountContext(properties, out var contextId))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(AccountContextId: contextId));
                 return true;
             }
 
             if (type is IptvMediaStopType or IptvMediaStatusType or IptvPublishStopType or IptvPublishStatusType)
             {
-                if (properties.Count != 2)
+                if (properties.Count != 3 || !TryAccountContext(properties, out var contextId))
                 {
                     return false;
                 }
-                request = new DesktopRequest(type, requestId, Media: new MediaRequest());
+                request = new DesktopRequest(type, requestId, Media: new MediaRequest(AccountContextId: contextId));
                 return true;
             }
 
             if (type is IptvMediaStartType or IptvPublishStartType)
             {
-                if (properties.Count != 3 || !TryPositiveInt64(properties, "channelId", out var channelId))
+                if (properties.Count != 4 || !TryPositiveInt64(properties, "channelId", out var channelId) || !TryAccountContext(properties, out var contextId))
                 {
                     return false;
                 }
-                request = new DesktopRequest(type, requestId, Media: new MediaRequest(channelId));
+                request = new DesktopRequest(type, requestId, Media: new MediaRequest(channelId, contextId));
                 return true;
             }
 
             if (type == IptvSourcesAddType)
             {
-                if (properties.Count != 5
+                if (properties.Count != 6
+                    || !TryAccountContext(properties, out var contextId)
                     || !TryString(properties, "sourceType", out var sourceType)
                     || sourceType != "m3u_url"
                     || !TryString(properties, "name", out var name)
@@ -125,23 +140,24 @@ public static partial class DesktopMessage
                 {
                     return false;
                 }
-                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(Name: name, Location: location));
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(Name: name, Location: location, AccountContextId: contextId));
                 return true;
             }
 
             if (type is IptvSourcesRemoveType or IptvSourcesRefreshType or IptvCatalogGroupsType)
             {
-                if (properties.Count != 3 || !TryPositiveInt64(properties, "sourceId", out var sourceId))
+                if (properties.Count != 4 || !TryPositiveInt64(properties, "sourceId", out var sourceId) || !TryAccountContext(properties, out var contextId))
                 {
                     return false;
                 }
-                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId));
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, AccountContextId: contextId));
                 return true;
             }
 
             if (type == IptvCatalogSearchType)
             {
-                if (properties.Count != 7
+                if (properties.Count != 8
+                    || !TryAccountContext(properties, out var contextId)
                     || !TryPositiveInt64(properties, "sourceId", out var sourceId)
                     || !TryNullableString(properties, "query", 120, out var query)
                     || !TryNullableString(properties, "group", 240, out var group)
@@ -150,7 +166,7 @@ public static partial class DesktopMessage
                 {
                     return false;
                 }
-                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(sourceId, Query: query, Group: group, Offset: offset, Limit: limit));
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(sourceId, Query: query, Group: group, Offset: offset, Limit: limit, AccountContextId: contextId));
                 return true;
             }
 
@@ -202,6 +218,9 @@ public static partial class DesktopMessage
             && element.TryGetInt64(out value)
             && value > 0;
     }
+
+    private static bool TryAccountContext(IReadOnlyDictionary<string, JsonElement> properties, out string contextId) =>
+        TryString(properties, "accountContextId", out contextId) && AccountContextIdPattern().IsMatch(contextId);
 
     private static bool TryInt32(IReadOnlyDictionary<string, JsonElement> properties, string name, out int value)
     {
@@ -256,4 +275,10 @@ public static partial class DesktopMessage
 
     [GeneratedRegex("^[a-f0-9]{32}$", RegexOptions.CultureInvariant)]
     private static partial Regex InstanceIdPattern();
+
+    [GeneratedRegex("^[a-f0-9]{64}$", RegexOptions.CultureInvariant)]
+    private static partial Regex ProfileIdPattern();
+
+    [GeneratedRegex("^[a-f0-9]{32}$", RegexOptions.CultureInvariant)]
+    private static partial Regex AccountContextIdPattern();
 }

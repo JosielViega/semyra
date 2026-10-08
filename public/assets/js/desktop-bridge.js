@@ -22,6 +22,10 @@
     const HOST_AUTHORIZE_RESULT_TYPE = 'semyra.desktop.host.authorize-result';
     const HOST_CLEAR_TYPE = 'semyra.desktop.host.clear';
     const HOST_CLEAR_RESULT_TYPE = 'semyra.desktop.host.clear-result';
+    const ACCOUNT_ACTIVATE_TYPE = 'semyra.desktop.account.activate';
+    const ACCOUNT_ACTIVATE_RESULT_TYPE = 'semyra.desktop.account.activate-result';
+    const ACCOUNT_CLEAR_TYPE = 'semyra.desktop.account.clear';
+    const ACCOUNT_CLEAR_RESULT_TYPE = 'semyra.desktop.account.clear-result';
     const IPTV_COMMANDS = Object.freeze({
         list: ['semyra.desktop.iptv.sources.list', 'semyra.desktop.iptv.sources.list-result'],
         'add-url': ['semyra.desktop.iptv.sources.add', 'semyra.desktop.iptv.sources.add-result'],
@@ -59,6 +63,9 @@
         let authorizationRequestId = null;
         let authorizationContext = null;
         let clearRequestId = null;
+        let accountRequestId = null;
+        let accountAction = null;
+        let accountContextId = null;
         let webview = null;
         let listening = false;
         let rememberControl = null;
@@ -154,8 +161,55 @@
             });
             target.dispatchEvent(new target.CustomEvent('semyra:desktop-ready', {detail}));
 
+            void resolveAccountContext();
+        }
+
+        async function resolveAccountContext() {
+            let profileId = null;
+            try {
+                const response = await target.fetch('/desktop/account-context', {
+                    method: 'GET', credentials: 'same-origin', cache: 'no-store',
+                    headers: {'Accept': 'application/json'},
+                });
+                const payload = await response.json();
+                if (response.ok && typeof payload?.profile_id === 'string' && /^[a-f0-9]{64}$/.test(payload.profile_id)) {
+                    profileId = payload.profile_id;
+                }
+            } catch (_) {
+                profileId = null;
+            }
+            accountRequestId = createRequestId(target);
+            accountAction = profileId === null ? 'clear' : 'activate';
+            webview.postMessage(profileId === null
+                ? {type: ACCOUNT_CLEAR_TYPE, requestId: accountRequestId}
+                : {type: ACCOUNT_ACTIVATE_TYPE, requestId: accountRequestId, profileId});
+        }
+
+        function requestHostStatus() {
             hostRequestId = createRequestId(target);
             webview.postMessage({type: HOST_STATUS_TYPE, requestId: hostRequestId});
+        }
+
+        function receiveAccountResult(message) {
+            if (message.requestId !== accountRequestId || message.protocolVersion !== PROTOCOL_VERSION) return;
+            if (accountAction === 'activate') {
+                if (message.type !== ACCOUNT_ACTIVATE_RESULT_TYPE || message.activated !== true
+                    || typeof message.accountContextId !== 'string' || !/^[a-f0-9]{32}$/.test(message.accountContextId)) {
+                    accountRequestId = createRequestId(target);
+                    accountAction = 'clear';
+                    accountContextId = null;
+                    webview.postMessage({type: ACCOUNT_CLEAR_TYPE, requestId: accountRequestId});
+                    return;
+                }
+                accountContextId = message.accountContextId;
+            } else if (message.type === ACCOUNT_CLEAR_RESULT_TYPE && message.cleared === true) {
+                accountContextId = null;
+            } else {
+                return;
+            }
+            accountRequestId = null;
+            accountAction = null;
+            requestHostStatus();
         }
 
         function receiveHostStatus(message) {
@@ -168,12 +222,12 @@
                 || typeof host !== 'object'
                 || host.state !== 'ready'
                 || !Array.isArray(host.capabilities)
-                || ![4, 5, 7].includes(host.capabilities.length)
+                || ![2, 4, 5, 7].includes(host.capabilities.length)
                 || new Set(host.capabilities).size !== host.capabilities.length
                 || host.capabilities[0] !== 'host.status'
                 || host.capabilities[1] !== 'host.authorize'
-                || host.capabilities[2] !== 'iptv.sources'
-                || host.capabilities[3] !== 'iptv.catalog'
+                || (host.capabilities.length >= 4
+                    && (host.capabilities[2] !== 'iptv.sources' || host.capabilities[3] !== 'iptv.catalog'))
                 || (host.capabilities.length === 5 && host.capabilities[4] !== 'iptv.play')
                 || (host.capabilities.length === 7
                     && (host.capabilities[4] !== 'iptv.play'
@@ -191,7 +245,8 @@
                 authorization: safeAuthorization(host.authorization),
             });
             const document = target && target.document;
-            if (document && typeof document.querySelectorAll === 'function') {
+            if (accountContextId !== null && host.capabilities.includes('iptv.sources')
+                && document && typeof document.querySelectorAll === 'function') {
                 document.querySelectorAll('[data-desktop-iptv-link]').forEach(function (link) {
                     link.hidden = false;
                 });
@@ -322,7 +377,7 @@
         }
 
         function requestIptv(event) {
-            if (!hostSnapshot
+            if (!accountContextId || !hostSnapshot
                 || !hostSnapshot.capabilities.includes('iptv.sources')
                 || !hostSnapshot.capabilities.includes('iptv.catalog')) {
                 return;
@@ -334,7 +389,7 @@
                 return;
             }
 
-            const request = {type: command[0], requestId: createRequestId(target)};
+            const request = {type: command[0], requestId: createRequestId(target), accountContextId};
             if (action === 'add-url') {
                 if (typeof detail.name !== 'string' || detail.name.length < 1 || detail.name.length > 100
                     || typeof detail.location !== 'string' || detail.location.length < 1 || detail.location.length > 4096) {
@@ -368,7 +423,7 @@
                 }
             }
 
-            iptvRequests.set(request.requestId, Object.freeze({action, resultType: command[1]}));
+            iptvRequests.set(request.requestId, Object.freeze({action, resultType: command[1], accountContextId}));
             webview.postMessage(request);
         }
 
@@ -394,7 +449,7 @@
         function receiveIptv(message) {
             const pending = iptvRequests.get(message.requestId);
             if (!pending || message.type !== pending.resultType || message.protocolVersion !== PROTOCOL_VERSION
-                || typeof message.ok !== 'boolean') {
+                || pending.accountContextId !== accountContextId || typeof message.ok !== 'boolean') {
                 return;
             }
             iptvRequests.delete(message.requestId);
@@ -448,7 +503,7 @@
         }
 
         function receiveMediaState(message) {
-            if (!ready || message.protocolVersion !== PROTOCOL_VERSION) {
+            if (!ready || message.protocolVersion !== PROTOCOL_VERSION || message.accountContextId !== accountContextId) {
                 return;
             }
             target.dispatchEvent(new target.CustomEvent('semyra:iptv-media-state', {
@@ -474,6 +529,10 @@
                     break;
                 case HOST_CLEAR_RESULT_TYPE:
                     receiveHostClear(message);
+                    break;
+                case ACCOUNT_ACTIVATE_RESULT_TYPE:
+                case ACCOUNT_CLEAR_RESULT_TYPE:
+                    receiveAccountResult(message);
                     break;
                 case IPTV_MEDIA_STATE_TYPE:
                     receiveMediaState(message);
@@ -504,6 +563,12 @@
                 target.addEventListener('semyra:host-clear-request', requestClear);
                 target.addEventListener('semyra:iptv-request', requestIptv);
             }
+            const logoutForm = target.document?.querySelector?.('form.account-logout[action="/logout"]');
+            logoutForm?.addEventListener?.('submit', function () {
+                accountContextId = null;
+                iptvRequests.clear();
+                webview.postMessage({type: ACCOUNT_CLEAR_TYPE, requestId: createRequestId(target)});
+            });
             webview.postMessage({type: PING_TYPE, requestId});
             return true;
         }
@@ -528,6 +593,10 @@
         HOST_AUTHORIZE_RESULT_TYPE,
         HOST_CLEAR_TYPE,
         HOST_CLEAR_RESULT_TYPE,
+        ACCOUNT_ACTIVATE_TYPE,
+        ACCOUNT_ACTIVATE_RESULT_TYPE,
+        ACCOUNT_CLEAR_TYPE,
+        ACCOUNT_CLEAR_RESULT_TYPE,
         PROTOCOL_VERSION,
         IPTV_COMMANDS,
         IPTV_MEDIA_STATE_TYPE,
