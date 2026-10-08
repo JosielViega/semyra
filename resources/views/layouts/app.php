@@ -14,8 +14,8 @@ $currentUser = $currentUser ?? null;
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($title ?? 'Semyra') ?></title>
     <link rel="stylesheet" href="/assets/css/tokens.css?v=8b-identity">
-    <link rel="stylesheet" href="/assets/css/app.css?v=11e-media-engine">
-    <script src="/assets/js/desktop-bridge.js?v=11g-account-isolation" defer></script>
+    <link rel="stylesheet" href="/assets/css/app.css?v=11h-a-local-view">
+    <script src="/assets/js/desktop-bridge.js?v=11h-a-local-view" defer></script>
     <script src="/assets/js/app.js?v=8b-identity" defer></script>
 </head>
 <body>

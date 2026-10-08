@@ -17,7 +17,8 @@ public sealed class GStreamerRuntimeTests : IDisposable
         Assert.True(runtime.IsAvailable);
         Assert.True(runtime.IsWhipAvailable);
         Assert.Equal("GStreamer 1.26.11", runtime.Snapshot.Version);
-        Assert.Equal([.. GStreamerRuntime.RequiredElements, "whipsink"], runner.Inspected);
+        Assert.True(runtime.IsLocalViewAvailable);
+        Assert.Equal([.. GStreamerRuntime.RequiredElements, "whipsink", .. GStreamerRuntime.LocalViewElements], runner.Inspected);
         Assert.StartsWith(binaryDirectory, runtime.LaunchPath, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -29,7 +30,19 @@ public sealed class GStreamerRuntimeTests : IDisposable
 
         Assert.True(runtime.IsAvailable);
         Assert.False(runtime.IsWhipAvailable);
+        Assert.True(runtime.IsLocalViewAvailable);
         Assert.Null(runtime.Snapshot.ErrorCode);
+    }
+
+    [Fact]
+    public void MissingHlsElementPreservesBaseAndWhipCapabilities()
+    {
+        CreateExecutables();
+        var runtime = GStreamerRuntime.Discover(_directory, new RecordingRunner("hlssink"));
+
+        Assert.True(runtime.IsAvailable);
+        Assert.True(runtime.IsWhipAvailable);
+        Assert.False(runtime.IsLocalViewAvailable);
     }
 
     [Fact]

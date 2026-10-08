@@ -43,13 +43,15 @@
                 <button type="button" class="button-secondary" data-iptv-next disabled>Próxima</button>
             </div>
             <aside class="iptv-media-panel" data-iptv-media-panel aria-labelledby="iptv-media-title">
-                <div>
-                    <h3 id="iptv-media-title">Teste local do canal</h3>
+                <div class="iptv-player-copy">
+                    <h3 id="iptv-media-title">Player local</h3>
                     <p data-iptv-media-status role="status" aria-live="polite">Runtime de mídia indisponível.</p>
                 </div>
-                <button type="button" class="button-secondary" data-iptv-media-stop disabled>Parar teste</button>
+                <video data-iptv-video controls playsinline preload="none" hidden></video>
+                <button type="button" class="button-secondary" data-iptv-media-stop disabled>Parar</button>
             </aside>
         </section>
     </div>
 </section>
-<script src="/assets/js/desktop-iptv.js?v=11g-account-isolation" defer></script>
+<script src="/assets/vendor/hls/hls.min.js?v=1.7.3" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11h-a-local-view" defer></script>

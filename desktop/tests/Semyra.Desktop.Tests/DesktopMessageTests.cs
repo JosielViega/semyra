@@ -68,18 +68,19 @@ public sealed class DesktopMessageTests
     }
 
     [Fact]
-    public void ClearIsIdempotentAndDoesNotStopHost()
+    public async Task ClearIsIdempotentAndDoesNotStopHost()
     {
         var hostEngine = new HostEngine();
         hostEngine.Start();
 
         foreach (var requestId in new[] { "clear-1", "clear-2" })
         {
-            Assert.True(DesktopBridge.TryHandle(
+            var result = await DesktopBridge.TryHandleAsync(
                 $$"""{"type":"semyra.desktop.host.clear","requestId":"{{requestId}}"}""",
                 hostEngine,
-                out var response));
-            Assert.Contains("semyra.desktop.host.clear-result", response);
+                () => null);
+            Assert.True(result.Handled);
+            Assert.Contains("semyra.desktop.host.clear-result", result.Response);
         }
 
         Assert.Equal(HostEngineState.Ready, hostEngine.State);
@@ -122,12 +123,25 @@ public sealed class DesktopMessageTests
         Assert.True(DesktopMessage.TryReadRequest(
             $$"""{"type":"semyra.desktop.iptv.media.status","requestId":"media-3","accountContextId":"{{context}}"}""",
             out _));
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.view.start","requestId":"view-1","accountContextId":"{{context}}","channelId":42}""",
+            out var view));
+        Assert.Equal(42, view.Media!.ChannelId);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.view.stop","requestId":"view-2","accountContextId":"{{context}}"}""",
+            out _));
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.view.status","requestId":"view-3","accountContextId":"{{context}}"}""",
+            out _));
 
         Assert.False(DesktopMessage.TryReadRequest(
             """{"type":"semyra.desktop.iptv.media.start","requestId":"media-4","channelId":42,"url":"https://private.example/live"}""",
             out _));
         Assert.False(DesktopMessage.TryReadRequest(
             """{"type":"semyra.desktop.iptv.media.stop","requestId":"media-5","extra":true}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.view.start","requestId":"view-4","accountContextId":"{{context}}","channelId":42,"url":"https://private.example/live"}""",
             out _));
     }
 

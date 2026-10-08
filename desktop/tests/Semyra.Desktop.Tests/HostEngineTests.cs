@@ -22,13 +22,13 @@ public sealed class HostEngineTests
     }
 
     [Fact]
-    public void StopTransitionsToStoppedAndIsIdempotent()
+    public async Task StopTransitionsToStoppedAndIsIdempotent()
     {
         var engine = new HostEngine();
         engine.Start();
 
-        engine.Stop();
-        engine.Stop();
+        await engine.StopAsync();
+        await engine.StopAsync();
 
         Assert.Equal(HostEngineState.Stopped, engine.State);
     }
@@ -44,6 +44,22 @@ public sealed class HostEngineTests
         Assert.Equal("ready", snapshot.State);
         Assert.Equal(["host.status", "host.authorize"], snapshot.Capabilities);
         Assert.False(snapshot.Authorization.Authorized);
+    }
+
+    [Fact]
+    public void LocalViewAndWhipCapabilitiesRemainIndependent()
+    {
+        var localOnly = HostEngineSnapshot.Create(
+            HostEngineState.Ready, null, accountActive: true, mediaAvailable: true,
+            whipAvailable: false, localViewAvailable: true);
+        var publishWithoutHls = HostEngineSnapshot.Create(
+            HostEngineState.Ready, null, accountActive: true, mediaAvailable: true,
+            whipAvailable: true, localViewAvailable: false);
+
+        Assert.Contains("iptv.local-view", localOnly.Capabilities);
+        Assert.DoesNotContain("livekit.publish", localOnly.Capabilities);
+        Assert.DoesNotContain("iptv.local-view", publishWithoutHls.Capabilities);
+        Assert.Contains("livekit.publish", publishWithoutHls.Capabilities);
     }
 
     [Fact]
@@ -65,27 +81,27 @@ public sealed class HostEngineTests
     }
 
     [Fact]
-    public void ClearIsIdempotentAndKeepsEngineReady()
+    public async Task ClearIsIdempotentAndKeepsEngineReady()
     {
         var engine = new HostEngine();
         engine.Start();
         engine.Authorize(Authorization("a", 1));
 
-        engine.ClearAuthorization();
-        engine.ClearAuthorization();
+        await engine.ClearAuthorizationAsync();
+        await engine.ClearAuthorizationAsync();
 
         Assert.Equal(HostEngineState.Ready, engine.State);
         Assert.False(engine.Snapshot().Authorization.Authorized);
     }
 
     [Fact]
-    public void StopClearsAuthorization()
+    public async Task StopClearsAuthorization()
     {
         var engine = new HostEngine();
         engine.Start();
         engine.Authorize(Authorization("a", 1));
 
-        engine.Stop();
+        await engine.StopAsync();
 
         Assert.Equal(HostEngineState.Stopped, engine.State);
         Assert.False(engine.Snapshot().Authorization.Authorized);

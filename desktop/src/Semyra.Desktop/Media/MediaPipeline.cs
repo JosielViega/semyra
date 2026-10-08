@@ -13,6 +13,7 @@ internal interface IMediaPipelineFactory
 {
     IMediaPipeline Create();
     IMediaPipeline CreatePublish(Uri whipEndpoint);
+    IMediaPipeline CreateLocalView(string outputDirectory);
 }
 
 internal sealed class MediaPipelineFactory(GStreamerRuntime runtime) : IMediaPipelineFactory
@@ -33,6 +34,15 @@ internal sealed class MediaPipelineFactory(GStreamerRuntime runtime) : IMediaPip
             throw new MediaEngineException("whip_runtime_unavailable");
         }
         return new GStreamerProcess(runtime.LaunchPath, MediaPipeline.PublishArguments(whipEndpoint));
+    }
+
+    public IMediaPipeline CreateLocalView(string outputDirectory)
+    {
+        if (!runtime.IsLocalViewAvailable || runtime.LaunchPath is null)
+        {
+            throw new MediaEngineException("local_view_runtime_unavailable");
+        }
+        return new GStreamerProcess(runtime.LaunchPath, MediaPipeline.LocalViewArguments, outputDirectory);
     }
 }
 
@@ -63,5 +73,17 @@ internal static class MediaPipeline
         "demux.", "!", "queue", "!", "aacparse", "!", "avdec_aac", "!", "audioconvert", "!", "audioresample", "!",
         "audio/x-raw,rate=48000,channels=2", "!", "opusenc", "bitrate=96000", "!", "rtpopuspay", "pt=96", "!",
         "application/x-rtp,media=audio,encoding-name=OPUS,payload=96,clock-rate=48000,encoding-params=(string)2", "!", "whip.sink_1",
+    ];
+
+    internal static readonly IReadOnlyList<string> LocalViewArguments =
+    [
+        "-e",
+        "fdsrc", "fd=0", "is-live=true", "!", "queue", "max-size-time=3000000000", "!", "tsdemux", "name=demux",
+        "mpegtsmux", "name=mux", "!", "hlssink", "playlist-location=index.m3u8", "location=segment%05d.ts",
+        "target-duration=2", "playlist-length=3", "max-files=6",
+        "demux.", "!", "queue", "!", "h264parse", "config-interval=-1", "!",
+        "video/x-h264,stream-format=byte-stream,alignment=au", "!", "mux.",
+        "demux.", "!", "queue", "!", "aacparse", "!",
+        "audio/mpeg,mpegversion=4,stream-format=adts", "!", "mux.",
     ];
 }

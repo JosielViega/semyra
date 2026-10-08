@@ -4,7 +4,7 @@
 
 Quando o runtime oficial do GStreamer também oferece `whipsink`, o Desktop anuncia `media.whip` e `livekit.publish`. O canal continua resolvido exclusivamente no catálogo SQLite local; a aplicação web envia somente o identificador opaco do canal. O Desktop provisiona um endpoint WHIP efêmero com sua Host Session, publica áudio/vídeo no LiveKit e remove o ingress ao parar ou trocar a autorização. URLs e credenciais da fonte IPTV nunca atravessam o JavaScript ou o backend PHP.
 
-A reprodução local (`iptv.play`) permanece disponível mesmo quando `whipsink` não está instalado.
+A infraestrutura de diagnóstico (`iptv.play`) e o player integrado (`iptv.local-view`) permanecem independentes de `whipsink`. Assistir localmente é gratuito, exige somente uma conta ativa no Desktop e não cria sala, Host Session, WHIP ou conexão LiveKit.
 
 Fundação Windows do Semyra: uma janela WPF hospeda o aplicativo web existente em Microsoft Edge WebView2. Login, cadastro e sessão continuam sendo os fluxos web normais; o perfil persistente do WebView fica em `%LOCALAPPDATA%\Semyra\WebView2`. Na página de login, o handshake Desktop pré-marca “Manter conectado” sem impedir que o usuário desmarque. A persistência usa somente o cookie HttpOnly emitido pelo servidor; o aplicativo nativo não lê nem armazena tokens de autenticação.
 
@@ -55,7 +55,15 @@ A pipeline preserva H.264 (`h264parse` → `rtph264pay`) e converte AAC para Opu
 
 O Media Engine atual valida somente entrada MPEG-TS contínua. VODs MP4, HLS, MKV e HEVC não são suportados nesta etapa e devem ser tratados por uma evolução separada do produto.
 
-O aplicativo procura primeiro `runtime/gstreamer/bin` ao lado do executável. Em Debug, `SEMYRA_GSTREAMER_HOME` e a instalação oficial MSVC x64 podem ser usados para desenvolvimento. O empacotamento definitivo do runtime será tratado na etapa de distribuição. `iptv.play` só é anunciado depois que `gst-launch`, `gst-inspect` e todos os elementos obrigatórios forem validados.
+### Player integrado
+
+Em **Minha IPTV**, o fluxo local é `provider → HttpClient nativo → stdin → GStreamer → HLS efêmero → WebResourceRequested → hls.js → <video>`. H.264 e AAC são apenas remontados em MPEG-TS; não há transcodificação, WHIP, LiveKit nem custo de media plane. O recurso `iptv.local-view` só é anunciado quando `mpegtsmux` e `hlssink` também estão disponíveis.
+
+Cada reprodução usa um diretório aleatório em `%LOCALAPPDATA%\Semyra\Cache\Playback`, playlist com referências relativas e token de 256 bits válido apenas durante a sessão. A WebView2 atende somente GET/HEAD para a playlist e segmentos allowlisted na origem atual; não existe servidor TCP ou rota PHP. Stop, troca de canal/conta, logout e fechamento invalidam o token, encerram o processo e removem os fragmentos best-effort. A URL privada do provider continua exclusivamente no native.
+
+O player mínimo usa hls.js 1.7.3 (distribuição oficial, Apache-2.0) e controles nativos do `<video>`. O acabamento visual e os controles finais ficam para a 11H-B.
+
+O aplicativo procura primeiro `runtime/gstreamer/bin` ao lado do executável. Em Debug, `SEMYRA_GSTREAMER_HOME` e a instalação oficial MSVC x64 podem ser usados para desenvolvimento. O empacotamento definitivo do runtime será tratado na etapa de distribuição. `iptv.play` só é anunciado depois que `gst-launch`, `gst-inspect` e todos os elementos base forem validados; `iptv.local-view` exige adicionalmente `mpegtsmux` e `hlssink`.
 
 ## Fronteira futura
 
@@ -63,4 +71,4 @@ O Desktop possui a camada WebView/UI, uma ponte `postMessage` allowlisted na ver
 
 Para a publicação de mídia, o backend emite uma Host Session curta de `media.publish`, ligada à sala, instance, revision e owner atuais. O validator fica somente como hash no banco; o token bruto chega ao Host Engine apenas em memória, é substituído por uma autorização nova e é apagado por `clear` ou `Stop()`. Segredos globais do bridge worker nunca são enviados ao cliente.
 
-Ainda não existem Premium, player visual local, Xtream, EPG, gravação ou distribuição do runtime GStreamer. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.
+Ainda não existem Premium, player customizado final, Xtream, EPG, gravação ou distribuição do runtime GStreamer. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.

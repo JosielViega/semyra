@@ -13,7 +13,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     [Fact]
     public async Task UrlAddReturnsSafeDtoWithoutEchoingLocation()
     {
-        var engine = Engine();
+        var engine = await EngineAsync();
         engine.Start();
         const string location = "https://provider.example/user/password/list.m3u";
         var result = await DesktopBridge.TryHandleAsync(
@@ -35,7 +35,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         Directory.CreateDirectory(_directory);
         var playlist = Path.Combine(_directory, "local.m3u");
         await File.WriteAllTextAsync(playlist, "#EXTM3U\n");
-        var engine = Engine();
+        var engine = await EngineAsync();
         engine.Start();
         var result = await DesktopBridge.TryHandleAsync(
             $$"""{"type":"semyra.desktop.iptv.sources.pick-file","requestId":"pick-1","accountContextId":"{{engine.CurrentAccountContextId}}"}""",
@@ -57,7 +57,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     [InlineData("{\"type\":\"semyra.desktop.iptv.sources.list\",\"requestId\":\"x\",\"extra\":true}")]
     public async Task InvalidIptvMessagesAreRejectedOrSafelyFailed(string json)
     {
-        var engine = Engine();
+        var engine = await EngineAsync();
         engine.Start();
         json = json.Replace(new string('e', 32), engine.CurrentAccountContextId, StringComparison.Ordinal);
         var result = await DesktopBridge.TryHandleAsync(json, engine, () => null);
@@ -75,7 +75,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     [Fact]
     public async Task MediaStatusAndRuntimeErrorsExposeOnlySafeCodes()
     {
-        var engine = Engine();
+        var engine = await EngineAsync();
         engine.Start();
         var status = await DesktopBridge.TryHandleAsync(
             $$"""{"type":"semyra.desktop.iptv.media.status","requestId":"media-status","accountContextId":"{{engine.CurrentAccountContextId}}"}""",
@@ -97,9 +97,9 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     [Fact]
     public async Task OldOrWrongAccountContextCannotOperateOnCurrentCatalog()
     {
-        var engine = Engine();
+        var engine = await EngineAsync();
         var oldContext = engine.CurrentAccountContextId!;
-        var currentContext = engine.ActivateAccount(new string('a', 64));
+        var currentContext = await engine.ActivateAccountAsync(new string('a', 64));
 
         var stale = await DesktopBridge.TryHandleAsync(
             $$"""{"type":"semyra.desktop.iptv.sources.list","requestId":"stale","accountContextId":"{{oldContext}}"}""",
@@ -127,7 +127,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
     }
 
-    private HostEngine Engine()
+    private async Task<HostEngine> EngineAsync()
     {
         Directory.CreateDirectory(_directory);
         var protector = new TestProtector();
@@ -138,7 +138,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
             new HttpClient());
         var engine = new HostEngine(catalog);
         engine.Start();
-        engine.ActivateAccount(new string('a', 64));
+        await engine.ActivateAccountAsync(new string('a', 64));
         return engine;
     }
 

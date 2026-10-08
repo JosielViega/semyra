@@ -161,7 +161,11 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .iptv-empty { padding: 18px; text-align: center; color: var(--color-text-muted, #aeb5c7); }
 .iptv-channel-card { display: grid; gap: 8px; }
 .iptv-channel-card button { justify-self: start; padding: 8px 12px; }
-.iptv-media-panel { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 16px; border: 1px solid var(--color-border, #2d3345); border-radius: 12px; background: var(--color-bg-soft, #0d1220); }
+.iptv-media-panel { display: grid; gap: 16px; margin-top: 18px; padding: 16px; border: 1px solid var(--color-border, #2d3345); border-radius: 12px; background: var(--color-bg-soft, #0d1220); }
+.iptv-player-copy { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.iptv-media-panel video { display: block; width: 100%; max-height: min(65vh, 620px); aspect-ratio: 16 / 9; border-radius: 10px; background: #000; }
+.iptv-media-panel video[hidden] { display: none; }
+.iptv-media-panel > button { justify-self: start; }
 .iptv-media-panel h3, .iptv-media-panel p { margin: 0; }
 .iptv-media-panel p { color: var(--color-text-muted, #aeb5c7); }
 .iptv-media-panel p[data-state="streaming"] { color: var(--color-cyan, #16c7ff); }

@@ -26,9 +26,6 @@ public static class DesktopBridge
                 request.RequestId,
                 request.Authorization!,
                 hostEngine.Authorize(request.Authorization!)),
-            DesktopMessage.HostClearType => CreateHostClearResult(request.RequestId, hostEngine),
-            DesktopMessage.AccountActivateType => CreateAccountActivateResult(request.RequestId, hostEngine, request.Account!.ProfileId!),
-            DesktopMessage.AccountClearType => CreateAccountClearResult(request.RequestId, hostEngine),
             _ => string.Empty,
         };
 
@@ -44,6 +41,19 @@ public static class DesktopBridge
         if (!DesktopMessage.TryReadRequest(json, out var request))
         {
             return (false, string.Empty);
+        }
+
+        if (request.Type == DesktopMessage.HostClearType)
+        {
+            return (true, await CreateHostClearResultAsync(request.RequestId, hostEngine));
+        }
+        if (request.Type == DesktopMessage.AccountActivateType)
+        {
+            return (true, await CreateAccountActivateResultAsync(request.RequestId, hostEngine, request.Account!.ProfileId!));
+        }
+        if (request.Type == DesktopMessage.AccountClearType)
+        {
+            return (true, await CreateAccountClearResultAsync(request.RequestId, hostEngine));
         }
 
         if (request.Iptv is null)
@@ -124,6 +134,11 @@ public static class DesktopBridge
         }
         try
         {
+            if (request.Type == DesktopMessage.IptvViewStartType)
+            {
+                var result = await hostEngine.StartIptvLocalViewAsync(request.Media!.ChannelId!.Value, cancellationToken);
+                return (true, LocalViewResult(ResultType(request.Type), request.RequestId, result));
+            }
             var snapshot = request.Type switch
             {
                 DesktopMessage.IptvMediaStartType => await hostEngine.StartIptvMediaAsync(
@@ -132,6 +147,8 @@ public static class DesktopBridge
                 DesktopMessage.IptvPublishStartType => await hostEngine.StartIptvPublishAsync(
                     request.Media!.ChannelId!.Value,
                     cancellationToken),
+                DesktopMessage.IptvViewStopType => await hostEngine.StopIptvMediaAsync(),
+                DesktopMessage.IptvViewStatusType => hostEngine.IptvMediaSnapshot(),
                 DesktopMessage.IptvMediaStopType => await hostEngine.StopIptvMediaAsync(),
                 DesktopMessage.IptvPublishStopType => await hostEngine.StopIptvMediaAsync(),
                 DesktopMessage.IptvPublishStatusType => hostEngine.IptvMediaSnapshot(),
@@ -219,9 +236,9 @@ public static class DesktopBridge
         }, JsonOptions);
     }
 
-    private static string CreateHostClearResult(string requestId, HostEngine hostEngine)
+    private static async Task<string> CreateHostClearResultAsync(string requestId, HostEngine hostEngine)
     {
-        hostEngine.ClearAuthorization();
+        await hostEngine.ClearAuthorizationAsync();
         return JsonSerializer.Serialize(new
         {
             type = DesktopMessage.HostClearResultType,
@@ -231,11 +248,11 @@ public static class DesktopBridge
         }, JsonOptions);
     }
 
-    private static string CreateAccountActivateResult(string requestId, HostEngine hostEngine, string profileId)
+    private static async Task<string> CreateAccountActivateResultAsync(string requestId, HostEngine hostEngine, string profileId)
     {
         try
         {
-            var contextId = hostEngine.ActivateAccount(profileId);
+            var contextId = await hostEngine.ActivateAccountAsync(profileId);
             return JsonSerializer.Serialize(new
             {
                 type = DesktopMessage.AccountActivateResultType,
@@ -258,9 +275,9 @@ public static class DesktopBridge
         }
     }
 
-    private static string CreateAccountClearResult(string requestId, HostEngine hostEngine)
+    private static async Task<string> CreateAccountClearResultAsync(string requestId, HostEngine hostEngine)
     {
-        hostEngine.ClearAccount();
+        await hostEngine.ClearAccountAsync();
         return JsonSerializer.Serialize(new
         {
             type = DesktopMessage.AccountClearResultType,
@@ -340,6 +357,25 @@ public static class DesktopBridge
         }, JsonOptions);
     }
 
+    private static string LocalViewResult(string type, string requestId, LocalPlaybackStartResult result)
+    {
+        var snapshot = result.Snapshot;
+        return JsonSerializer.Serialize(new
+        {
+            type,
+            requestId,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            ok = true,
+            state = snapshot.State,
+            channelId = snapshot.ChannelId,
+            channelName = snapshot.ChannelName,
+            attempt = snapshot.Attempt,
+            errorCode = snapshot.LastErrorCode,
+            mode = snapshot.Mode,
+            playbackUrl = result.PlaybackUrl,
+        }, JsonOptions);
+    }
+
     private static string ResultType(string requestType) => requestType switch
     {
         DesktopMessage.IptvSourcesListType => DesktopMessage.IptvSourcesListResultType,
@@ -352,6 +388,9 @@ public static class DesktopBridge
         DesktopMessage.IptvMediaStartType => DesktopMessage.IptvMediaStartResultType,
         DesktopMessage.IptvMediaStopType => DesktopMessage.IptvMediaStopResultType,
         DesktopMessage.IptvMediaStatusType => DesktopMessage.IptvMediaStatusResultType,
+        DesktopMessage.IptvViewStartType => DesktopMessage.IptvViewStartResultType,
+        DesktopMessage.IptvViewStopType => DesktopMessage.IptvViewStopResultType,
+        DesktopMessage.IptvViewStatusType => DesktopMessage.IptvViewStatusResultType,
         DesktopMessage.IptvPublishStartType => DesktopMessage.IptvPublishStartResultType,
         DesktopMessage.IptvPublishStopType => DesktopMessage.IptvPublishStopResultType,
         DesktopMessage.IptvPublishStatusType => DesktopMessage.IptvPublishStatusResultType,

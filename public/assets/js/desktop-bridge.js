@@ -37,6 +37,9 @@
         'media-start': ['semyra.desktop.iptv.media.start', 'semyra.desktop.iptv.media.start-result'],
         'media-stop': ['semyra.desktop.iptv.media.stop', 'semyra.desktop.iptv.media.stop-result'],
         'media-status': ['semyra.desktop.iptv.media.status', 'semyra.desktop.iptv.media.status-result'],
+        'view-start': ['semyra.desktop.iptv.view.start', 'semyra.desktop.iptv.view.start-result'],
+        'view-stop': ['semyra.desktop.iptv.view.stop', 'semyra.desktop.iptv.view.stop-result'],
+        'view-status': ['semyra.desktop.iptv.view.status', 'semyra.desktop.iptv.view.status-result'],
         'publish-start': ['semyra.desktop.iptv.publish.start', 'semyra.desktop.iptv.publish.start-result'],
         'publish-stop': ['semyra.desktop.iptv.publish.stop', 'semyra.desktop.iptv.publish.stop-result'],
         'publish-status': ['semyra.desktop.iptv.publish.status', 'semyra.desktop.iptv.publish.status-result'],
@@ -45,6 +48,20 @@
     const PROTOCOL_VERSION = 1;
     const REMEMBER_PREFERENCE_KEY = 'semyra.desktop.remember';
     const SESSION_MARKER_KEY = 'semyra.desktop.session';
+
+    function validCapabilities(capabilities) {
+        if (!Array.isArray(capabilities) || new Set(capabilities).size !== capabilities.length
+            || capabilities[0] !== 'host.status' || capabilities[1] !== 'host.authorize') {
+            return false;
+        }
+        if (capabilities.length === 2) return true;
+        if (capabilities[2] !== 'iptv.sources' || capabilities[3] !== 'iptv.catalog') return false;
+        let index = 4;
+        if (capabilities[index] === 'iptv.play') index += 1;
+        if (capabilities[index] === 'iptv.local-view') index += 1;
+        if (capabilities[index] === 'media.whip' && capabilities[index + 1] === 'livekit.publish') index += 2;
+        return index === capabilities.length;
+    }
 
     function createRequestId(target) {
         const cryptoApi = target && target.crypto;
@@ -221,18 +238,7 @@
                 || !host
                 || typeof host !== 'object'
                 || host.state !== 'ready'
-                || !Array.isArray(host.capabilities)
-                || ![2, 4, 5, 7].includes(host.capabilities.length)
-                || new Set(host.capabilities).size !== host.capabilities.length
-                || host.capabilities[0] !== 'host.status'
-                || host.capabilities[1] !== 'host.authorize'
-                || (host.capabilities.length >= 4
-                    && (host.capabilities[2] !== 'iptv.sources' || host.capabilities[3] !== 'iptv.catalog'))
-                || (host.capabilities.length === 5 && host.capabilities[4] !== 'iptv.play')
-                || (host.capabilities.length === 7
-                    && (host.capabilities[4] !== 'iptv.play'
-                        || host.capabilities[5] !== 'media.whip'
-                        || host.capabilities[6] !== 'livekit.publish'))
+                || !validCapabilities(host.capabilities)
                 || !host.authorization
                 || typeof host.authorization !== 'object'
                 || typeof host.authorization.authorized !== 'boolean') {
@@ -413,8 +419,10 @@
                 if (request.sourceId === null) {
                     return;
                 }
-            } else if (action === 'media-start' || action === 'publish-start') {
-                if (!hostSnapshot.capabilities.includes(action === 'publish-start' ? 'livekit.publish' : 'iptv.play')) {
+            } else if (action === 'media-start' || action === 'publish-start' || action === 'view-start') {
+                const capability = action === 'publish-start' ? 'livekit.publish'
+                    : action === 'view-start' ? 'iptv.local-view' : 'iptv.play';
+                if (!hostSnapshot.capabilities.includes(capability)) {
                     return;
                 }
                 request.channelId = positiveId(detail.channelId);
@@ -484,8 +492,13 @@
                 detail.offset = Number.isSafeInteger(message.offset) ? message.offset : 0;
                 detail.limit = Number.isSafeInteger(message.limit) ? message.limit : 50;
                 detail.hasMore = message.hasMore === true;
-            } else if (['media-start', 'media-stop', 'media-status', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
+            } else if (['media-start', 'media-stop', 'media-status', 'view-start', 'view-stop', 'view-status', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
                 Object.assign(detail, safeMediaState(message));
+                if (pending.action === 'view-start'
+                    && typeof message.playbackUrl === 'string'
+                    && /^\/__desktop\/playback\/[a-f0-9]{64}\/index\.m3u8$/.test(message.playbackUrl)) {
+                    detail.playbackUrl = message.playbackUrl;
+                }
             }
             target.dispatchEvent(new target.CustomEvent('semyra:iptv-result', {detail: Object.freeze(detail)}));
         }
@@ -498,7 +511,7 @@
                 channelName: typeof message.channelName === 'string' ? message.channelName.slice(0, 240) : null,
                 attempt: Number.isSafeInteger(message.attempt) && message.attempt >= 0 ? message.attempt : 0,
                 errorCode: typeof message.errorCode === 'string' ? message.errorCode.slice(0, 64) : null,
-                mode: message.mode === 'publish' ? 'publish' : 'local',
+                mode: ['publish', 'view'].includes(message.mode) ? message.mode : 'local',
             };
         }
 

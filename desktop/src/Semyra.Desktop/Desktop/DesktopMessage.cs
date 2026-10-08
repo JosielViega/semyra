@@ -40,6 +40,12 @@ public static partial class DesktopMessage
     public const string IptvMediaStatusType = "semyra.desktop.iptv.media.status";
     public const string IptvMediaStatusResultType = "semyra.desktop.iptv.media.status-result";
     public const string IptvMediaStateType = "semyra.desktop.iptv.media.state";
+    public const string IptvViewStartType = "semyra.desktop.iptv.view.start";
+    public const string IptvViewStartResultType = "semyra.desktop.iptv.view.start-result";
+    public const string IptvViewStopType = "semyra.desktop.iptv.view.stop";
+    public const string IptvViewStopResultType = "semyra.desktop.iptv.view.stop-result";
+    public const string IptvViewStatusType = "semyra.desktop.iptv.view.status";
+    public const string IptvViewStatusResultType = "semyra.desktop.iptv.view.status-result";
     public const string IptvPublishStartType = "semyra.desktop.iptv.publish.start";
     public const string IptvPublishStartResultType = "semyra.desktop.iptv.publish.start-result";
     public const string IptvPublishStopType = "semyra.desktop.iptv.publish.stop";
@@ -107,7 +113,8 @@ public static partial class DesktopMessage
                 return true;
             }
 
-            if (type is IptvMediaStopType or IptvMediaStatusType or IptvPublishStopType or IptvPublishStatusType)
+            if (type is IptvMediaStopType or IptvMediaStatusType or IptvPublishStopType or IptvPublishStatusType
+                or IptvViewStopType or IptvViewStatusType)
             {
                 if (properties.Count != 3 || !TryAccountContext(properties, out var contextId))
                 {
@@ -117,7 +124,7 @@ public static partial class DesktopMessage
                 return true;
             }
 
-            if (type is IptvMediaStartType or IptvPublishStartType)
+            if (type is IptvMediaStartType or IptvPublishStartType or IptvViewStartType)
             {
                 if (properties.Count != 4 || !TryPositiveInt64(properties, "channelId", out var channelId) || !TryAccountContext(properties, out var contextId))
                 {

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
@@ -12,7 +14,10 @@ namespace Semyra.Desktop;
 public partial class MainWindow : Window
 {
     private NavigationPolicy? _navigationPolicy;
+    private LocalPlaybackRequestHandler? _playbackRequests;
     private readonly HostEngine _hostEngine;
+    private bool _shutdownStarted;
+    private bool _shutdownComplete;
 
     public MainWindow()
     {
@@ -20,6 +25,7 @@ public partial class MainWindow : Window
         _hostEngine.MediaStateChanged += OnMediaStateChanged;
         InitializeComponent();
         Loaded += OnLoaded;
+        Closing += OnClosing;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -31,6 +37,7 @@ public partial class MainWindow : Window
             _hostEngine.Start();
             var configuration = SemyraWebConfiguration.Load();
             _navigationPolicy = new NavigationPolicy(configuration.BaseUri);
+            _playbackRequests = new LocalPlaybackRequestHandler(configuration.BaseUri, _hostEngine);
 
             var environment = await CoreWebView2Environment.CreateAsync(
                 userDataFolder: configuration.UserDataFolder);
@@ -45,6 +52,11 @@ public partial class MainWindow : Window
             Browser.CoreWebView2.NavigationStarting += OnNavigationStarting;
             Browser.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
             Browser.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+            var origin = configuration.BaseUri.GetLeftPart(UriPartial.Authority);
+            Browser.CoreWebView2.AddWebResourceRequestedFilter(
+                $"{origin}/__desktop/playback/*",
+                CoreWebView2WebResourceContext.All);
+            Browser.CoreWebView2.WebResourceRequested += OnWebResourceRequested;
 
             await Browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("""
                 (() => {
@@ -72,6 +84,38 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             ShowFatalError($"Não foi possível iniciar o Semyra Desktop. {exception.Message}");
+        }
+    }
+
+    private async void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        var classification = _playbackRequests?.Classify(e.Request.Uri, e.Request.Method)
+            ?? LocalPlaybackRequestKind.NotPlayback;
+        if (_playbackRequests is null || classification == LocalPlaybackRequestKind.NotPlayback)
+        {
+            return;
+        }
+
+        var deferral = e.GetDeferral();
+        try
+        {
+            var resource = await _playbackRequests.ReadAsync(e.Request.Uri, e.Request.Method);
+            if (resource is not null)
+            {
+                var body = new MemoryStream(resource.Content, writable: false);
+                e.Response = Browser.CoreWebView2.Environment.CreateWebResourceResponse(
+                    body, 200, "OK",
+                    $"Content-Type: {resource.ContentType}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
+                return;
+            }
+
+            e.Response = Browser.CoreWebView2.Environment.CreateWebResourceResponse(
+                Stream.Null, 404, "Not Found",
+                "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff");
+        }
+        finally
+        {
+            deferral.Complete();
         }
     }
 
@@ -124,7 +168,14 @@ public partial class MainWindow : Window
             PickM3uFile);
         if (result.Handled)
         {
-            Browser.CoreWebView2.PostWebMessageAsJson(result.Response);
+            try
+            {
+                Browser.CoreWebView2.PostWebMessageAsJson(result.Response);
+            }
+            catch (InvalidOperationException)
+            {
+                // A navegação de logout pode concluir antes do cleanup nativo.
+            }
         }
     }
 
@@ -140,10 +191,43 @@ public partial class MainWindow : Window
         return dialog.ShowDialog(this) == true ? dialog.FileName : null;
     }
 
+    private async void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_shutdownComplete)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        if (_shutdownStarted)
+        {
+            return;
+        }
+        _shutdownStarted = true;
+
+        _hostEngine.MediaStateChanged -= OnMediaStateChanged;
+        if (Browser.CoreWebView2 is not null)
+        {
+            Browser.CoreWebView2.NavigationStarting -= OnNavigationStarting;
+            Browser.CoreWebView2.NewWindowRequested -= OnNewWindowRequested;
+            Browser.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+            Browser.CoreWebView2.WebResourceRequested -= OnWebResourceRequested;
+        }
+        _playbackRequests = null;
+        try
+        {
+            await _hostEngine.DisposeAsync();
+        }
+        finally
+        {
+            _shutdownComplete = true;
+            Close();
+        }
+    }
+
     protected override void OnClosed(EventArgs e)
     {
-        _hostEngine.MediaStateChanged -= OnMediaStateChanged;
-        _hostEngine.Dispose();
+        Closing -= OnClosing;
         base.OnClosed(e);
     }
 

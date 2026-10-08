@@ -21,6 +21,9 @@ final class DesktopIptvViewTest extends TestCase
         self::assertStringContainsString('data-iptv-pick-file', $html);
         self::assertStringContainsString('data-iptv-url-form', $html);
         self::assertStringContainsString('/assets/js/desktop-iptv.js', $html);
+        self::assertStringContainsString('/assets/vendor/hls/hls.min.js?v=1.7.3', $html);
+        self::assertStringContainsString('data-iptv-video controls playsinline', $html);
+        self::assertStringContainsString("'button-secondary', 'Assistir'", file_get_contents(dirname(__DIR__) . '/public/assets/js/desktop-iptv.js'));
         self::assertStringNotContainsString('streamUrl', $html);
     }
 }

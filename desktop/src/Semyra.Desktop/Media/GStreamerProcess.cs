@@ -8,12 +8,14 @@ internal sealed class GStreamerProcess : IMediaPipeline
 {
     private readonly string _executable;
     private readonly IReadOnlyList<string> _arguments;
+    private readonly string? _workingDirectory;
     private Process? _process;
 
-    public GStreamerProcess(string executable, IReadOnlyList<string> arguments)
+    public GStreamerProcess(string executable, IReadOnlyList<string> arguments, string? workingDirectory = null)
     {
         _executable = executable;
         _arguments = arguments;
+        _workingDirectory = workingDirectory;
     }
 
     internal ProcessStartInfo CreateStartInfo()
@@ -25,7 +27,7 @@ internal sealed class GStreamerProcess : IMediaPipeline
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = AppContext.BaseDirectory,
+            WorkingDirectory = _workingDirectory ?? AppContext.BaseDirectory,
         };
         foreach (var argument in _arguments)
         {
