@@ -14,7 +14,7 @@ public sealed partial class M3uParser
         using var reader = new StreamReader(stream, new UTF8Encoding(false, true), true, 16 * 1024, leaveOpen: true);
         string? pendingExtInf = null;
 
-        while (await reader.ReadLineAsync(cancellationToken) is { } rawLine)
+        while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } rawLine)
         {
             var line = rawLine.Trim().TrimStart('\uFEFF');
             if (line.Length == 0)

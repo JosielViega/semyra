@@ -292,7 +292,7 @@ public sealed class IptvStore
             var tvg = insert.Parameters.Add("$tvg", SqliteType.Text);
             var stream = insert.Parameters.Add("$stream", SqliteType.Blob);
 
-            await foreach (var channel in channels.WithCancellation(cancellationToken))
+            await foreach (var channel in channels.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
                 key.Value = StableKey(channel);
                 external.Value = (object?)channel.TvgId ?? DBNull.Value;

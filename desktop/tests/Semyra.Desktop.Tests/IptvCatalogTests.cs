@@ -117,6 +117,33 @@ public sealed class IptvCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task LargeRefreshDoesNotResumeOnTheCallerSynchronizationContext()
+    {
+        var store = new IptvStore(DatabasePath(), _protector);
+        using var client = new HttpClient(new DelayedHandler("#EXTM3U\n#EXTINF:-1 group-title=\"Live\",Canal\nhttp://stream.example/live\n"));
+        using var catalog = new IptvCatalogService(store, _protector, new M3uParser(), client);
+        catalog.Initialize();
+        var source = catalog.AddUrlSource("Assíncrona", "https://provider.example/list.m3u");
+        var context = new RecordingSynchronizationContext();
+        var previous = SynchronizationContext.Current;
+        Task<IptvSourceSummary> refresh;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+            refresh = catalog.RefreshAsync(source.Id, default);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+
+        var result = await refresh;
+
+        Assert.Equal("ready", result.LastRefreshStatus);
+        Assert.Equal(0, context.PostCount);
+    }
+
+    [Fact]
     public async Task MissingFileRefreshReportsSafeErrorAndPreservesCatalog()
     {
         Directory.CreateDirectory(_directory);
@@ -222,6 +249,30 @@ public sealed class IptvCatalogTests : IDisposable
                 Content = new StreamContent(stream),
                 RequestMessage = request,
             });
+        }
+    }
+
+    private sealed class DelayedHandler(string content) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(content), writable: false)),
+                RequestMessage = request,
+            };
+        }
+    }
+
+    private sealed class RecordingSynchronizationContext : SynchronizationContext
+    {
+        private int _postCount;
+        public int PostCount => Volatile.Read(ref _postCount);
+        public override void Post(SendOrPostCallback callback, object? state)
+        {
+            Interlocked.Increment(ref _postCount);
+            ThreadPool.QueueUserWorkItem(_ => callback(state));
         }
     }
 }

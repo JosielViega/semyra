@@ -112,14 +112,14 @@ public sealed class IptvCatalogService : IDisposable
             var location = _protector.Unprotect(source.ProtectedLocation);
             await using var stream = source.Type switch
             {
-                IptvSourceType.M3uUrl => await OpenUrlAsync(location, cancellationToken),
+                IptvSourceType.M3uUrl => await OpenUrlAsync(location, cancellationToken).ConfigureAwait(false),
                 IptvSourceType.M3uFile => OpenFile(location),
                 _ => throw new IptvValidationException("Tipo de fonte não suportado."),
             };
             return await _store.ReplaceChannelsAsync(
                 sourceId,
                 _parser.ParseAsync(stream, cancellationToken),
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -150,11 +150,11 @@ public sealed class IptvCatalogService : IDisposable
     private async Task<Stream> OpenUrlAsync(string location, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, location);
-        var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         try
         {
             response.EnsureSuccessStatusCode();
-            var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             return new ResponseOwnedStream(source, response);
         }
         catch

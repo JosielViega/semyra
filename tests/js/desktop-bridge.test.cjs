@@ -8,9 +8,10 @@ test('desktop bridge account-scoped protocol', async () => {
 
 const browserEvents = [];
 const browserRemember = createCheckbox();
+const browserIptvLink = {hidden: true};
 const browser = {
     dispatchEvent: (event) => browserEvents.push(event),
-    document: {getElementById: () => browserRemember},
+    document: {getElementById: () => browserRemember, querySelectorAll: () => [browserIptvLink]},
 };
 const browserBridge = desktop.createDesktopBridge(browser);
 assert.equal(browserBridge.start(), false);
@@ -18,6 +19,7 @@ assert.equal(browserBridge.isReady(), false);
 assert.equal(browserBridge.getHostSnapshot(), null);
 assert.deepEqual(browserEvents, []);
 assert.equal(browserRemember.checked, false);
+assert.equal(browserIptvLink.hidden, true, 'a common browser must keep Minha IPTV hidden');
 
 let messageListener = null;
 const posted = [];
@@ -295,6 +297,7 @@ for (const [action, type] of [
 webviewWindow.crypto.randomUUID = () => 'iptv-search';
 windowListeners.get('semyra:iptv-request')({detail: {
     action: 'search', sourceId: 4, query: 'news', group: 'Live', offset: 100, limit: 100,
+    clientRequestId: 'search-42',
 }});
 assert.deepEqual(posted.at(-1), {
     type: 'semyra.desktop.iptv.channels.search', requestId: 'iptv-search', sourceId: 4,
@@ -309,6 +312,7 @@ messageListener({data: {
 assert.equal(dispatched.at(-1).type, 'semyra:iptv-result');
 assert.equal(dispatched.at(-1).detail.offset, 100);
 assert.equal(dispatched.at(-1).detail.hasMore, true);
+assert.equal(dispatched.at(-1).detail.clientRequestId, 'search-42');
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
 
 let interactedListener = null;
@@ -503,6 +507,13 @@ test('desktop account resolution fails closed and logout fences stale IPTV resul
         assert.equal(guest.link.hidden, true);
     }
 
+    const authenticatedWithoutIptv = await harness({ok: true, status: 200, json: async () => ({profile_id: 'c'.repeat(64)})});
+    authenticatedWithoutIptv.receive({data: {type: 'semyra.desktop.account.activate-result', requestId: 'account-request', protocolVersion: 1,
+        activated: true, accountContextId: 'd'.repeat(32)}});
+    authenticatedWithoutIptv.receive({data: {type: 'semyra.desktop.host.status-result', requestId: 'account-request', protocolVersion: 1,
+        host: {state: 'ready', capabilities: ['host.status', 'host.authorize'], authorization: {authorized: false}}}});
+    assert.equal(authenticatedWithoutIptv.link.hidden, true, 'an authenticated Desktop without IPTV capability must keep the link hidden');
+
     const authenticated = await harness({ok: true, status: 200, json: async () => ({profile_id: 'a'.repeat(64)})});
     authenticated.receive({data: {type: 'semyra.desktop.account.activate-result', requestId: 'account-request', protocolVersion: 1,
         activated: true, accountContextId: 'b'.repeat(32)}});
@@ -518,6 +529,9 @@ test('desktop account resolution fails closed and logout fences stale IPTV resul
     authenticated.receive({data: {type: 'semyra.desktop.iptv.sources.list-result', requestId: 'account-request', protocolVersion: 1,
         ok: true, sources: []}});
     assert.equal(authenticated.dispatched.length, eventsBeforeLogout);
+
+    const guestAfterLogoutNavigation = await harness({ok: false, status: 401, json: async () => ({error: 'authentication_required'})});
+    assert.equal(guestAfterLogoutNavigation.link.hidden, true, 'a fresh guest page after logout must start fail-closed');
 });
 
 function createCheckbox() {

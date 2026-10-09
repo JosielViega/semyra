@@ -431,7 +431,9 @@
                 }
             }
 
-            iptvRequests.set(request.requestId, Object.freeze({action, resultType: command[1], accountContextId}));
+            const clientRequestId = typeof detail.clientRequestId === 'string' && /^[a-z0-9-]{1,64}$/.test(detail.clientRequestId)
+                ? detail.clientRequestId : null;
+            iptvRequests.set(request.requestId, Object.freeze({action, resultType: command[1], accountContextId, clientRequestId}));
             webview.postMessage(request);
         }
 
@@ -468,6 +470,7 @@
                     ? message.errorCode.slice(0, 64)
                     : (typeof message.error === 'string' ? message.error.slice(0, 240) : 'Operação indisponível.')),
             };
+            if (pending.clientRequestId !== null) detail.clientRequestId = pending.clientRequestId;
             if (pending.action === 'list' && Array.isArray(message.sources)) {
                 detail.sources = message.sources.map(safeSource).filter(Boolean);
             } else if (['add-url', 'pick-file', 'refresh'].includes(pending.action)) {

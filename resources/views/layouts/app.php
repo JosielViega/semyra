@@ -6,6 +6,7 @@ declare(strict_types=1);
 /** @var string $title */
 /** @var null|array{id: int, display_name: string, email: string} $currentUser */
 $currentUser = $currentUser ?? null;
+$pageStyles = is_array($pageStyles ?? null) ? $pageStyles : [];
 ?>
 <!doctype html>
 <html lang="pt-BR">
@@ -14,8 +15,11 @@ $currentUser = $currentUser ?? null;
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($title ?? 'Semyra') ?></title>
     <link rel="stylesheet" href="/assets/css/tokens.css?v=8b-identity">
-    <link rel="stylesheet" href="/assets/css/app.css?v=11h-a-local-view">
-    <script src="/assets/js/desktop-bridge.js?v=11h-a-local-view" defer></script>
+    <link rel="stylesheet" href="/assets/css/app.css?v=11h-b-browser-only">
+    <?php foreach ($pageStyles as $pageStyle): ?>
+        <link rel="stylesheet" href="<?= e((string) $pageStyle) ?>">
+    <?php endforeach; ?>
+    <script src="/assets/js/desktop-bridge.js?v=11h-b-polish" defer></script>
     <script src="/assets/js/app.js?v=8b-identity" defer></script>
 </head>
 <body>

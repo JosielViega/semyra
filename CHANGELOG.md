@@ -6,11 +6,14 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- Minha IPTV agora separa corretamente os estados visuais, encerra a reprodução local ao sair da página, descarta respostas antigas do catálogo e mantém o refresh grande fora do contexto da UI.
+- Configurações IPTV agora bloqueiam operações concorrentes, importam novas fontes automaticamente, destacam a fonte em uso e exibem um loader contextual até o catálogo selecionado estar pronto.
 - Ingresses externos do bridge agora recebem uma geração por attempt, impedindo cleanup de lease expirada de atingir o recurso de uma lease posterior.
 - Comandos, encerramento, observações de live edge e viewers agora são vinculados a um `instance_id` imutável por transmissão, evitando colisões após `end` seguido de novo `start` com revision reutilizada.
 
 ### Added
 
+- Experiência cinematográfica da Minha IPTV, com player ao vivo integrado, controles próprios, catálogo em grid e configurações secundárias acessíveis.
 - Reprodução IPTV local integrada ao Semyra Desktop por HLS efêmero e hls.js local, sem WHIP, LiveKit ou exposição da URL do provider.
 
 - Publicação IPTV do Semyra Desktop por WHIP para o LiveKit, autorizada por Host Session e cercada por instância/revisão da transmissão.

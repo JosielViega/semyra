@@ -153,7 +153,7 @@ final class UserRepositoryTest extends TestCase
         $auth->login($userId);
         $authenticated = $controller->index();
         self::assertSame(200, $authenticated->status());
-        self::assertStringContainsString('Minha IPTV', $authenticated->body());
+        self::assertStringContainsString('data-desktop-iptv-link hidden>Minha IPTV</a>', $authenticated->body());
     }
 }
 

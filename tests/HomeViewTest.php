@@ -24,7 +24,7 @@ final class HomeViewTest extends TestCase
         self::assertStringContainsString('Criar sala', $html);
         self::assertStringContainsString('name="_token" value="csrf-token"', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/css/app.css?v=11h-a-local-view', $html);
+        self::assertStringContainsString('/assets/css/app.css?v=11h-b-browser-only', $html);
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
         self::assertStringContainsString('<strong>SEMYRA</strong>', $html);
         self::assertStringContainsString('tempo real', $html);
@@ -56,6 +56,9 @@ final class HomeViewTest extends TestCase
         self::assertStringContainsString('name="_token" value="csrf-token"', $html);
         self::assertStringContainsString('>Sair</button>', $html);
         self::assertStringContainsString('href="/rooms">Minhas salas</a>', $html);
+        self::assertStringContainsString('data-desktop-iptv-link hidden>Minha IPTV</a>', $html);
+        $css = (string) file_get_contents(dirname(__DIR__) . '/public/assets/css/app.css');
+        self::assertStringContainsString('[data-desktop-iptv-link][hidden] { display: none !important; }', $css);
         self::assertStringContainsString('As salas que você criar conectado ficam salvas.', $html);
         self::assertStringNotContainsString('Minhas Salas', $html);
     }
