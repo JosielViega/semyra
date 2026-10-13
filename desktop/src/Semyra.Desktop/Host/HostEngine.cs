@@ -189,6 +189,9 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     public Task<IptvSourceSummary> RefreshIptvSourceAsync(long sourceId, CancellationToken cancellationToken) => Catalog().RefreshAsync(sourceId, cancellationToken);
     public IReadOnlyList<string> GetIptvGroups(long sourceId) => Catalog().GetGroups(sourceId);
     public IptvChannelSearchResult SearchIptvChannels(long sourceId, string? query, string? group, int offset, int limit) => Catalog().SearchChannels(sourceId, query, group, offset, limit);
+    public IptvChannelSearchResult ListIptvFavorites(long sourceId, int offset, int limit) => Catalog().ListFavorites(sourceId, offset, limit);
+    public IReadOnlyList<IptvChannelSummary> ListIptvRecents(long sourceId) => Catalog().ListRecents(sourceId);
+    public bool SetIptvFavorite(long channelId, bool favorite) => Catalog().SetFavorite(channelId, favorite);
     public Task<MediaSnapshot> StartIptvMediaAsync(long channelId, CancellationToken cancellationToken) => Media().StartAsync(channelId, cancellationToken);
     public Task<LocalPlaybackStartResult> StartIptvLocalViewAsync(long channelId, CancellationToken cancellationToken) =>
         Media().StartLocalViewAsync(channelId, cancellationToken);
@@ -227,7 +230,21 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         ? _iptv : throw new IptvValidationException("O catálogo IPTV local não está disponível.");
     private MediaEngine Media() => State == HostEngineState.Ready && _media is not null
         ? _media : throw new MediaEngineException("media_runtime_unavailable");
-    private void OnMediaStateChanged(object? sender, MediaSnapshot snapshot) => MediaStateChanged?.Invoke(this, snapshot);
+    internal void OnMediaStateChanged(object? sender, MediaSnapshot snapshot)
+    {
+        if (ReferenceEquals(sender, _media) && snapshot.State == "streaming" && snapshot.Mode == "view" && snapshot.ChannelId is long channelId)
+        {
+            try
+            {
+                _iptv?.RecordRecent(channelId);
+            }
+            catch (Exception)
+            {
+                // A sessão de mídia continua independente da persistência auxiliar de recentes.
+            }
+        }
+        MediaStateChanged?.Invoke(this, snapshot);
+    }
     private static bool ValidProfileId(string value) => value.Length == 64 && value.All(character => character is >= 'a' and <= 'f' or >= '0' and <= '9');
 
     public async ValueTask DisposeAsync()

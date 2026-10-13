@@ -26,6 +26,7 @@
     const ACCOUNT_ACTIVATE_RESULT_TYPE = 'semyra.desktop.account.activate-result';
     const ACCOUNT_CLEAR_TYPE = 'semyra.desktop.account.clear';
     const ACCOUNT_CLEAR_RESULT_TYPE = 'semyra.desktop.account.clear-result';
+    const IPTV_RESPONSE_TIMEOUT_MS = 8000;
     const IPTV_COMMANDS = Object.freeze({
         list: ['semyra.desktop.iptv.sources.list', 'semyra.desktop.iptv.sources.list-result'],
         'add-url': ['semyra.desktop.iptv.sources.add', 'semyra.desktop.iptv.sources.add-result'],
@@ -34,6 +35,9 @@
         'pick-file': ['semyra.desktop.iptv.sources.pick-file', 'semyra.desktop.iptv.sources.pick-file-result'],
         groups: ['semyra.desktop.iptv.groups.list', 'semyra.desktop.iptv.groups.list-result'],
         search: ['semyra.desktop.iptv.channels.search', 'semyra.desktop.iptv.channels.search-result'],
+        favorites: ['semyra.desktop.iptv.favorites.list', 'semyra.desktop.iptv.favorites.list-result'],
+        recents: ['semyra.desktop.iptv.recents.list', 'semyra.desktop.iptv.recents.list-result'],
+        'favorite-set': ['semyra.desktop.iptv.favorite.set', 'semyra.desktop.iptv.favorite.set-result'],
         'media-start': ['semyra.desktop.iptv.media.start', 'semyra.desktop.iptv.media.start-result'],
         'media-stop': ['semyra.desktop.iptv.media.stop', 'semyra.desktop.iptv.media.stop-result'],
         'media-status': ['semyra.desktop.iptv.media.status', 'semyra.desktop.iptv.media.status-result'],
@@ -88,6 +92,32 @@
         let rememberControl = null;
         let rememberInteracted = false;
         const iptvRequests = new Map();
+
+        function dispatchIptvError(pending, error) {
+            const detail = {action: pending.action, ok: false, error};
+            if (pending.clientRequestId !== null) detail.clientRequestId = pending.clientRequestId;
+            target.dispatchEvent(new target.CustomEvent('semyra:iptv-result', {detail: Object.freeze(detail)}));
+        }
+
+        function clearIptvRequest(requestId) {
+            const pending = iptvRequests.get(requestId);
+            if (!pending) return null;
+            iptvRequests.delete(requestId);
+            if (pending.timeoutId !== null && typeof target.clearTimeout === 'function') {
+                target.clearTimeout(pending.timeoutId);
+            }
+            return pending;
+        }
+
+        function clearIptvRequests() {
+            Array.from(iptvRequests.keys()).forEach(clearIptvRequest);
+        }
+
+        function expireIptvRequest(requestId) {
+            const pending = clearIptvRequest(requestId);
+            if (!pending) return;
+            dispatchIptvError(pending, 'desktop_bridge_timeout');
+        }
 
         function storage(targetStorage) {
             return targetStorage
@@ -231,6 +261,7 @@
 
         function receiveHostStatus(message) {
             const host = message.host;
+            const capabilitiesValid = host && typeof host === 'object' && validCapabilities(host.capabilities);
             if (!ready
                 || hostSnapshot !== null
                 || message.requestId !== hostRequestId
@@ -238,7 +269,7 @@
                 || !host
                 || typeof host !== 'object'
                 || host.state !== 'ready'
-                || !validCapabilities(host.capabilities)
+                || !capabilitiesValid
                 || !host.authorization
                 || typeof host.authorization !== 'object'
                 || typeof host.authorization.authorized !== 'boolean') {
@@ -409,16 +440,26 @@
                 if (request.sourceId === null) {
                     return;
                 }
-            } else if (action === 'search') {
+            } else if (action === 'search' || action === 'favorites') {
                 request.sourceId = positiveId(detail.sourceId);
-                request.query = typeof detail.query === 'string' && detail.query.length <= 120 ? detail.query : '';
-                request.group = typeof detail.group === 'string' && detail.group.length <= 240 && detail.group.length > 0
-                    ? detail.group : null;
                 request.offset = Number.isSafeInteger(detail.offset) && detail.offset >= 0 ? detail.offset : 0;
-                request.limit = Number.isSafeInteger(detail.limit) && detail.limit >= 1 && detail.limit <= 100 ? detail.limit : 50;
+                const maximum = action === 'search' ? 100 : 50;
+                request.limit = Number.isSafeInteger(detail.limit) && detail.limit >= 1 && detail.limit <= maximum ? detail.limit : 50;
+                if (action === 'search') {
+                    request.query = typeof detail.query === 'string' && detail.query.length <= 120 ? detail.query : '';
+                    request.group = typeof detail.group === 'string' && detail.group.length <= 240 && detail.group.length > 0
+                        ? detail.group : null;
+                }
                 if (request.sourceId === null) {
                     return;
                 }
+            } else if (action === 'recents') {
+                request.sourceId = positiveId(detail.sourceId);
+                if (request.sourceId === null) return;
+            } else if (action === 'favorite-set') {
+                request.channelId = positiveId(detail.channelId);
+                request.favorite = detail.favorite === true;
+                if (request.channelId === null || typeof detail.favorite !== 'boolean') return;
             } else if (action === 'media-start' || action === 'publish-start' || action === 'view-start') {
                 const capability = action === 'publish-start' ? 'livekit.publish'
                     : action === 'view-start' ? 'iptv.local-view' : 'iptv.play';
@@ -433,8 +474,17 @@
 
             const clientRequestId = typeof detail.clientRequestId === 'string' && /^[a-z0-9-]{1,64}$/.test(detail.clientRequestId)
                 ? detail.clientRequestId : null;
-            iptvRequests.set(request.requestId, Object.freeze({action, resultType: command[1], accountContextId, clientRequestId}));
-            webview.postMessage(request);
+            const timeoutId = ['favorites', 'recents', 'favorite-set'].includes(action)
+                && typeof target.setTimeout === 'function'
+                ? target.setTimeout(function () { expireIptvRequest(request.requestId); }, IPTV_RESPONSE_TIMEOUT_MS)
+                : null;
+            iptvRequests.set(request.requestId, Object.freeze({action, resultType: command[1], accountContextId, clientRequestId, timeoutId}));
+            try {
+                webview.postMessage(request);
+            } catch (_) {
+                const pending = clearIptvRequest(request.requestId);
+                if (pending) dispatchIptvError(pending, 'desktop_bridge_unavailable');
+            }
         }
 
         function safeSource(source) {
@@ -462,7 +512,7 @@
                 || pending.accountContextId !== accountContextId || typeof message.ok !== 'boolean') {
                 return;
             }
-            iptvRequests.delete(message.requestId);
+            clearIptvRequest(message.requestId);
             const detail = {
                 action: pending.action,
                 ok: message.ok,
@@ -480,21 +530,14 @@
                 detail.removed = message.removed === true;
             } else if (pending.action === 'groups' && Array.isArray(message.groups)) {
                 detail.groups = message.groups.filter(function (group) { return typeof group === 'string'; }).map(function (group) { return group.slice(0, 240); });
-            } else if (pending.action === 'search' && Array.isArray(message.channels)) {
-                detail.channels = message.channels.filter(function (channel) {
-                    return channel && positiveId(channel.id) && typeof channel.name === 'string';
-                }).map(function (channel) {
-                    return Object.freeze({
-                        id: channel.id,
-                        name: channel.name.slice(0, 240),
-                        groupName: typeof channel.groupName === 'string' ? channel.groupName.slice(0, 240) : null,
-                        logoUrl: typeof channel.logoUrl === 'string' ? channel.logoUrl.slice(0, 1024) : null,
-                        tvgId: typeof channel.tvgId === 'string' ? channel.tvgId.slice(0, 240) : null,
-                    });
-                });
+            } else if (['search', 'favorites', 'recents'].includes(pending.action) && Array.isArray(message.channels)) {
+                detail.channels = message.channels.map(safeChannel).filter(Boolean);
                 detail.offset = Number.isSafeInteger(message.offset) ? message.offset : 0;
                 detail.limit = Number.isSafeInteger(message.limit) ? message.limit : 50;
                 detail.hasMore = message.hasMore === true;
+            } else if (pending.action === 'favorite-set') {
+                detail.channelId = positiveId(message.channelId);
+                detail.favorite = message.favorite === true;
             } else if (['media-start', 'media-stop', 'media-status', 'view-start', 'view-stop', 'view-status', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
                 Object.assign(detail, safeMediaState(message));
                 if (pending.action === 'view-start'
@@ -504,6 +547,18 @@
                 }
             }
             target.dispatchEvent(new target.CustomEvent('semyra:iptv-result', {detail: Object.freeze(detail)}));
+        }
+
+        function safeChannel(channel) {
+            if (!channel || !positiveId(channel.id) || typeof channel.name !== 'string') return null;
+            return Object.freeze({
+                id: channel.id,
+                name: channel.name.slice(0, 240),
+                groupName: typeof channel.groupName === 'string' ? channel.groupName.slice(0, 240) : null,
+                logoUrl: typeof channel.logoUrl === 'string' ? channel.logoUrl.slice(0, 1024) : null,
+                tvgId: typeof channel.tvgId === 'string' ? channel.tvgId.slice(0, 240) : null,
+                isFavorite: channel.isFavorite === true,
+            });
         }
 
         function safeMediaState(message) {
@@ -582,7 +637,7 @@
             const logoutForm = target.document?.querySelector?.('form.account-logout[action="/logout"]');
             logoutForm?.addEventListener?.('submit', function () {
                 accountContextId = null;
-                iptvRequests.clear();
+                clearIptvRequests();
                 webview.postMessage({type: ACCOUNT_CLEAR_TYPE, requestId: createRequestId(target)});
             });
             webview.postMessage({type: PING_TYPE, requestId});
@@ -613,6 +668,7 @@
         ACCOUNT_ACTIVATE_RESULT_TYPE,
         ACCOUNT_CLEAR_TYPE,
         ACCOUNT_CLEAR_RESULT_TYPE,
+        validCapabilities,
         PROTOCOL_VERSION,
         IPTV_COMMANDS,
         IPTV_MEDIA_STATE_TYPE,

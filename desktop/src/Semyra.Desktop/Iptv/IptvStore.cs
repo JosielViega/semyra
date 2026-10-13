@@ -10,11 +10,13 @@ public sealed class IptvStore
 {
     private readonly string _connectionString;
     private readonly ISecretProtector _protector;
+    private readonly Func<DateTimeOffset> _utcNow;
 
-    public IptvStore(string databasePath, ISecretProtector protector)
+    public IptvStore(string databasePath, ISecretProtector protector, Func<DateTimeOffset>? utcNow = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         _protector = protector;
+        _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(databasePath))!);
         _connectionString = new SqliteConnectionStringBuilder
         {
@@ -28,6 +30,27 @@ public sealed class IptvStore
     public void Initialize()
     {
         using var connection = Open();
+        using var versionCommand = connection.CreateCommand();
+        versionCommand.CommandText = "PRAGMA user_version;";
+        var version = Convert.ToInt32(versionCommand.ExecuteScalar(), CultureInfo.InvariantCulture);
+        if (version == 0)
+        {
+            CreateVersionTwo(connection);
+            return;
+        }
+        if (version == 1)
+        {
+            MigrateVersionOneToTwo(connection);
+            return;
+        }
+        if (version != 2)
+        {
+            throw new InvalidDataException("Versão do catálogo IPTV local não suportada.");
+        }
+    }
+
+    private static void CreateVersionTwo(SqliteConnection connection)
+    {
         using var command = connection.CreateCommand();
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS iptv_sources (
@@ -46,6 +69,7 @@ public sealed class IptvStore
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_id INTEGER NOT NULL,
                 stable_key TEXT NOT NULL,
+                logical_key TEXT NOT NULL,
                 external_id TEXT NULL,
                 name TEXT NOT NULL,
                 group_name TEXT NULL,
@@ -61,9 +85,120 @@ public sealed class IptvStore
                 ON iptv_channels(source_id, group_name COLLATE NOCASE);
             CREATE INDEX IF NOT EXISTS idx_iptv_channels_source_name
                 ON iptv_channels(source_id, name COLLATE NOCASE);
-            PRAGMA user_version = 1;
+            CREATE INDEX IF NOT EXISTS idx_iptv_channels_source_logical
+                ON iptv_channels(source_id, logical_key);
+            CREATE TABLE IF NOT EXISTS iptv_favorites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL,
+                stable_key TEXT NOT NULL,
+                logical_key TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (source_id) REFERENCES iptv_sources(id) ON DELETE CASCADE,
+                UNIQUE (source_id, stable_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_iptv_favorites_source_logical
+                ON iptv_favorites(source_id, logical_key);
+            CREATE TABLE IF NOT EXISTS iptv_recents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL,
+                stable_key TEXT NOT NULL,
+                logical_key TEXT NOT NULL,
+                last_watched_at TEXT NOT NULL,
+                FOREIGN KEY (source_id) REFERENCES iptv_sources(id) ON DELETE CASCADE,
+                UNIQUE (source_id, stable_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_iptv_recents_source_watched
+                ON iptv_recents(source_id, last_watched_at DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_iptv_recents_source_logical
+                ON iptv_recents(source_id, logical_key);
+            PRAGMA user_version = 2;
             """;
         command.ExecuteNonQuery();
+    }
+
+    private static void MigrateVersionOneToTwo(SqliteConnection connection)
+    {
+        using var transaction = connection.BeginTransaction();
+        if (!ColumnExists(connection, transaction, "iptv_channels", "logical_key"))
+        {
+            using var alter = connection.CreateCommand();
+            alter.Transaction = transaction;
+            alter.CommandText = "ALTER TABLE iptv_channels ADD COLUMN logical_key TEXT NULL;";
+            alter.ExecuteNonQuery();
+        }
+
+        var channels = new List<(long Id, string? TvgId, string Name, string? Group)>();
+        using (var read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT id, tvg_id, name, group_name FROM iptv_channels WHERE logical_key IS NULL OR logical_key = ''";
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                channels.Add((
+                    reader.GetInt64(0),
+                    reader.IsDBNull(1) ? null : reader.GetString(1),
+                    reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3)));
+            }
+        }
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = "UPDATE iptv_channels SET logical_key = $logical WHERE id = $id";
+            var logical = update.Parameters.Add("$logical", SqliteType.Text);
+            var id = update.Parameters.Add("$id", SqliteType.Integer);
+            foreach (var channel in channels)
+            {
+                logical.Value = LogicalChannelIdentity.Create(channel.TvgId, channel.Name, channel.Group);
+                id.Value = channel.Id;
+                update.ExecuteNonQuery();
+            }
+        }
+        using (var schema = connection.CreateCommand())
+        {
+            schema.Transaction = transaction;
+            schema.CommandText = """
+                CREATE INDEX IF NOT EXISTS idx_iptv_channels_source_logical
+                    ON iptv_channels(source_id, logical_key);
+                CREATE TABLE IF NOT EXISTS iptv_favorites (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_id INTEGER NOT NULL,
+                    stable_key TEXT NOT NULL,
+                    logical_key TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (source_id) REFERENCES iptv_sources(id) ON DELETE CASCADE,
+                    UNIQUE (source_id, stable_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_iptv_favorites_source_logical
+                    ON iptv_favorites(source_id, logical_key);
+                CREATE TABLE IF NOT EXISTS iptv_recents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_id INTEGER NOT NULL,
+                    stable_key TEXT NOT NULL,
+                    logical_key TEXT NOT NULL,
+                    last_watched_at TEXT NOT NULL,
+                    FOREIGN KEY (source_id) REFERENCES iptv_sources(id) ON DELETE CASCADE,
+                    UNIQUE (source_id, stable_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_iptv_recents_source_watched
+                    ON iptv_recents(source_id, last_watched_at DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_iptv_recents_source_logical
+                    ON iptv_recents(source_id, logical_key);
+                PRAGMA user_version = 2;
+                """;
+            schema.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
+    private static bool ColumnExists(SqliteConnection connection, SqliteTransaction transaction, string table, string column)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $column";
+        command.Parameters.AddWithValue("$column", column);
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) == 1;
     }
 
     public IptvSourceSummary AddSource(string name, IptvSourceType type, string location)
@@ -75,7 +210,7 @@ public sealed class IptvStore
 
         using var connection = Open();
         using var command = connection.CreateCommand();
-        var now = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        var now = _utcNow().ToString("O", CultureInfo.InvariantCulture);
         command.CommandText = """
             INSERT INTO iptv_sources
                 (name, type, protected_location, enabled, refresh_status, created_at, updated_at)
@@ -207,12 +342,30 @@ public sealed class IptvStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, name, group_name, logo_url, tvg_id
-            FROM iptv_channels
-            WHERE source_id = $source
-              AND ($query = '' OR name LIKE $pattern ESCAPE '\')
-              AND ($group IS NULL OR group_name = $group COLLATE NOCASE)
-            ORDER BY name COLLATE NOCASE, id
+            SELECT c.id, c.name, c.group_name, c.logo_url, c.tvg_id,
+                   EXISTS (
+                       SELECT 1 FROM iptv_favorites f
+                       WHERE f.source_id = c.source_id
+                         AND (
+                             f.stable_key = c.stable_key
+                             OR (
+                                 f.logical_key = c.logical_key
+                                 AND NOT EXISTS (
+                                     SELECT 1 FROM iptv_channels exact
+                                     WHERE exact.source_id = f.source_id AND exact.stable_key = f.stable_key
+                                 )
+                                 AND 1 = (
+                                     SELECT COUNT(*) FROM iptv_channels candidate
+                                     WHERE candidate.source_id = f.source_id AND candidate.logical_key = f.logical_key
+                                 )
+                             )
+                         )
+                   ) AS is_favorite
+            FROM iptv_channels c
+            WHERE c.source_id = $source
+              AND ($query = '' OR c.name LIKE $pattern ESCAPE '\')
+              AND ($group IS NULL OR c.group_name = $group COLLATE NOCASE)
+            ORDER BY c.name COLLATE NOCASE, c.id
             LIMIT $limit OFFSET $offset
             """;
         command.Parameters.AddWithValue("$source", sourceId);
@@ -230,7 +383,8 @@ public sealed class IptvStore
                 reader.GetString(1),
                 reader.IsDBNull(2) ? null : reader.GetString(2),
                 reader.IsDBNull(3) ? null : reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4)));
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetInt64(5) == 1));
         }
         var hasMore = channels.Count > limit;
         if (hasMore)
@@ -240,6 +394,123 @@ public sealed class IptvStore
         return new IptvChannelSearchResult(channels, offset, limit, hasMore);
     }
 
+    public bool SetFavorite(long channelId, bool favorite)
+    {
+        var channel = FindChannelIdentity(channelId);
+        RebindPreferences(channel.SourceId);
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        if (favorite)
+        {
+            command.CommandText = """
+                INSERT INTO iptv_favorites (source_id, stable_key, logical_key, created_at)
+                VALUES ($source, $stable, $logical, $created)
+                ON CONFLICT(source_id, stable_key) DO NOTHING
+                """;
+            command.Parameters.AddWithValue("$created", _utcNow().ToString("O", CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            command.CommandText = "DELETE FROM iptv_favorites WHERE source_id = $source AND stable_key = $stable";
+        }
+        command.Parameters.AddWithValue("$source", channel.SourceId);
+        command.Parameters.AddWithValue("$stable", channel.StableKey);
+        command.Parameters.AddWithValue("$logical", channel.LogicalKey);
+        command.ExecuteNonQuery();
+        return favorite;
+    }
+
+    public IptvChannelSearchResult ListFavorites(long sourceId, int offset, int limit)
+    {
+        RebindPreferences(sourceId);
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT c.id, c.name, c.group_name, c.logo_url, c.tvg_id, 1
+            FROM iptv_favorites f
+            INNER JOIN iptv_channels c
+                ON c.source_id = f.source_id AND c.stable_key = f.stable_key
+            WHERE f.source_id = $source
+            ORDER BY f.created_at DESC, f.id DESC
+            LIMIT $limit OFFSET $offset
+            """;
+        command.Parameters.AddWithValue("$source", sourceId);
+        command.Parameters.AddWithValue("$limit", limit + 1);
+        command.Parameters.AddWithValue("$offset", offset);
+        using var reader = command.ExecuteReader();
+        var channels = ReadChannels(reader);
+        var hasMore = channels.Count > limit;
+        if (hasMore)
+        {
+            channels.RemoveAt(channels.Count - 1);
+        }
+        return new IptvChannelSearchResult(channels, offset, limit, hasMore);
+    }
+
+    public IReadOnlyList<IptvChannelSummary> ListRecents(long sourceId)
+    {
+        RebindPreferences(sourceId);
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT c.id, c.name, c.group_name, c.logo_url, c.tvg_id,
+                   EXISTS (
+                       SELECT 1 FROM iptv_favorites f
+                       WHERE f.source_id = c.source_id AND f.stable_key = c.stable_key
+                   )
+            FROM iptv_recents r
+            INNER JOIN iptv_channels c
+                ON c.source_id = r.source_id AND c.stable_key = r.stable_key
+            WHERE r.source_id = $source
+            ORDER BY r.last_watched_at DESC, r.id DESC
+            LIMIT 20
+            """;
+        command.Parameters.AddWithValue("$source", sourceId);
+        using var reader = command.ExecuteReader();
+        return ReadChannels(reader);
+    }
+
+    public void RecordRecent(long channelId)
+    {
+        var channel = FindChannelIdentity(channelId);
+        RebindPreferences(channel.SourceId);
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        using (var upsert = connection.CreateCommand())
+        {
+            upsert.Transaction = transaction;
+            upsert.CommandText = """
+                INSERT INTO iptv_recents (source_id, stable_key, logical_key, last_watched_at)
+                VALUES ($source, $stable, $logical, $watched)
+                ON CONFLICT(source_id, stable_key) DO UPDATE SET
+                    logical_key = excluded.logical_key,
+                    last_watched_at = excluded.last_watched_at
+                """;
+            upsert.Parameters.AddWithValue("$source", channel.SourceId);
+            upsert.Parameters.AddWithValue("$stable", channel.StableKey);
+            upsert.Parameters.AddWithValue("$logical", channel.LogicalKey);
+            upsert.Parameters.AddWithValue("$watched", _utcNow().ToString("O", CultureInfo.InvariantCulture));
+            upsert.ExecuteNonQuery();
+        }
+        using (var trim = connection.CreateCommand())
+        {
+            trim.Transaction = transaction;
+            trim.CommandText = """
+                DELETE FROM iptv_recents
+                WHERE source_id = $source
+                  AND id NOT IN (
+                      SELECT id FROM iptv_recents
+                      WHERE source_id = $source
+                      ORDER BY last_watched_at DESC, id DESC
+                      LIMIT 20
+                  )
+                """;
+            trim.Parameters.AddWithValue("$source", channel.SourceId);
+            trim.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
     public void MarkRefreshing(long sourceId)
     {
         UpdateRefresh(sourceId, "refreshing", null, null);
@@ -247,7 +518,7 @@ public sealed class IptvStore
 
     public void MarkRefreshError(long sourceId, string error)
     {
-        UpdateRefresh(sourceId, "error", error, DateTimeOffset.UtcNow);
+        UpdateRefresh(sourceId, "error", error, _utcNow());
     }
 
     public async Task<IptvSourceSummary> ReplaceChannelsAsync(
@@ -264,6 +535,7 @@ public sealed class IptvStore
                 DROP TABLE IF EXISTS temp.iptv_import;
                 CREATE TEMP TABLE iptv_import (
                     stable_key TEXT PRIMARY KEY,
+                    logical_key TEXT NOT NULL,
                     external_id TEXT NULL,
                     name TEXT NOT NULL,
                     group_name TEXT NULL,
@@ -281,10 +553,11 @@ public sealed class IptvStore
             insert.Transaction = transaction;
             insert.CommandText = """
                 INSERT OR IGNORE INTO temp.iptv_import
-                    (stable_key, external_id, name, group_name, logo_url, tvg_id, protected_stream_url)
-                VALUES ($key, $external, $name, $group, $logo, $tvg, $stream)
+                    (stable_key, logical_key, external_id, name, group_name, logo_url, tvg_id, protected_stream_url)
+                VALUES ($key, $logical, $external, $name, $group, $logo, $tvg, $stream)
                 """;
             var key = insert.Parameters.Add("$key", SqliteType.Text);
+            var logical = insert.Parameters.Add("$logical", SqliteType.Text);
             var external = insert.Parameters.Add("$external", SqliteType.Text);
             var name = insert.Parameters.Add("$name", SqliteType.Text);
             var group = insert.Parameters.Add("$group", SqliteType.Text);
@@ -295,6 +568,7 @@ public sealed class IptvStore
             await foreach (var channel in channels.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
                 key.Value = StableKey(channel);
+                logical.Value = LogicalChannelIdentity.Create(channel.TvgId, channel.Name, channel.Group);
                 external.Value = (object?)channel.TvgId ?? DBNull.Value;
                 name.Value = channel.Name;
                 group.Value = (object?)channel.Group ?? DBNull.Value;
@@ -310,15 +584,15 @@ public sealed class IptvStore
             throw new InvalidDataException("A playlist não contém canais válidos.");
         }
 
-        var now = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        var now = _utcNow().ToString("O", CultureInfo.InvariantCulture);
         using (var replace = connection.CreateCommand())
         {
             replace.Transaction = transaction;
             replace.CommandText = """
                 DELETE FROM iptv_channels WHERE source_id = $source;
                 INSERT INTO iptv_channels
-                    (source_id, stable_key, external_id, name, group_name, logo_url, tvg_id, protected_stream_url, created_at, updated_at)
-                SELECT $source, stable_key, external_id, name, group_name, logo_url, tvg_id, protected_stream_url, $now, $now
+                    (source_id, stable_key, logical_key, external_id, name, group_name, logo_url, tvg_id, protected_stream_url, created_at, updated_at)
+                SELECT $source, stable_key, logical_key, external_id, name, group_name, logo_url, tvg_id, protected_stream_url, $now, $now
                 FROM temp.iptv_import;
                 UPDATE iptv_sources
                 SET refresh_status = 'ready', refresh_error = NULL, last_refresh_at = $now, updated_at = $now
@@ -328,6 +602,7 @@ public sealed class IptvStore
             replace.Parameters.AddWithValue("$now", now);
             replace.ExecuteNonQuery();
         }
+        RebindPreferences(connection, transaction, sourceId);
         transaction.Commit();
         return FindSummary(connection, sourceId) ?? throw new InvalidOperationException("A fonte não existe.");
     }
@@ -347,9 +622,78 @@ public sealed class IptvStore
         command.Parameters.AddWithValue("$status", status);
         command.Parameters.AddWithValue("$error", error is null ? DBNull.Value : error);
         command.Parameters.AddWithValue("$refreshed", refreshedAt is null ? DBNull.Value : refreshedAt.Value.ToString("O", CultureInfo.InvariantCulture));
-        command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$now", _utcNow().ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$id", sourceId);
         command.ExecuteNonQuery();
+    }
+
+    private ChannelIdentity FindChannelIdentity(long channelId)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT source_id, stable_key, logical_key FROM iptv_channels WHERE id = $id";
+        command.Parameters.AddWithValue("$id", channelId);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            throw new IptvValidationException("Canal não encontrado.");
+        }
+        return new ChannelIdentity(reader.GetInt64(0), reader.GetString(1), reader.GetString(2));
+    }
+
+    private void RebindPreferences(long sourceId)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        RebindPreferences(connection, transaction, sourceId);
+        transaction.Commit();
+    }
+
+    private static void RebindPreferences(SqliteConnection connection, SqliteTransaction transaction, long sourceId)
+    {
+        foreach (var table in new[] { "iptv_favorites", "iptv_recents" })
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = $"""
+                UPDATE OR IGNORE {table}
+                SET stable_key = (
+                    SELECT MIN(candidate.stable_key)
+                    FROM iptv_channels candidate
+                    WHERE candidate.source_id = {table}.source_id
+                      AND candidate.logical_key = {table}.logical_key
+                )
+                WHERE source_id = $source
+                  AND NOT EXISTS (
+                      SELECT 1 FROM iptv_channels exact
+                      WHERE exact.source_id = {table}.source_id
+                        AND exact.stable_key = {table}.stable_key
+                  )
+                  AND 1 = (
+                      SELECT COUNT(*) FROM iptv_channels candidate
+                      WHERE candidate.source_id = {table}.source_id
+                        AND candidate.logical_key = {table}.logical_key
+                  )
+                """;
+            command.Parameters.AddWithValue("$source", sourceId);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    private static List<IptvChannelSummary> ReadChannels(SqliteDataReader reader)
+    {
+        var channels = new List<IptvChannelSummary>();
+        while (reader.Read())
+        {
+            channels.Add(new IptvChannelSummary(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetInt64(5) == 1));
+        }
+        return channels;
     }
 
     private SqliteConnection Open()
@@ -419,6 +763,8 @@ public sealed class IptvStore
     }
 
     private static string EscapeLike(string value) => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+    private sealed record ChannelIdentity(long SourceId, string StableKey, string LogicalKey);
 }
 
 internal sealed class IptvPlaybackException : Exception

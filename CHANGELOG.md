@@ -13,6 +13,7 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Favoritos e Recentes da Minha IPTV, gratuitos e persistidos somente no SQLite local por conta e fonte, com identidade lógica resiliente a mudanças de URL da playlist.
 - Experiência cinematográfica da Minha IPTV, com player ao vivo integrado, controles próprios, catálogo em grid e configurações secundárias acessíveis.
 - Reprodução IPTV local integrada ao Semyra Desktop por HLS efêmero e hls.js local, sem WHIP, LiveKit ou exposição da URL do provider.
 

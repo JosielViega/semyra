@@ -107,8 +107,11 @@ class FakeElement {
     removeAttribute(name) { this.attributes.delete(name); }
     closest(selector) {
         if (selector === '[data-iptv-media-start]' && this.dataset.iptvMediaStart) return this;
+        if (selector === '[data-iptv-favorite]' && this.dataset.iptvFavorite) return this;
+        if (selector === '[data-iptv-view]' && this.dataset.iptvView) return this;
         if (selector === '[data-iptv-action]' && this.dataset.iptvAction) return this;
         if (selector === '[data-source-id]' && this.dataset.sourceId) return this;
+        if (selector === '.iptv-channel-card' && this.className.split(/\s+/).includes('iptv-channel-card')) return this;
         return this.parent?.closest(selector) || null;
     }
     querySelector(selector) {
@@ -152,9 +155,22 @@ const confirmations = [];
 const registry = new Map();
 const root = new FakeElement('section');
 root.querySelector = (selector) => registry.get(selector) || null;
-root.querySelectorAll = (selector) => selector === '[data-iptv-media-start]'
-    ? (registry.get('[data-iptv-channel-list]')?.children || []).filter((item) => item.dataset.iptvMediaStart)
-    : [];
+root.querySelectorAll = (selector) => {
+    const container = selector === '[data-iptv-view]'
+        ? registry.get('[data-iptv-view-tabs]')
+        : registry.get('[data-iptv-channel-list]');
+    const matches = [];
+    function walk(item) {
+        item?.children?.forEach((child) => {
+            if (selector === '[data-iptv-media-start]' && child.dataset.iptvMediaStart) matches.push(child);
+            if (selector === '[data-iptv-favorite]' && child.dataset.iptvFavorite) matches.push(child);
+            if (selector === '[data-iptv-view]' && child.dataset.iptvView) matches.push(child);
+            walk(child);
+        });
+    }
+    walk(container);
+    return matches;
+};
 
 function register(selector, element = new FakeElement()) { registry.set(selector, element); return element; }
 const form = register('[data-iptv-search-form]', new FakeElement('form'));
@@ -172,6 +188,16 @@ stage.requestFullscreen = () => { fakeDocument.fullscreenElement = stage; return
 const settings = register('[data-iptv-settings]', new FakeElement('dialog'));
 const settingsContent = register('[data-iptv-settings-content]', new FakeElement('div'));
 const settingsLoader = register('[data-iptv-settings-loader]', new FakeElement('div'));
+const viewTabs = register('[data-iptv-view-tabs]', new FakeElement('div'));
+for (const view of ['favorites', 'recents', 'live']) {
+    const tab = new FakeElement('button');
+    tab.dataset.iptvView = view;
+    viewTabs.appendChild(tab);
+    registry.set('[data-iptv-view="' + view + '"]', tab);
+}
+register('[data-iptv-view-panel]', new FakeElement('div'));
+register('[data-iptv-channels-title]', new FakeElement('h2'));
+register('[data-iptv-pagination]', new FakeElement('div'));
 register('[data-iptv-settings-loader-title]', new FakeElement('strong'));
 register('[data-iptv-settings-loader-copy]', new FakeElement('p'));
 const channels = register('[data-iptv-channel-list]');
@@ -205,6 +231,7 @@ const fakeDocument = {
     fullscreenElement: null,
     activeElement: null,
     createElement: (tag) => new FakeElement(tag),
+    createElementNS: (_, tag) => new FakeElement(tag),
     createDocumentFragment: () => Object.assign(new FakeElement('fragment'), {isFragment: true}),
     querySelector: (selector) => selector === '[data-iptv-catalog]' ? root : selector === 'form.account-logout[action="/logout"]' ? logoutForm : null,
     addEventListener: (type, listener) => documentListeners.set(type, listener),
@@ -255,7 +282,7 @@ rootListeners.get('semyra:iptv-result')({detail: {action: 'search', ok: true, cl
 ]}});
 assert.equal(channels.children.length, 1);
 assert.equal(channels.attributes.get('aria-busy'), 'false');
-const playableCard = channels.children[0];
+let playableCard = channels.children[0];
 const sourceList = registry.get('[data-iptv-source-list]');
 const firstSource = sourceList.children[0];
 const secondSource = sourceList.children[1];
@@ -362,10 +389,127 @@ rootListeners.get('semyra:iptv-result')({detail: {action: 'search', ok: true, cl
 assert.equal(settings.open, false, 'selecting a source closes after groups and channels are ready');
 assert.equal(registry.get('[data-iptv-source-select]').value, '1');
 
-const card = playableCard;
-assert.equal(card.tagName, 'BUTTON');
+const liveTab = registry.get('[data-iptv-view="live"]');
+const favoritesTab = registry.get('[data-iptv-view="favorites"]');
+const recentsTab = registry.get('[data-iptv-view="recents"]');
+assert.equal(liveTab.attributes.get('aria-selected'), 'true', 'Ao vivo must be the default view');
+viewTabs.emit('click', {target: favoritesTab});
+assert.equal(requests.at(-1).action, 'favorites');
+const favoritesToken = requests.at(-1).clientRequestId;
+assert.equal(channels.attributes.get('aria-busy'), 'true');
+viewTabs.emit('keydown', {key: 'ArrowRight'});
+assert.equal(recentsTab.attributes.get('aria-selected'), 'true', 'ArrowRight must move the active tab');
+const recentsToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: true, clientRequestId: favoritesToken, channels: [
+    {id: 99, name: 'Resposta antiga', groupName: 'Stale', isFavorite: true},
+]}});
+assert.equal(channels.attributes.get('aria-busy'), 'true', 'stale tab response must not replace the current loading');
+rootListeners.get('semyra:iptv-result')({detail: {action: 'recents', ok: true, clientRequestId: recentsToken, channels: []}});
+assert.match(find(channels, (item) => item.tagName === 'P').textContent, /ainda não assistiu/);
+
+viewTabs.emit('click', {target: favoritesTab});
+const failedFavoritesToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: false, clientRequestId: failedFavoritesToken, error: 'desktop_bridge_timeout'}});
+assert.equal(channels.attributes.get('aria-busy'), 'false');
+assert.match(find(channels, (item) => item.tagName === 'P').textContent, /carregar os favoritos/);
+viewTabs.emit('click', {target: recentsTab});
+const failedRecentsToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'recents', ok: false, clientRequestId: failedRecentsToken, error: 'desktop_bridge_timeout'}});
+assert.equal(channels.attributes.get('aria-busy'), 'false');
+assert.match(find(channels, (item) => item.tagName === 'P').textContent, /carregar os recentes/);
+viewTabs.emit('click', {target: favoritesTab});
+const currentFavoritesToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: true, clientRequestId: currentFavoritesToken, offset: 0, hasMore: false, channels: [
+    {id: 7, name: 'Globo News', groupName: 'Notícias', isFavorite: true},
+]}});
+let favoriteCard = channels.children[0];
+assert.equal(favoriteCard.tagName, 'ARTICLE');
+assert.equal(favoriteCard.querySelectorAll('button').length, 2, 'play and favorite must be sibling buttons');
+const favoritePlay = find(favoriteCard, (item) => item.dataset.iptvMediaStart);
+channels.emit('click', {target: favoritePlay});
+assert.equal(requests.at(-1).action, 'view-start', 'a Favorite card must start local playback');
+rootListeners.get('semyra:iptv-result')({detail: {action: 'view-start', ok: false, error: 'provider_connect_failed'}});
+let favoriteButton = find(favoriteCard, (item) => item.dataset.iptvFavorite);
+assert.equal(favoriteButton.attributes.get('aria-pressed'), 'true');
+const playsBeforeFavorite = requests.filter((item) => item.action === 'view-start').length;
+channels.emit('click', {target: favoriteButton});
+assert.equal(requests.at(-1).action, 'favorite-set');
+assert.equal(requests.at(-1).favorite, false);
+assert.equal(requests.filter((item) => item.action === 'view-start').length, playsBeforeFavorite, 'favorite click must not start playback');
+const removeFavoriteToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorite-set', ok: true, clientRequestId: removeFavoriteToken, channelId: 7, favorite: false}});
+assert.equal(requests.at(-1).action, 'favorites', 'removing in Favorites must refresh the view');
+const emptyFavoritesToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: true, clientRequestId: emptyFavoritesToken, offset: 0, hasMore: false, channels: []}});
+assert.match(find(channels, (item) => item.tagName === 'P').textContent, /favoritos aparecerão aqui/);
+
+const sourceSelect = registry.get('[data-iptv-source-select]');
+sourceSelect.value = '2';
+sourceSelect.emit('change');
+assert.deepEqual(requests.slice(-2).map((item) => item.action), ['groups', 'favorites'], 'source switch must preserve Favorites');
+const sourceTwoGroupsToken = requests.at(-2).clientRequestId;
+const sourceTwoFavoritesToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'groups', ok: true, clientRequestId: sourceTwoGroupsToken, groups: []}});
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: true, clientRequestId: sourceTwoFavoritesToken, offset: 0, hasMore: false, channels: [
+    {id: 22, name: 'Somente fonte dois', groupName: 'Teste', isFavorite: true},
+]}});
+assert.equal(find(channels.children[0], (item) => item.tagName === 'STRONG').textContent, 'Somente fonte dois');
+sourceSelect.value = '1';
+sourceSelect.emit('change');
+assert.equal(requests.at(-1).action, 'favorites');
+const sourceOneFavoritesToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: true, clientRequestId: sourceOneFavoritesToken, offset: 0, hasMore: false, channels: []}});
+
+registry.get('[data-iptv-settings-open]').emit('click');
+const refreshedSourceCard = sourceList.children.find((item) => item.dataset.sourceId === '1');
+sourceList.emit('click', {target: find(refreshedSourceCard, (item) => item.dataset.iptvAction === 'refresh')});
+const activeRefreshToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'refresh', ok: true, clientRequestId: activeRefreshToken, source: {
+    id: 1, name: 'Casa', type: 'm3u_file', channelCount: 2, lastRefreshStatus: 'ready',
+}}});
+assert.deepEqual(requests.slice(-2).map((item) => item.action), ['groups', 'favorites'], 'refresh must invalidate and reload the active Favorites view');
+const refreshedGroupsToken = requests.at(-2).clientRequestId;
+const refreshedFavoritesToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'groups', ok: true, clientRequestId: refreshedGroupsToken, groups: []}});
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: true, clientRequestId: refreshedFavoritesToken, offset: 0, hasMore: false, channels: []}});
+assert.equal(settings.dataset.settingsState, 'idle');
+settings.close();
+
+viewTabs.emit('click', {target: recentsTab});
+const playableRecentsToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'recents', ok: true, clientRequestId: playableRecentsToken, channels: [
+    {id: 7, name: 'Globo News', groupName: 'Notícias', isFavorite: false},
+]}});
+const recentPlay = find(channels.children[0], (item) => item.dataset.iptvMediaStart);
+channels.emit('click', {target: recentPlay});
+assert.equal(requests.at(-1).action, 'view-start', 'a Recent card must start local playback');
+rootListeners.get('semyra:iptv-result')({detail: {action: 'view-start', ok: false, error: 'provider_connect_failed'}});
+
+viewTabs.emit('click', {target: liveTab});
+const liveReloadToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'search', ok: true, clientRequestId: liveReloadToken, offset: 0, hasMore: false, channels: [
+    {id: 7, name: 'Globo News', groupName: 'Notícias', isFavorite: false},
+]}});
+playableCard = channels.children[0];
+favoriteButton = find(playableCard, (item) => item.dataset.iptvFavorite);
+channels.emit('click', {target: favoriteButton});
+const addFavoriteToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorite-set', ok: true, clientRequestId: addFavoriteToken, channelId: 7, favorite: true}});
+assert.equal(favoriteButton.attributes.get('aria-pressed'), 'true');
+assert.equal(favoriteButton.attributes.get('aria-label'), 'Remover dos favoritos');
+channels.emit('click', {target: favoriteButton});
+const failedFavoriteToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorite-set', ok: false, clientRequestId: failedFavoriteToken, error: 'favorite_write_failed'}});
+assert.equal(favoriteButton.attributes.get('aria-pressed'), 'true', 'favorite error must restore the confirmed state');
+assert.equal(favoriteButton.disabled, false, 'favorite error must clear pending state');
+assert.match(registry.get('[data-iptv-feedback]').textContent, /atualizar os favoritos/);
+
+let card = playableCard;
+let playButton = find(card, (item) => item.dataset.iptvMediaStart);
+assert.equal(card.tagName, 'ARTICLE');
+assert.equal(playButton.tagName, 'BUTTON');
 assert.equal(card.querySelectorAll?.('img')?.length || 0, 0);
-channels.emit('click', {target: card});
+channels.emit('click', {target: playButton});
 assert.equal(requests.at(-1).action, 'view-start');
 assert.equal(requests.at(-1).channelId, 7);
 assert.equal(stage.dataset.state, 'preparing');
@@ -377,8 +521,28 @@ assert.equal(stage.dataset.state, 'streaming');
 assert.equal(registry.get('[data-iptv-live-badge]').hidden, false);
 assert.equal(registry.get('[data-iptv-player-empty]').hidden, true, 'idle content must not leak into streaming');
 assert.equal(registry.get('[data-iptv-player-state]').hidden, true, 'preparing overlay must not leak into streaming');
+viewTabs.emit('click', {target: favoritesTab});
+const activeFavoritesToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: true, clientRequestId: activeFavoritesToken, channels: [
+    {id: 7, name: 'Globo News', groupName: 'Notícias', isFavorite: true},
+]}});
+assert.match(channels.children[0].className, /is-active/, 'active playback must be highlighted in Favorites');
+viewTabs.emit('click', {target: recentsTab});
+const activeRecentsToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'recents', ok: true, clientRequestId: activeRecentsToken, channels: [
+    {id: 7, name: 'Globo News', groupName: 'Notícias', isFavorite: true},
+]}});
+assert.match(channels.children[0].className, /is-active/, 'active playback must be highlighted in Recents');
+viewTabs.emit('click', {target: liveTab});
+const activeLiveToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'search', ok: true, clientRequestId: activeLiveToken, offset: 0, hasMore: false, channels: [
+    {id: 7, name: 'Globo News', groupName: 'Notícias', isFavorite: true},
+]}});
+card = channels.children[0];
+playButton = find(card, (item) => item.dataset.iptvMediaStart);
+assert.match(card.className, /is-active/, 'active playback must remain highlighted in Ao vivo');
 const startsBefore = requests.filter((item) => item.action === 'view-start').length;
-channels.emit('click', {target: card});
+channels.emit('click', {target: playButton});
 assert.equal(requests.filter((item) => item.action === 'view-start').length, startsBefore);
 
 rootListeners.get('semyra:iptv-media-state')({detail: {state: 'reconnecting', channelId: 7, channelName: 'Globo News'}});
@@ -400,9 +564,9 @@ assert.equal(fakeDocument.fullscreenElement, stage);
 registry.get('[data-iptv-media-stop]').emit('click');
 assert.equal(requests.at(-1).action, 'view-stop');
 assert.equal(stage.dataset.state, 'idle');
-assert.equal(card.disabled, false);
+assert.equal(playButton.disabled, false);
 const restartsBefore = requests.filter((item) => item.action === 'view-start').length;
-channels.emit('click', {target: card});
+channels.emit('click', {target: playButton});
 assert.equal(requests.filter((item) => item.action === 'view-start').length, restartsBefore + 1, 'same channel must restart after idle');
 rootListeners.get('semyra:iptv-result')({detail: {
     action: 'view-start', ok: true, playbackUrl, state: 'streaming', channelId: 7, channelName: 'Globo News', errorCode: null,
@@ -412,10 +576,10 @@ rootListeners.get('pagehide')();
 assert.equal(requests.at(-1).action, 'view-stop');
 assert.equal(stage.dataset.state, 'idle');
 assert.equal(registry.get('[data-iptv-player-empty]').hidden, false);
-assert.equal(card.disabled, false);
+assert.equal(playButton.disabled, false);
 assert.ok(lifecycleCalls.filter((item) => item === 'hls-destroy').length > pagehideDestroyCount);
 rootListeners.get('semyra:iptv-result')({detail: {action: 'view-status', ok: true, state: 'idle'}});
-channels.emit('click', {target: card});
+channels.emit('click', {target: playButton});
 assert.equal(requests.at(-1).action, 'view-start', 'returning idle must allow the same channel');
 
 query.value = 'antiga';

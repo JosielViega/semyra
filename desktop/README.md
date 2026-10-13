@@ -47,6 +47,8 @@ Fontes M3U por URL HTTP(S) ou arquivo podem ser cadastradas na tela **Minha IPTV
 
 O refresh lê a playlist em streaming e só substitui o catálogo da fonte em uma transação SQLite válida. A interface consulta grupos e canais com busca e paginação limitada, sem carregar o catálogo inteiro.
 
+Favoritos e Recentes também permanecem somente nesse SQLite local, separados por conta e por fonte e disponíveis sem Premium. A versão 2 do schema adiciona uma identidade lógica derivada do `tvg-id` normalizado ou, na ausência dele, de nome + grupo normalizados. A identidade não inclui URL do stream, logo ou IDs técnicos; por isso uma preferência pode sobreviver ao refresh quando a URL muda. A chave exata continua prioritária e o fallback lógico só ocorre quando há um único canal candidato, evitando associação arbitrária. Recentes são gravados apenas quando o player local atinge `streaming`, mantêm no máximo 20 canais únicos por fonte e não incluem publicações para salas. Nada é sincronizado com o backend ou com outro dispositivo.
+
 ## Media Engine local
 
 O teste de canal envia somente o `channelId` para o native. O Host Engine resolve e descriptografa a URL internamente, conecta ao provider com `HttpClient`, valida os sync bytes MPEG-TS e alimenta o stdin do GStreamer. A URL privada nunca entra em argv, ambiente, snapshot, evento ou resposta para a WebView.

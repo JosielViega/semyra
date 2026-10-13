@@ -101,6 +101,23 @@ public sealed class IptvCatalogService : IDisposable
         return _store.SearchChannels(PositiveId(sourceId), safeQuery, safeGroup, offset, limit);
     }
 
+    public IptvChannelSearchResult ListFavorites(long sourceId, int offset, int limit)
+    {
+        if (offset < 0 || limit is < 1 or > 50)
+        {
+            throw new IptvValidationException("Paginação inválida.");
+        }
+        return _store.ListFavorites(PositiveId(sourceId), offset, limit);
+    }
+
+    public IReadOnlyList<IptvChannelSummary> ListRecents(long sourceId) =>
+        _store.ListRecents(PositiveId(sourceId));
+
+    public bool SetFavorite(long channelId, bool favorite) =>
+        _store.SetFavorite(PositiveId(channelId), favorite);
+
+    internal void RecordRecent(long channelId) => _store.RecordRecent(PositiveId(channelId));
+
     public async Task<IptvSourceSummary> RefreshAsync(long sourceId, CancellationToken cancellationToken)
     {
         var source = _store.FindSource(PositiveId(sourceId))

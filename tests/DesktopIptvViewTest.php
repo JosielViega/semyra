@@ -15,11 +15,12 @@ final class DesktopIptvViewTest extends TestCase
             'title' => 'Fontes IPTV — Semyra',
             'csrfField' => '',
             'currentUser' => null,
-            'pageStyles' => ['/assets/css/desktop-iptv.css?v=11h-b-settings'],
+            'pageStyles' => ['/assets/css/desktop-iptv.css?v=11i-favorites-recents'],
         ]);
 
         self::assertStringContainsString('Abra esta página no Semyra Desktop', $html);
-        self::assertStringContainsString('/assets/css/desktop-iptv.css?v=11h-b-settings', $html);
+        self::assertStringContainsString('/assets/css/desktop-iptv.css?v=11i-favorites-recents', $html);
+        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11i-favorites-recents', $html);
         self::assertStringContainsString('data-iptv-pick-file', $html);
         self::assertStringContainsString('data-iptv-url-form', $html);
         self::assertStringContainsString('data-iptv-settings', $html);
@@ -28,7 +29,13 @@ final class DesktopIptvViewTest extends TestCase
         self::assertStringContainsString('data-iptv-channel-list aria-live="polite" aria-busy="false"', $html);
         self::assertStringContainsString('data-iptv-source-loading aria-live="polite" aria-busy="true"', $html);
         self::assertStringContainsString('data-iptv-browser-notice role="status" hidden', $html);
-        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11h-b-settings', $html);
+        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11i-favorites-recents', $html);
+        self::assertStringContainsString('data-iptv-view-tabs role="tablist"', $html);
+        self::assertStringContainsString('data-iptv-view="favorites" role="tab"', $html);
+        self::assertStringContainsString('data-iptv-view="recents" role="tab"', $html);
+        self::assertStringContainsString('data-iptv-view="live" role="tab" aria-selected="true"', $html);
+        self::assertStringContainsString('role="tabpanel"', $html);
+        self::assertStringContainsString('id="iptv-icon-heart"', $html);
         self::assertStringContainsString('data-settings-state="idle"', $html);
         self::assertStringContainsString('data-iptv-settings-content', $html);
         self::assertStringContainsString('data-iptv-settings-loader role="status" aria-live="polite" hidden', $html);
@@ -43,5 +50,7 @@ final class DesktopIptvViewTest extends TestCase
         self::assertStringContainsString('data-iptv-media-stop', $html);
         self::assertStringContainsString('aria-live="polite"', $html);
         self::assertStringNotContainsString('streamUrl', $html);
+        self::assertStringNotContainsString('stable_key', $html);
+        self::assertStringNotContainsString('logical_key', $html);
     }
 }

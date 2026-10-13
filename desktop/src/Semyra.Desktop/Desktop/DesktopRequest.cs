@@ -20,6 +20,8 @@ public sealed record IptvRequest(
     string? Group = null,
     int Offset = 0,
     int Limit = 50,
+    long? ChannelId = null,
+    bool? Favorite = null,
     string? AccountContextId = null);
 
 public sealed record MediaRequest(long? ChannelId = null, string? AccountContextId = null);

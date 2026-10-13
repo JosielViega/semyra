@@ -33,6 +33,12 @@ public static partial class DesktopMessage
     public const string IptvCatalogGroupsResultType = "semyra.desktop.iptv.groups.list-result";
     public const string IptvCatalogSearchType = "semyra.desktop.iptv.channels.search";
     public const string IptvCatalogSearchResultType = "semyra.desktop.iptv.channels.search-result";
+    public const string IptvFavoritesListType = "semyra.desktop.iptv.favorites.list";
+    public const string IptvFavoritesListResultType = "semyra.desktop.iptv.favorites.list-result";
+    public const string IptvFavoriteSetType = "semyra.desktop.iptv.favorite.set";
+    public const string IptvFavoriteSetResultType = "semyra.desktop.iptv.favorite.set-result";
+    public const string IptvRecentsListType = "semyra.desktop.iptv.recents.list";
+    public const string IptvRecentsListResultType = "semyra.desktop.iptv.recents.list-result";
     public const string IptvMediaStartType = "semyra.desktop.iptv.media.start";
     public const string IptvMediaStartResultType = "semyra.desktop.iptv.media.start-result";
     public const string IptvMediaStopType = "semyra.desktop.iptv.media.stop";
@@ -161,6 +167,43 @@ public static partial class DesktopMessage
                 return true;
             }
 
+            if (type == IptvRecentsListType)
+            {
+                if (properties.Count != 4 || !TryPositiveInt64(properties, "sourceId", out var sourceId) || !TryAccountContext(properties, out var contextId))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, AccountContextId: contextId));
+                return true;
+            }
+
+            if (type == IptvFavoriteSetType)
+            {
+                if (properties.Count != 5
+                    || !TryPositiveInt64(properties, "channelId", out var channelId)
+                    || !TryBoolean(properties, "favorite", out var favorite)
+                    || !TryAccountContext(properties, out var contextId))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(ChannelId: channelId, Favorite: favorite, AccountContextId: contextId));
+                return true;
+            }
+
+            if (type == IptvFavoritesListType)
+            {
+                if (properties.Count != 6
+                    || !TryPositiveInt64(properties, "sourceId", out var sourceId)
+                    || !TryInt32(properties, "offset", out var offset) || offset < 0
+                    || !TryInt32(properties, "limit", out var limit) || limit is < 1 or > 50
+                    || !TryAccountContext(properties, out var contextId))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, Offset: offset, Limit: limit, AccountContextId: contextId));
+                return true;
+            }
+
             if (type == IptvCatalogSearchType)
             {
                 if (properties.Count != 8
@@ -235,6 +278,17 @@ public static partial class DesktopMessage
         return properties.TryGetValue(name, out var element)
             && element.ValueKind == JsonValueKind.Number
             && element.TryGetInt32(out value);
+    }
+
+    private static bool TryBoolean(IReadOnlyDictionary<string, JsonElement> properties, string name, out bool value)
+    {
+        value = false;
+        if (!properties.TryGetValue(name, out var element) || element.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+        value = element.GetBoolean();
+        return true;
     }
 
     private static bool TryNullableString(IReadOnlyDictionary<string, JsonElement> properties, string name, int maxLength, out string? value)

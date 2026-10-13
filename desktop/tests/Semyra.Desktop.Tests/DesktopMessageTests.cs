@@ -146,6 +146,38 @@ public sealed class DesktopMessageTests
     }
 
     [Fact]
+    public void FavoriteAndRecentProtocolAcceptsOnlyStrictSafeFields()
+    {
+        var context = new string('e', 32);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.favorites.list","requestId":"favorites","accountContextId":"{{context}}","sourceId":7,"offset":0,"limit":50}""",
+            out var favorites));
+        Assert.Equal(7, favorites.Iptv!.SourceId);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.recents.list","requestId":"recents","accountContextId":"{{context}}","sourceId":7}""",
+            out _));
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.favorite.set","requestId":"favorite","accountContextId":"{{context}}","channelId":42,"favorite":true}""",
+            out var favorite));
+        Assert.Equal(42, favorite.Iptv!.ChannelId);
+        Assert.True(favorite.Iptv.Favorite);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.favorite.set","requestId":"favorite-false","accountContextId":"{{context}}","channelId":42,"favorite":false}""",
+            out var unfavorite));
+        Assert.False(unfavorite.Iptv!.Favorite);
+
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.favorite.set","requestId":"bad","accountContextId":"{{context}}","channelId":42,"favorite":true,"stable_key":"secret"}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.favorites.list","requestId":"bad-limit","accountContextId":"{{context}}","sourceId":7,"offset":0,"limit":51}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.recents.list","requestId":"bad-extra","accountContextId":"{{context}}","sourceId":7,"logical_key":"secret"}""",
+            out _));
+    }
+
+    [Fact]
     public void AccountProtocolIsStrictAndProducesEphemeralFence()
     {
         var profile = new string('a', 64);

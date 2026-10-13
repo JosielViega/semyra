@@ -63,6 +63,18 @@ public sealed class HostEngineTests
     }
 
     [Fact]
+    public void FullAccountSnapshotKeepsTheStrictElevenICapabilityOrder()
+    {
+        var snapshot = HostEngineSnapshot.Create(
+            HostEngineState.Ready, null, accountActive: true, mediaAvailable: true,
+            whipAvailable: true, localViewAvailable: true);
+
+        Assert.Equal(
+            ["host.status", "host.authorize", "iptv.sources", "iptv.catalog", "iptv.play", "iptv.local-view", "media.whip", "livekit.publish"],
+            snapshot.Capabilities);
+    }
+
+    [Fact]
     public void AuthorizationStaysInMemoryAndReplacementIsSafeInSnapshot()
     {
         var engine = new HostEngine();

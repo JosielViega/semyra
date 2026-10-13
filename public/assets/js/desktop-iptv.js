@@ -170,6 +170,9 @@
         let listRequestToken = null;
         let groupsRequestToken = null;
         let searchRequestToken = null;
+        let activeView = 'live';
+        let viewRequestAction = 'search';
+        const favoriteRequests = new Map();
         let settingsOperation = null;
         let navigationStopRequested = false;
         const groupsBySource = new Map();
@@ -408,6 +411,35 @@
             select.removeAttribute('aria-busy');
         }
 
+        function renderActiveView() {
+            if (!root || typeof root.querySelectorAll !== 'function') return;
+            root.querySelectorAll('[data-iptv-view]').forEach(function (tab) {
+                const selected = tab.dataset.iptvView === activeView;
+                tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+                tab.setAttribute('tabindex', selected ? '0' : '-1');
+                tab.classList.toggle('is-active', selected);
+            });
+            const toolbar = element('[data-iptv-search-form]');
+            const pagination = element('[data-iptv-pagination]');
+            if (toolbar) toolbar.hidden = activeView !== 'live';
+            if (pagination) pagination.hidden = activeView === 'recents';
+            const panel = element('[data-iptv-view-panel]');
+            if (panel) panel.setAttribute('aria-labelledby', 'iptv-view-' + activeView);
+            const title = element('[data-iptv-channels-title]');
+            if (title) title.textContent = activeView === 'favorites'
+                ? 'Seus favoritos'
+                : activeView === 'recents' ? 'Assistidos recentemente' : 'O que você quer assistir?';
+        }
+
+        function setActiveView(view, focus) {
+            if (!['favorites', 'recents', 'live'].includes(view) || view === activeView) return;
+            activeView = view;
+            offset = 0;
+            renderActiveView();
+            loadCurrentView('Carregando canais…');
+            if (focus) element('[data-iptv-view="' + view + '"]')?.focus();
+        }
+
         function setCatalogLoading(loading, message) {
             const list = element('[data-iptv-channel-list]');
             if (!list) return;
@@ -438,7 +470,8 @@
             if (!root || typeof root.querySelectorAll !== 'function') return;
             root.querySelectorAll('[data-iptv-media-start]').forEach(function (card) {
                 const active = Number(card.dataset.iptvMediaStart) === currentChannelId && ACTIVE_STATES.includes(mediaState);
-                card.classList.toggle('is-active', active);
+                const shell = card.closest('.iptv-channel-card') || card;
+                shell.classList.toggle('is-active', active);
                 card.setAttribute('aria-pressed', active ? 'true' : 'false');
                 card.disabled = !mediaAvailable || active;
                 if (active && mediaState === 'preparing') card.setAttribute('aria-busy', 'true');
@@ -453,17 +486,24 @@
             if (!list) return;
             const fragment = document.createDocumentFragment();
             const form = element('[data-iptv-search-form]');
-            const query = form && form.elements.query.value.trim();
+            const query = activeView === 'live' && form ? form.elements.query.value.trim() : '';
             if (channels.length === 0) {
-                fragment.appendChild(renderChannelEmpty(query ? 'Nenhum canal encontrado.' : 'Esta fonte ainda não possui canais.'));
+                const message = activeView === 'favorites'
+                    ? 'Seus canais favoritos aparecerão aqui. Favorite um canal para encontrá-lo mais rápido.'
+                    : activeView === 'recents'
+                        ? 'Você ainda não assistiu nenhum canal.'
+                        : query ? 'Nenhum canal encontrado.' : 'Esta fonte ainda não possui canais.';
+                fragment.appendChild(renderChannelEmpty(message));
             } else {
                 channels.forEach(function (channel) {
-                    const card = node('button', 'iptv-channel-card');
-                    card.type = 'button';
-                    card.dataset.iptvMediaStart = String(channel.id);
-                    card.disabled = !mediaAvailable || (channel.id === currentChannelId && ACTIVE_STATES.includes(mediaState));
-                    card.setAttribute('aria-label', 'Assistir ' + channel.name);
-                    card.setAttribute('aria-pressed', 'false');
+                    const card = node('article', 'iptv-channel-card');
+                    card.dataset.iptvChannelCard = String(channel.id);
+                    const play = node('button', 'iptv-channel-play');
+                    play.type = 'button';
+                    play.dataset.iptvMediaStart = String(channel.id);
+                    play.disabled = !mediaAvailable || (channel.id === currentChannelId && ACTIVE_STATES.includes(mediaState));
+                    play.setAttribute('aria-label', 'Assistir ' + channel.name);
+                    play.setAttribute('aria-pressed', 'false');
                     const visual = node('span', 'iptv-channel-visual');
                     visual.appendChild(node('span', 'iptv-channel-monogram', channelMonogram(channel.name)));
                     const live = node('span', 'iptv-channel-live', 'Ao vivo');
@@ -473,8 +513,23 @@
                     const copy = node('span', 'iptv-channel-copy');
                     copy.appendChild(node('strong', '', channel.name));
                     copy.appendChild(node('span', '', channel.groupName || 'Canal ao vivo'));
-                    card.appendChild(visual);
-                    card.appendChild(copy);
+                    play.appendChild(visual);
+                    play.appendChild(copy);
+                    card.appendChild(play);
+                    const favorite = node('button', 'iptv-favorite-button');
+                    favorite.type = 'button';
+                    favorite.dataset.iptvFavorite = String(channel.id);
+                    favorite.dataset.favorite = channel.isFavorite ? 'true' : 'false';
+                    favorite.setAttribute('aria-pressed', channel.isFavorite ? 'true' : 'false');
+                    favorite.setAttribute('aria-label', channel.isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos');
+                    favorite.title = channel.isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos';
+                    const icon = document.createElementNS ? document.createElementNS('http://www.w3.org/2000/svg', 'svg') : node('svg', '');
+                    icon.setAttribute('aria-hidden', 'true');
+                    const use = document.createElementNS ? document.createElementNS('http://www.w3.org/2000/svg', 'use') : node('use', '');
+                    use.setAttribute('href', '#iptv-icon-heart');
+                    icon.appendChild(use);
+                    favorite.appendChild(icon);
+                    card.appendChild(favorite);
                     fragment.appendChild(card);
                 });
             }
@@ -496,6 +551,7 @@
         function search(message) {
             if (!selectedSourceId) return;
             const form = element('[data-iptv-search-form]');
+            viewRequestAction = 'search';
             searchRequestToken = nextRequestToken('search');
             setCatalogLoading(true, message || 'Carregando canais…');
             request('search', {
@@ -503,6 +559,23 @@
                 query: form.elements.query.value.trim(),
                 group: form.elements.group.value,
                 offset,
+                limit,
+            }, searchRequestToken);
+        }
+
+        function loadCurrentView(message) {
+            if (!selectedSourceId) return;
+            if (activeView === 'live') {
+                viewRequestAction = 'search';
+                search(message);
+                return;
+            }
+            viewRequestAction = activeView;
+            searchRequestToken = nextRequestToken(activeView);
+            setCatalogLoading(true, message || 'Carregando canais…');
+            request(activeView, {
+                sourceId: selectedSourceId,
+                offset: activeView === 'favorites' ? offset : 0,
                 limit,
             }, searchRequestToken);
         }
@@ -534,8 +607,8 @@
             }
             const sourceSelect = element('[data-iptv-source-select]');
             if (sourceSelect) sourceSelect.disabled = true;
-            search('Trocando fonte…');
-            return {groups: groupsRequestToken, search: searchRequestToken};
+            loadCurrentView('Trocando fonte…');
+            return {groups: groupsRequestToken, view: searchRequestToken, viewAction: viewRequestAction};
         }
 
         function loadSourceForOperation(sourceId, closeOnComplete, successMessage) {
@@ -553,8 +626,8 @@
                 settingsOperation.tokens.set('groups', tokens.groups);
                 settingsOperation.pending.add('groups');
             }
-            settingsOperation.tokens.set('search', tokens.search);
-            settingsOperation.pending.add('search');
+            settingsOperation.tokens.set(tokens.viewAction, tokens.view);
+            settingsOperation.pending.add(tokens.viewAction);
         }
 
         function settleSourceLoad(action) {
@@ -734,22 +807,48 @@
             return token === null || detail.clientRequestId === token;
         }
 
+        function updateFavoriteButtons(channelId, favorite, pending) {
+            if (!root || typeof root.querySelectorAll !== 'function') return;
+            root.querySelectorAll('[data-iptv-favorite]').forEach(function (button) {
+                if (Number(button.dataset.iptvFavorite) !== channelId) return;
+                button.disabled = Boolean(pending);
+                button.setAttribute('aria-busy', pending ? 'true' : 'false');
+                if (pending) return;
+                button.dataset.favorite = favorite ? 'true' : 'false';
+                button.setAttribute('aria-pressed', favorite ? 'true' : 'false');
+                button.setAttribute('aria-label', favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos');
+                button.title = favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos';
+            });
+        }
+
         function onResult(event) {
             const detail = event && event.detail;
             if (!detail || typeof detail.action !== 'string') return;
             if (detail.action === 'list' && !isCurrentResult(detail, listRequestToken)) return;
             if (detail.action === 'groups' && !isCurrentResult(detail, groupsRequestToken)) return;
-            if (detail.action === 'search' && !isCurrentResult(detail, searchRequestToken)) return;
+            if (['search', 'favorites', 'recents'].includes(detail.action)
+                && (detail.action !== viewRequestAction || !isCurrentResult(detail, searchRequestToken))) return;
+            const favoritePending = detail.action === 'favorite-set' ? favoriteRequests.get(detail.clientRequestId) : null;
+            if (detail.action === 'favorite-set' && !favoritePending) return;
             const ownedBySettings = operationOwns(detail);
             if (settingsOperation && settingsOperation.tokens.has(detail.action) && !ownedBySettings) return;
             if (!detail.ok) {
                 if (detail.action === 'view-start') renderMediaState({state: 'failed', errorCode: detail.error});
-                else if (detail.action === 'search') {
+                else if (['search', 'favorites', 'recents'].includes(detail.action)) {
                     setCatalogLoading(false);
                     const list = element('[data-iptv-channel-list]');
-                    if (list) list.replaceChildren(renderChannelEmpty('Não foi possível carregar os canais. Tente novamente.'));
+                    const message = detail.action === 'favorites'
+                        ? 'Não foi possível carregar os favoritos.'
+                        : detail.action === 'recents'
+                            ? 'Não foi possível carregar os recentes.'
+                            : 'Não foi possível carregar os canais. Tente novamente.';
+                    if (list) list.replaceChildren(renderChannelEmpty(message));
                     const sourceSelect = element('[data-iptv-source-select]');
                     if (sourceSelect) sourceSelect.disabled = false;
+                } else if (detail.action === 'favorite-set') {
+                    favoriteRequests.delete(detail.clientRequestId);
+                    updateFavoriteButtons(favoritePending.channelId, favoritePending.previous, false);
+                    feedback('Não foi possível atualizar os favoritos.', true);
                 } else {
                     if (detail.action === 'groups') {
                         const group = element('[data-iptv-search-form] select[name="group"]');
@@ -830,12 +929,17 @@
                 groupsBySource.set(selectedSourceId, groups);
                 renderGroups(groups);
                 if (ownedBySettings) settleSourceLoad('groups');
-            } else if (detail.action === 'search') {
+            } else if (['search', 'favorites', 'recents'].includes(detail.action)) {
                 if (Number.isSafeInteger(detail.offset)) offset = detail.offset;
                 renderChannels(detail.channels || [], detail.hasMore);
                 const sourceSelect = element('[data-iptv-source-select]');
                 if (sourceSelect) sourceSelect.disabled = false;
-                if (ownedBySettings) settleSourceLoad('search');
+                if (ownedBySettings) settleSourceLoad(detail.action);
+            } else if (detail.action === 'favorite-set') {
+                favoriteRequests.delete(detail.clientRequestId);
+                if (favoritePending.sourceId !== selectedSourceId) return;
+                updateFavoriteButtons(favoritePending.channelId, detail.favorite, false);
+                if (activeView === 'favorites' && !detail.favorite) loadCurrentView('Atualizando favoritos…');
             } else if (['view-start', 'view-stop', 'view-status'].includes(detail.action)) {
                 if (detail.action === 'view-start' && detail.playbackUrl) attachPlayer(detail.playbackUrl);
                 if (detail.action === 'view-stop') destroyPlayer();
@@ -844,7 +948,11 @@
         }
 
         function onMediaState(event) {
-            if (event && event.detail) renderMediaState(event.detail);
+            if (!event || !event.detail) return;
+            renderMediaState(event.detail);
+            if (activeView === 'recents' && event.detail.state === 'streaming' && event.detail.mode === 'view') {
+                loadCurrentView('Atualizando recentes…');
+            }
         }
 
         function activate(event) {
@@ -904,6 +1012,20 @@
                 operationRequest('pick-file', {});
             });
             bind('[data-iptv-source-select]', 'change', function (event) { selectSource(Number(event.currentTarget.value)); });
+            bind('[data-iptv-view-tabs]', 'click', function (event) {
+                const tab = event.target.closest('[data-iptv-view]');
+                if (tab) setActiveView(tab.dataset.iptvView, false);
+            });
+            bind('[data-iptv-view-tabs]', 'keydown', function (event) {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const views = ['favorites', 'recents', 'live'];
+                let index = views.indexOf(activeView);
+                if (event.key === 'Home') index = 0;
+                else if (event.key === 'End') index = views.length - 1;
+                else index = (index + (event.key === 'ArrowRight' ? 1 : -1) + views.length) % views.length;
+                setActiveView(views[index], true);
+            });
             bind('[data-iptv-source-list]', 'click', function (event) {
                 if (settingsOperation) return;
                 const button = event.target.closest('[data-iptv-action]');
@@ -925,6 +1047,18 @@
                 }
             });
             bind('[data-iptv-channel-list]', 'click', function (event) {
+                const favorite = event.target.closest('[data-iptv-favorite]');
+                if (favorite) {
+                    event.stopPropagation?.();
+                    if (favorite.disabled) return;
+                    const channelId = Number(favorite.dataset.iptvFavorite);
+                    const previous = favorite.dataset.favorite === 'true';
+                    const token = nextRequestToken('favorite-set');
+                    favoriteRequests.set(token, {channelId, previous, sourceId: selectedSourceId});
+                    updateFavoriteButtons(channelId, previous, true);
+                    request('favorite-set', {channelId, favorite: !previous}, token);
+                    return;
+                }
                 const card = event.target.closest('[data-iptv-media-start]');
                 if (!card) return;
                 const name = card.querySelector('.iptv-channel-copy strong');
@@ -940,8 +1074,8 @@
             bind('[data-iptv-fullscreen]', 'click', toggleFullscreen);
             bind('[data-iptv-search-form]', 'submit', function (event) { event.preventDefault(); offset = 0; search('Buscando canais…'); });
             bind('[data-iptv-search-form] select[name="group"]', 'change', function () { offset = 0; search('Aplicando filtro…'); });
-            bind('[data-iptv-previous]', 'click', function () { offset = Math.max(0, offset - limit); search('Carregando página anterior…'); });
-            bind('[data-iptv-next]', 'click', function () { offset += limit; search('Carregando próxima página…'); });
+            bind('[data-iptv-previous]', 'click', function () { offset = Math.max(0, offset - limit); loadCurrentView('Carregando página anterior…'); });
+            bind('[data-iptv-next]', 'click', function () { offset += limit; loadCurrentView('Carregando próxima página…'); });
 
             const stage = element('[data-iptv-player-stage]');
             ['mousemove', 'pointerdown', 'keydown', 'focusin', 'focusout'].forEach(function (type) { stage?.addEventListener(type, showControls); });
@@ -958,6 +1092,7 @@
             }, 1200);
 
             updateAudioUi({volume: .8, muted: false});
+            renderActiveView();
             const snapshot = target.SemyraDesktopBridge && target.SemyraDesktopBridge.getHostSnapshot();
             if (snapshot && snapshot.capabilities.includes('iptv.sources')) activate();
             return true;

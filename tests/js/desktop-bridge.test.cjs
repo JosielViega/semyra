@@ -3,6 +3,10 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const desktop = require('../../public/assets/js/desktop-bridge.js');
+const real11iCapabilities = [
+    'host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog',
+    'iptv.play', 'iptv.local-view', 'media.whip', 'livekit.publish',
+];
 
 test('desktop bridge account-scoped protocol', async () => {
 
@@ -25,6 +29,8 @@ let messageListener = null;
 const posted = [];
 const dispatched = [];
 const windowListeners = new Map();
+const bridgeTimers = new Map();
+let bridgeTimerSequence = 0;
 const desktopRemember = createCheckbox();
 const webview = {
     addEventListener: (type, listener) => {
@@ -49,12 +55,16 @@ const webviewWindow = {
     CustomEvent: MockCustomEvent,
     dispatchEvent: (event) => dispatched.push(event),
     addEventListener: (type, listener) => windowListeners.set(type, listener),
+    setTimeout: (callback) => { bridgeTimerSequence += 1; bridgeTimers.set(bridgeTimerSequence, callback); return bridgeTimerSequence; },
+    clearTimeout: (timerId) => bridgeTimers.delete(timerId),
     document: {getElementById: () => desktopRemember},
     fetch: async () => ({ok: true, json: async () => ({profile_id: 'a'.repeat(64)})}),
 };
 
 const webviewBridge = desktop.createDesktopBridge(webviewWindow);
 assert.equal(webviewBridge.start(), true);
+assert.equal(desktop.validCapabilities(real11iCapabilities), true);
+assert.equal(desktop.validCapabilities([...real11iCapabilities, 'iptv.favorites']), false);
 assert.deepEqual(posted, [{type: 'semyra.desktop.ping', requestId: 'request-11a'}]);
 
 messageListener({data: {type: 'unknown', requestId: 'request-11a'}});
@@ -168,6 +178,74 @@ assert.deepEqual(dispatched.at(-1).detail.sources, [{
 }]);
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
 
+webviewWindow.crypto.randomUUID = () => 'iptv-favorites';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'favorites', sourceId: 4, offset: 0, limit: 50, clientRequestId: 'favorites-1'}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.favorites.list', requestId: 'iptv-favorites', accountContextId: 'b'.repeat(32),
+    sourceId: 4, offset: 0, limit: 50,
+});
+messageListener({data: {
+    type: 'semyra.desktop.iptv.favorites.list-result', requestId: 'iptv-favorites', protocolVersion: 1, ok: true,
+    channels: [{id: 7, name: 'News', groupName: 'Live', isFavorite: true, stableKey: 'must-not-cross', logicalKey: 'must-not-cross'}],
+    offset: 0, limit: 50, hasMore: false,
+}});
+assert.equal(dispatched.at(-1).detail.channels[0].isFavorite, true);
+assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+assert.equal(bridgeTimers.size, 0, 'favorites success must clear its response timeout');
+
+webviewWindow.crypto.randomUUID = () => 'iptv-recents';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'recents', sourceId: 4, clientRequestId: 'recents-1'}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.recents.list', requestId: 'iptv-recents', accountContextId: 'b'.repeat(32), sourceId: 4,
+});
+messageListener({data: {
+    type: 'semyra.desktop.iptv.recents.list-result', requestId: 'iptv-recents', protocolVersion: 1, ok: true,
+    channels: [],
+}});
+assert.equal(dispatched.at(-1).detail.action, 'recents');
+assert.deepEqual(dispatched.at(-1).detail.channels, []);
+assert.equal(bridgeTimers.size, 0, 'recents success must clear its response timeout');
+
+webviewWindow.crypto.randomUUID = () => 'iptv-favorite-set';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'favorite-set', channelId: 7, favorite: false, clientRequestId: 'favorite-1'}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.favorite.set', requestId: 'iptv-favorite-set', accountContextId: 'b'.repeat(32),
+    channelId: 7, favorite: false,
+});
+messageListener({data: {
+    type: 'semyra.desktop.iptv.favorite.set-result', requestId: 'iptv-favorite-set', protocolVersion: 1, ok: true,
+    channelId: 7, favorite: false,
+}});
+assert.equal(dispatched.at(-1).detail.clientRequestId, 'favorite-1');
+assert.equal(dispatched.at(-1).detail.favorite, false);
+assert.equal(bridgeTimers.size, 0, 'favorite success must clear its response timeout');
+
+webviewWindow.crypto.randomUUID = () => 'iptv-favorite-true';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'favorite-set', channelId: 7, favorite: true, clientRequestId: 'favorite-true'}});
+assert.equal(posted.at(-1).favorite, true);
+messageListener({data: {
+    type: 'semyra.desktop.iptv.favorite.set-result', requestId: 'iptv-favorite-true', protocolVersion: 1, ok: false,
+    errorCode: 'favorite_write_failed',
+}});
+assert.equal(dispatched.at(-1).detail.ok, false);
+assert.equal(dispatched.at(-1).detail.error, 'favorite_write_failed');
+assert.equal(bridgeTimers.size, 0, 'favorite error must clear its response timeout');
+
+webviewWindow.crypto.randomUUID = () => 'iptv-timeout';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'favorites', sourceId: 4, offset: 0, limit: 50, clientRequestId: 'favorites-timeout'}});
+assert.equal(bridgeTimers.size, 1);
+const timeoutCallback = Array.from(bridgeTimers.values())[0];
+timeoutCallback();
+assert.equal(bridgeTimers.size, 0);
+assert.deepEqual(dispatched.at(-1).detail, {
+    action: 'favorites', ok: false, error: 'desktop_bridge_timeout', clientRequestId: 'favorites-timeout',
+});
+const dispatchedAfterTimeout = dispatched.length;
+messageListener({data: {
+    type: 'semyra.desktop.iptv.favorites.list-result', requestId: 'iptv-timeout', protocolVersion: 1, ok: true, channels: [],
+}});
+assert.equal(dispatched.length, dispatchedAfterTimeout, 'late response must not revive an expired pending request');
+
 webviewWindow.crypto.randomUUID = () => 'media-start';
 windowListeners.get('semyra:iptv-request')({detail: {
     action: 'media-start', channelId: 7, url: 'https://must-not-cross.example/live.ts',
@@ -233,6 +311,7 @@ assert.deepEqual(posted.at(-1), {
     permission: 'media.publish',
     expiresAt: '2099-10-06T12:00:00.000Z',
 });
+const dispatchedBeforeWrongAuthorization = dispatched.length;
 messageListener({data: {
     type: 'semyra.desktop.host.authorize-result',
     requestId: 'wrong-request',
@@ -242,7 +321,7 @@ messageListener({data: {
     transmissionInstanceId: 'c'.repeat(32),
     transmissionRevision: 3,
 }});
-assert.equal(dispatched.length, 4);
+assert.equal(dispatched.length, dispatchedBeforeWrongAuthorization);
 messageListener({data: {
     type: 'semyra.desktop.host.authorize-result',
     requestId: 'request-11a',
@@ -252,14 +331,14 @@ messageListener({data: {
     transmissionInstanceId: 'c'.repeat(32),
     transmissionRevision: 3,
 }});
-assert.equal(dispatched[4].type, 'semyra:host-authorized');
-assert.deepEqual(dispatched[4].detail, {
+assert.equal(dispatched.at(-1).type, 'semyra:host-authorized');
+assert.deepEqual(dispatched.at(-1).detail, {
     authorized: true,
     permission: 'media.publish',
     transmissionInstanceId: 'c'.repeat(32),
     transmissionRevision: 3,
 });
-assert.equal(JSON.stringify(dispatched[4]).includes(hostToken), false);
+assert.equal(JSON.stringify(dispatched.at(-1)).includes(hostToken), false);
 assert.equal(JSON.stringify(webviewBridge.getHostSnapshot()).includes(hostToken), false);
 
 windowListeners.get('semyra:host-clear-request')({});
@@ -273,7 +352,7 @@ messageListener({data: {
     protocolVersion: 1,
     cleared: true,
 }});
-assert.equal(dispatched[5].type, 'semyra:host-cleared');
+assert.equal(dispatched.at(-1).type, 'semyra:host-cleared');
 assert.equal(webviewBridge.getHostSnapshot().authorization.authorized, false);
 
 webviewWindow.crypto.randomUUID = () => 'iptv-add';
@@ -518,8 +597,10 @@ test('desktop account resolution fails closed and logout fences stale IPTV resul
     authenticated.receive({data: {type: 'semyra.desktop.account.activate-result', requestId: 'account-request', protocolVersion: 1,
         activated: true, accountContextId: 'b'.repeat(32)}});
     authenticated.receive({data: {type: 'semyra.desktop.host.status-result', requestId: 'account-request', protocolVersion: 1,
-        host: {state: 'ready', capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog'], authorization: {authorized: false}}}});
+        host: {state: 'ready', capabilities: real11iCapabilities, authorization: {authorized: false}}}});
     assert.equal(authenticated.link.hidden, false);
+    assert.equal(authenticated.dispatched.at(-1).type, 'semyra:host-ready');
+    assert.deepEqual(authenticated.dispatched.at(-1).detail.capabilities, real11iCapabilities);
     authenticated.listeners.get('semyra:iptv-request')({detail: {action: 'list'}});
     const eventsBeforeLogout = authenticated.dispatched.length;
     let prevented = 0;
@@ -532,6 +613,15 @@ test('desktop account resolution fails closed and logout fences stale IPTV resul
 
     const guestAfterLogoutNavigation = await harness({ok: false, status: 401, json: async () => ({error: 'authentication_required'})});
     assert.equal(guestAfterLogoutNavigation.link.hidden, true, 'a fresh guest page after logout must start fail-closed');
+
+    const activationFailure = await harness({ok: true, status: 200, json: async () => ({profile_id: 'e'.repeat(64)})});
+    activationFailure.receive({data: {
+        type: 'semyra.desktop.account.activate-result', requestId: 'account-request', protocolVersion: 1,
+        activated: false, errorCode: 'account_context_unavailable',
+    }});
+    assert.equal(activationFailure.posted.at(-1).type, 'semyra.desktop.account.clear');
+    assert.equal(activationFailure.link.hidden, true);
+    assert.equal(activationFailure.dispatched.some((event) => event.type === 'semyra:host-ready'), false);
 });
 
 function createCheckbox() {

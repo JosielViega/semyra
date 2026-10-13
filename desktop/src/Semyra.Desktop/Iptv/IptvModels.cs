@@ -22,7 +22,8 @@ public sealed record IptvChannelSummary(
     string Name,
     string? GroupName,
     string? LogoUrl,
-    string? TvgId);
+    string? TvgId,
+    bool IsFavorite);
 
 public sealed record IptvChannelSearchResult(
     IReadOnlyList<IptvChannelSummary> Channels,

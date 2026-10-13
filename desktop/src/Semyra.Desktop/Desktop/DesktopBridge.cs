@@ -106,6 +106,25 @@ public static class DesktopBridge
                         request.Iptv.Group,
                         request.Iptv.Offset,
                         request.Iptv.Limit)),
+                DesktopMessage.IptvFavoritesListType => Success(
+                    DesktopMessage.IptvFavoritesListResultType,
+                    request.RequestId,
+                    hostEngine.ListIptvFavorites(
+                        request.Iptv.SourceId!.Value,
+                        request.Iptv.Offset,
+                        request.Iptv.Limit)),
+                DesktopMessage.IptvRecentsListType => Success(
+                    DesktopMessage.IptvRecentsListResultType,
+                    request.RequestId,
+                    new { channels = hostEngine.ListIptvRecents(request.Iptv.SourceId!.Value) }),
+                DesktopMessage.IptvFavoriteSetType => Success(
+                    DesktopMessage.IptvFavoriteSetResultType,
+                    request.RequestId,
+                    new
+                    {
+                        channelId = request.Iptv.ChannelId!.Value,
+                        favorite = hostEngine.SetIptvFavorite(request.Iptv.ChannelId.Value, request.Iptv.Favorite!.Value),
+                    }),
                 _ => throw new InvalidOperationException("Comando IPTV não reconhecido."),
             });
         }
@@ -385,6 +404,9 @@ public static class DesktopBridge
         DesktopMessage.IptvSourcesPickFileType => DesktopMessage.IptvSourcesPickFileResultType,
         DesktopMessage.IptvCatalogGroupsType => DesktopMessage.IptvCatalogGroupsResultType,
         DesktopMessage.IptvCatalogSearchType => DesktopMessage.IptvCatalogSearchResultType,
+        DesktopMessage.IptvFavoritesListType => DesktopMessage.IptvFavoritesListResultType,
+        DesktopMessage.IptvFavoriteSetType => DesktopMessage.IptvFavoriteSetResultType,
+        DesktopMessage.IptvRecentsListType => DesktopMessage.IptvRecentsListResultType,
         DesktopMessage.IptvMediaStartType => DesktopMessage.IptvMediaStartResultType,
         DesktopMessage.IptvMediaStopType => DesktopMessage.IptvMediaStopResultType,
         DesktopMessage.IptvMediaStatusType => DesktopMessage.IptvMediaStatusResultType,

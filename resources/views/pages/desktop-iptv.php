@@ -10,6 +10,7 @@
         <symbol id="iptv-icon-tv" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="3"></rect><path d="m8 3 4 3 4-3"></path></symbol>
         <symbol id="iptv-icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
         <symbol id="iptv-icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"></path></symbol>
+        <symbol id="iptv-icon-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z"></path></symbol>
     </svg>
 
     <header class="iptv-topbar">
@@ -74,6 +75,12 @@
             </section>
 
             <section class="iptv-content" aria-labelledby="iptv-channels-title">
+                <div class="iptv-view-tabs" data-iptv-view-tabs role="tablist" aria-label="Visualização dos canais">
+                    <button type="button" id="iptv-view-favorites" data-iptv-view="favorites" role="tab" aria-selected="false" aria-controls="iptv-view-panel" tabindex="-1">Favoritos</button>
+                    <button type="button" id="iptv-view-recents" data-iptv-view="recents" role="tab" aria-selected="false" aria-controls="iptv-view-panel" tabindex="-1">Recentes</button>
+                    <button type="button" id="iptv-view-live" data-iptv-view="live" role="tab" aria-selected="true" aria-controls="iptv-view-panel" tabindex="0" class="is-active">Ao vivo</button>
+                </div>
+                <div id="iptv-view-panel" role="tabpanel" aria-labelledby="iptv-view-live" data-iptv-view-panel>
                 <div class="iptv-content-heading"><div><p class="eyebrow">Canais</p><h2 id="iptv-channels-title">O que você quer assistir?</h2></div><span data-iptv-result-count aria-live="polite"></span></div>
                 <form class="iptv-toolbar" data-iptv-search-form role="search">
                     <label class="iptv-search-field"><span class="sr-only">Buscar canais</span><svg aria-hidden="true"><use href="#iptv-icon-search"></use></svg><input name="query" type="search" maxlength="120" autocomplete="off" placeholder="Buscar canais"></label>
@@ -81,7 +88,8 @@
                     <button type="submit">Buscar</button>
                 </form>
                 <div class="iptv-channel-grid" data-iptv-channel-list aria-live="polite" aria-busy="false"></div>
-                <div class="iptv-pagination" aria-label="Paginação do catálogo"><button type="button" class="iptv-button-quiet" data-iptv-previous disabled>Anterior</button><span data-iptv-page-label>Página 1</span><button type="button" class="iptv-button-quiet" data-iptv-next disabled>Próxima</button></div>
+                <div class="iptv-pagination" data-iptv-pagination aria-label="Paginação do catálogo"><button type="button" class="iptv-button-quiet" data-iptv-previous disabled>Anterior</button><span data-iptv-page-label>Página 1</span><button type="button" class="iptv-button-quiet" data-iptv-next disabled>Próxima</button></div>
+                </div>
             </section>
         </div>
     </div>
@@ -104,4 +112,4 @@
     </dialog>
 </section>
 <script src="/assets/vendor/hls/hls.min.js?v=1.7.3" defer></script>
-<script src="/assets/js/desktop-iptv.js?v=11h-b-settings" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11i-favorites-recents" defer></script>
