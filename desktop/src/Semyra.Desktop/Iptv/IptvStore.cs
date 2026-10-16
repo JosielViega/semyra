@@ -447,13 +447,13 @@ public sealed class IptvStore
         return new IptvChannelSearchResult(channels, offset, limit, hasMore);
     }
 
-    public IReadOnlyList<IptvChannelSummary> ListRecents(long sourceId)
+    public IReadOnlyList<IptvRecentSummary> ListRecents(long sourceId)
     {
         RebindPreferences(sourceId);
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT c.id, c.name, c.group_name, c.logo_url, c.tvg_id,
+            SELECT r.id, c.id, c.name, c.group_name, c.logo_url, c.tvg_id,
                    EXISTS (
                        SELECT 1 FROM iptv_favorites f
                        WHERE f.source_id = c.source_id AND f.stable_key = c.stable_key
@@ -467,7 +467,19 @@ public sealed class IptvStore
             """;
         command.Parameters.AddWithValue("$source", sourceId);
         using var reader = command.ExecuteReader();
-        return ReadChannels(reader);
+        var recents = new List<IptvRecentSummary>();
+        while (reader.Read())
+        {
+            recents.Add(new IptvRecentSummary(
+                reader.GetInt64(0),
+                reader.GetInt64(1),
+                reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.GetInt64(6) == 1));
+        }
+        return recents;
     }
 
     public void RecordRecent(long channelId)
@@ -509,6 +521,25 @@ public sealed class IptvStore
             trim.ExecuteNonQuery();
         }
         transaction.Commit();
+    }
+
+    public bool RemoveRecent(long sourceId, long recentId)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM iptv_recents WHERE id = $recent AND source_id = $source";
+        command.Parameters.AddWithValue("$recent", recentId);
+        command.Parameters.AddWithValue("$source", sourceId);
+        return command.ExecuteNonQuery() == 1;
+    }
+
+    public int ClearRecents(long sourceId)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM iptv_recents WHERE source_id = $source";
+        command.Parameters.AddWithValue("$source", sourceId);
+        return command.ExecuteNonQuery();
     }
 
     public void MarkRefreshing(long sourceId)

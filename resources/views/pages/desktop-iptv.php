@@ -7,6 +7,10 @@
         <symbol id="iptv-icon-fullscreen" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path></symbol>
         <symbol id="iptv-icon-compress" viewBox="0 0 24 24"><path d="M8 8H3V3M16 8h5V3M8 16H3v5M16 16h5v5"></path></symbol>
         <symbol id="iptv-icon-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"></rect></symbol>
+        <symbol id="iptv-icon-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"></path></symbol>
+        <symbol id="iptv-icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3" height="14" rx="1"></rect><rect x="14" y="5" width="3" height="14" rx="1"></rect></symbol>
+        <symbol id="iptv-icon-back" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v6h6"></path><path d="M9 12h6"></path></symbol>
+        <symbol id="iptv-icon-forward" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2M20 4v6h-6"></path><path d="M9 12h6"></path></symbol>
         <symbol id="iptv-icon-tv" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="3"></rect><path d="m8 3 4 3 4-3"></path></symbol>
         <symbol id="iptv-icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
         <symbol id="iptv-icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"></path></symbol>
@@ -45,6 +49,7 @@
         </section>
 
         <div class="iptv-library" data-iptv-library hidden>
+            <div class="iptv-player-shell" data-iptv-player-shell>
             <section class="iptv-player-stage" data-iptv-player-stage data-state="idle" aria-label="Player IPTV local">
                 <video data-iptv-video playsinline preload="none" aria-label="Canal IPTV em reprodução"></video>
                 <div class="iptv-player-ambient" aria-hidden="true"></div>
@@ -55,8 +60,8 @@
                 <div class="iptv-player-state" data-iptv-player-state hidden><span class="iptv-player-spinner" aria-hidden="true"></span><p data-iptv-player-state-label>Preparando canal…</p></div>
                 <div class="iptv-player-error" data-iptv-player-error hidden>
                     <svg aria-hidden="true"><use href="#iptv-icon-tv"></use></svg>
-                    <h2 data-iptv-error-title>Não foi possível abrir este canal.</h2><p data-iptv-error-copy>Tente novamente ou escolha outro canal do catálogo.</p>
-                    <div><button type="button" data-iptv-retry>Tentar novamente</button><button type="button" class="iptv-button-quiet" data-iptv-choose-channel>Escolher outro canal</button></div>
+                    <h2 data-iptv-error-title>Não foi possível reproduzir este conteúdo.</h2><p data-iptv-error-copy>Tente novamente ou escolha outro conteúdo do catálogo.</p>
+                    <div><button type="button" data-iptv-retry>Tentar novamente</button><button type="button" class="iptv-button-quiet" data-iptv-choose-channel>Escolher outro</button></div>
                 </div>
                 <button type="button" class="iptv-autoplay-action" data-iptv-autoplay hidden>Clique para reproduzir</button>
                 <div class="iptv-player-chrome" data-iptv-player-chrome>
@@ -67,21 +72,50 @@
                     </div>
                     <div class="iptv-player-controls" data-iptv-player-controls>
                         <button type="button" class="iptv-icon-button" data-iptv-mute aria-label="Silenciar" title="Silenciar"><svg data-iptv-volume-icon aria-hidden="true"><use href="#iptv-icon-volume"></use></svg><svg data-iptv-muted-icon aria-hidden="true" hidden><use href="#iptv-icon-muted"></use></svg></button>
-                        <label class="iptv-volume-control"><span class="sr-only">Volume</span><input type="range" min="0" max="100" value="80" data-iptv-volume aria-label="Volume"></label>
+                        <label class="iptv-volume-control"><span class="sr-only">Volume</span><input type="range" min="0" max="100" value="80" data-range-progress="80" style="--iptv-range-progress:80%" data-iptv-volume aria-label="Volume"></label>
                         <button type="button" class="iptv-icon-button" data-iptv-fullscreen aria-label="Entrar em tela cheia" title="Entrar em tela cheia"><svg data-iptv-fullscreen-icon aria-hidden="true"><use href="#iptv-icon-fullscreen"></use></svg><svg data-iptv-compress-icon aria-hidden="true" hidden><use href="#iptv-icon-compress"></use></svg></button>
                         <button type="button" class="iptv-stop-button" data-iptv-media-stop disabled><svg aria-hidden="true"><use href="#iptv-icon-stop"></use></svg>Parar</button>
                     </div>
                 </div>
             </section>
 
+            <div class="iptv-native-controls" data-iptv-native-controls hidden aria-label="Controles do player local">
+                <div class="iptv-native-heading"><span data-iptv-native-context>Carregando</span><strong data-iptv-native-title>Minha IPTV</strong></div>
+                <div class="iptv-native-buffering" data-iptv-native-buffering hidden><span class="iptv-player-spinner" aria-hidden="true"></span>Carregando…</div>
+                <div class="iptv-native-progress" data-iptv-native-vod hidden>
+                    <label class="sr-only" for="iptv-native-progress">Posição do vídeo</label>
+                    <input id="iptv-native-progress" type="range" min="0" max="0" step="0.1" value="0" data-iptv-native-progress aria-label="Posição do vídeo">
+                    <output data-iptv-native-timeline>0:00 / 0:00</output>
+                </div>
+                <div class="iptv-native-actions">
+                    <button type="button" class="iptv-icon-button" data-iptv-native-playback data-command="pause" data-iptv-native-vod hidden aria-label="Pausar" title="Pausar"><svg data-player-icon="pause" aria-hidden="true"><use href="#iptv-icon-pause"></use></svg></button>
+                    <button type="button" class="iptv-seek-button" data-iptv-native-seek="-30" data-iptv-native-vod hidden aria-label="Voltar 30 segundos" title="Voltar 30 segundos"><span aria-hidden="true">↶</span><strong>30</strong></button>
+                    <button type="button" class="iptv-seek-button" data-iptv-native-seek="30" data-iptv-native-vod hidden aria-label="Avançar 30 segundos" title="Avançar 30 segundos"><strong>30</strong><span aria-hidden="true">↷</span></button>
+                    <button type="button" class="iptv-icon-button" data-iptv-native-mute aria-label="Silenciar" title="Silenciar"><svg data-player-icon="volume" aria-hidden="true"><use href="#iptv-icon-volume"></use></svg></button>
+                    <label class="iptv-volume-control"><span class="sr-only">Volume</span><input type="range" min="0" max="100" value="100" data-range-progress="100" style="--iptv-range-progress:100%" data-iptv-native-volume aria-label="Volume"></label>
+                    <button type="button" class="iptv-icon-button" data-iptv-native-fullscreen aria-label="Entrar em tela cheia" title="Entrar em tela cheia"><svg data-iptv-native-fullscreen-icon aria-hidden="true"><use href="#iptv-icon-fullscreen"></use></svg><svg data-iptv-native-compress-icon aria-hidden="true" hidden><use href="#iptv-icon-compress"></use></svg></button>
+                    <button type="button" class="iptv-stop-button" data-iptv-native-stop><svg aria-hidden="true"><use href="#iptv-icon-stop"></use></svg>Parar</button>
+                </div>
+            </div>
+            </div>
+
             <section class="iptv-content" aria-labelledby="iptv-channels-title">
                 <div class="iptv-view-tabs" data-iptv-view-tabs role="tablist" aria-label="Visualização dos canais">
                     <button type="button" id="iptv-view-favorites" data-iptv-view="favorites" role="tab" aria-selected="false" aria-controls="iptv-view-panel" tabindex="-1">Favoritos</button>
                     <button type="button" id="iptv-view-recents" data-iptv-view="recents" role="tab" aria-selected="false" aria-controls="iptv-view-panel" tabindex="-1">Recentes</button>
-                    <button type="button" id="iptv-view-live" data-iptv-view="live" role="tab" aria-selected="true" aria-controls="iptv-view-panel" tabindex="0" class="is-active">Ao vivo</button>
+                    <button type="button" id="iptv-view-all" data-iptv-view="all" role="tab" aria-selected="true" aria-controls="iptv-view-panel" tabindex="0" class="is-active">Todos</button>
                 </div>
-                <div id="iptv-view-panel" role="tabpanel" aria-labelledby="iptv-view-live" data-iptv-view-panel>
+                <div id="iptv-view-panel" role="tabpanel" aria-labelledby="iptv-view-all" data-iptv-view-panel>
                 <div class="iptv-content-heading"><div><p class="eyebrow">Canais</p><h2 id="iptv-channels-title">O que você quer assistir?</h2></div><span data-iptv-result-count aria-live="polite"></span></div>
+                <div class="iptv-recents-actions" data-iptv-recents-actions hidden>
+                    <button type="button" class="iptv-button-quiet iptv-recents-clear" data-iptv-recents-clear>Limpar recentes</button>
+                    <div class="iptv-recents-confirm" data-iptv-recents-confirm hidden>
+                        <span>Limpar todos os recentes desta fonte?</span>
+                        <button type="button" class="iptv-button-quiet" data-iptv-recents-cancel>Cancelar</button>
+                        <button type="button" data-iptv-recents-confirm-clear>Limpar</button>
+                    </div>
+                </div>
+                <p class="iptv-recents-feedback" data-iptv-recents-feedback role="status" aria-live="polite"></p>
                 <form class="iptv-toolbar" data-iptv-search-form role="search">
                     <label class="iptv-search-field"><span class="sr-only">Buscar canais</span><svg aria-hidden="true"><use href="#iptv-icon-search"></use></svg><input name="query" type="search" maxlength="120" autocomplete="off" placeholder="Buscar canais"></label>
                     <label class="iptv-group-field"><span class="sr-only">Filtrar por grupo</span><select name="group" aria-label="Filtrar por grupo"><option value="">Todos os grupos</option></select></label>
@@ -112,4 +146,4 @@
     </dialog>
 </section>
 <script src="/assets/vendor/hls/hls.min.js?v=1.7.3" defer></script>
-<script src="/assets/js/desktop-iptv.js?v=11i-favorites-recents" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11j-c-mpv-player" defer></script>

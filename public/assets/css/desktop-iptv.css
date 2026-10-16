@@ -26,6 +26,7 @@
 .iptv-onboarding > p:not(.eyebrow) { max-width: 560px; margin: 18px 0 28px; color: var(--color-text-muted); font-size: 1.05rem; }
 
 .iptv-library { display: grid; gap: clamp(38px, 6vw, 72px); }
+.iptv-player-shell { display: grid; gap: 12px; min-width: 0; }
 .iptv-player-stage { position: relative; aspect-ratio: 16 / 9; max-height: calc(100vh - 150px); min-height: 360px; overflow: hidden; border: 1px solid rgb(39 56 81 / 65%); border-radius: clamp(18px, 2.5vw, 30px); color: #fff; background: #02040a; box-shadow: 0 28px 80px rgb(0 0 0 / 45%), 0 0 80px rgb(40 100 255 / 8%); isolation: isolate; }
 .iptv-player-stage::after { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: linear-gradient(180deg, rgb(0 0 0 / 2%) 45%, rgb(0 0 0 / 82%) 100%); content: ""; }
 .iptv-player-stage video { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: contain; background: #000; }
@@ -58,14 +59,55 @@
 .iptv-stop-button { border-color: rgb(248 113 113 / 20%); color: #fecaca; }
 .iptv-stop-button:disabled { opacity: .45; cursor: not-allowed; }
 .iptv-volume-control { display: flex; align-items: center; width: clamp(86px, 10vw, 132px); }
-.iptv-volume-control input { width: 100%; min-height: 32px; accent-color: var(--color-cyan); cursor: pointer; }
+.iptv-volume-control input { --iptv-range-progress: 0%; width: 100%; min-height: 32px; accent-color: var(--color-cyan); cursor: pointer; }
+@supports selector(input[type="range"]::-webkit-slider-thumb) {
+    .iptv-volume-control input { height: 4px; min-height: 4px; border-radius: var(--radius-pill); appearance: none; background: linear-gradient(90deg, var(--color-cyan) 0 var(--iptv-range-progress), rgb(255 255 255 / 18%) var(--iptv-range-progress) 100%); }
+    .iptv-volume-control input::-webkit-slider-thumb { width: 16px; height: 16px; border: 2px solid #dff9ff; border-radius: 50%; appearance: none; background: var(--color-cyan); box-shadow: 0 0 0 3px rgb(22 199 255 / 15%); }
+}
 .iptv-player-stage:fullscreen { max-height: none; border: 0; border-radius: 0; }
+.iptv-native-controls { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(260px, 1.3fr) auto; align-items: center; gap: 18px; padding: 16px 18px; border: 1px solid rgb(39 56 81 / 72%); border-radius: 18px; color: #fff; background: linear-gradient(135deg, rgb(10 18 34 / 98%), rgb(5 10 22 / 98%)); box-shadow: 0 18px 48px rgb(0 0 0 / 30%); }
+.iptv-native-controls[hidden] { display: none; }
+.iptv-native-heading { display: grid; min-width: 0; gap: 3px; }
+.iptv-native-heading span { color: var(--color-cyan); font-size: .69rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
+.iptv-native-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iptv-native-buffering { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--color-text-soft); font-size: .82rem; }
+.iptv-native-buffering[hidden], .iptv-native-progress[hidden], [data-iptv-native-vod][hidden], [data-iptv-native-fullscreen-icon][hidden], [data-iptv-native-compress-icon][hidden] { display: none !important; }
+.iptv-native-buffering .iptv-player-spinner { width: 18px; height: 18px; border-width: 2px; }
+.iptv-native-progress { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: center; gap: 12px; }
+.iptv-native-progress input, .iptv-native-controls input[type="range"] { width: 100%; accent-color: var(--color-cyan); cursor: pointer; }
+.iptv-native-progress output { min-width: 92px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; font-size: .75rem; text-align: right; }
+.iptv-native-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.iptv-native-actions .iptv-volume-control { width: 105px; }
+.iptv-seek-button { display: inline-flex; min-width: 58px; min-height: 42px; align-items: center; justify-content: center; gap: 3px; padding: 0 9px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 11px; color: #fff; background: rgb(255 255 255 / 7%); font: inherit; cursor: pointer; }
+.iptv-seek-button:hover, .iptv-seek-button:focus-visible { border-color: rgb(22 199 255 / 65%); background: rgb(22 199 255 / 14%); }
+.iptv-seek-button span { font-size: 1.2rem; line-height: 1; }
+.iptv-seek-button strong { font-size: .76rem; font-variant-numeric: tabular-nums; }
+.iptv-player-stage[data-native-player="true"] video, .iptv-player-stage[data-native-player="true"] .iptv-player-chrome { visibility: hidden; }
+html.semyra-player-fullscreen, body.semyra-player-fullscreen { overflow: hidden; overscroll-behavior: none; }
+body.semyra-player-fullscreen { width: 100%; height: 100dvh; }
+.iptv-experience.is-native-fullscreen { position: fixed; inset: 0; z-index: 10000; width: 100vw; height: 100dvh; padding: 0; overflow: hidden; overscroll-behavior: none; background: #000; }
+.iptv-experience.is-native-fullscreen > .iptv-topbar, .iptv-experience.is-native-fullscreen .iptv-content { display: none; }
+.iptv-experience.is-native-fullscreen .iptv-library { display: block; }
+.iptv-experience.is-native-fullscreen .iptv-player-shell { display: block; }
+.iptv-experience.is-native-fullscreen .iptv-player-stage { position: fixed; inset: 0 0 82px; width: 100vw; height: auto; min-height: 0; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
+.iptv-experience.is-native-fullscreen .iptv-native-controls { position: fixed; right: 0; bottom: 0; left: 0; z-index: 10001; min-height: 82px; margin: 0; border: 0; border-radius: 0; transition: opacity .2s ease, transform .2s ease; }
+.iptv-experience.is-native-fullscreen.is-native-controls-hidden .iptv-player-stage { bottom: 0; }
+.iptv-experience.is-native-fullscreen.is-native-controls-hidden { cursor: none; }
+.iptv-experience.is-native-fullscreen .iptv-native-controls { cursor: default; }
+.iptv-experience.is-native-fullscreen.is-native-controls-hidden .iptv-native-controls { visibility: hidden; opacity: 0; pointer-events: none; transform: translateY(100%); }
 
 .iptv-content { display: grid; gap: 22px; }
 .iptv-view-tabs { display: inline-flex; justify-self: start; padding: 5px; border: 1px solid var(--color-border); border-radius: var(--radius-pill); background: rgb(10 16 32 / 72%); }
 .iptv-view-tabs button { min-height: 42px; padding: 0 18px; border: 0; border-radius: var(--radius-pill); color: var(--color-text-muted); background: transparent; box-shadow: none; }
 .iptv-view-tabs button.is-active { color: #fff; background: linear-gradient(135deg, rgb(22 199 255 / 24%), rgb(123 60 255 / 24%)); box-shadow: inset 0 0 0 1px rgb(22 199 255 / 24%); }
 [data-iptv-view-panel] { display: grid; gap: 22px; min-width: 0; }
+.iptv-recents-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.iptv-recents-actions[hidden] { display: none; }
+.iptv-recents-clear { min-height: 42px; }
+.iptv-recents-clear[hidden], .iptv-recents-confirm[hidden] { display: none; }
+.iptv-recents-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.iptv-recents-confirm p { flex: 1 1 240px; margin: 0; color: var(--color-text-muted); }
+.iptv-recents-feedback { min-height: 1.25rem; margin: -12px 0 0; color: var(--color-text-muted); font-size: .82rem; text-align: right; }
 .iptv-content-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .iptv-content-heading h2 { margin: 0; font-size: clamp(1.75rem, 3vw, 2.5rem); letter-spacing: -.035em; }
 .iptv-content-heading > span { color: var(--color-text-muted); font-size: .86rem; }
@@ -88,6 +130,10 @@
 .iptv-favorite-button[aria-pressed="true"] { border-color: rgb(251 113 133 / 52%); color: #fb7185; background: rgb(76 5 25 / 76%); }
 .iptv-favorite-button[aria-pressed="true"] svg { fill: currentColor; }
 .iptv-favorite-button[aria-busy="true"] { cursor: wait; opacity: .62; }
+.iptv-recent-remove { position: absolute; top: 11px; right: 11px; z-index: 4; display: grid; width: 36px; min-height: 36px; padding: 0; place-items: center; border: 1px solid rgb(255 255 255 / 16%); border-radius: 50%; color: #fff; background: rgb(3 7 15 / 72%); box-shadow: 0 8px 20px rgb(0 0 0 / 28%); backdrop-filter: blur(10px); }
+.iptv-recent-remove:hover, .iptv-recent-remove:focus-visible { border-color: rgb(251 113 133 / 62%); color: #fb7185; background: rgb(76 5 25 / 76%); }
+.iptv-recent-remove svg { width: 17px; height: 17px; }
+.iptv-recent-remove[aria-busy="true"] { cursor: wait; opacity: .62; }
 .iptv-channel-visual { position: relative; display: grid; min-height: 126px; place-items: center; background: radial-gradient(circle at 30% 22%, rgb(22 199 255 / 17%), transparent 42%), radial-gradient(circle at 85% 85%, rgb(123 60 255 / 18%), transparent 45%); }
 .iptv-channel-monogram { font-size: clamp(2rem, 4vw, 3.2rem); font-weight: 900; letter-spacing: -.08em; text-shadow: 0 0 28px rgb(22 199 255 / 22%); }
 .iptv-channel-live { position: absolute; top: 12px; right: 12px; padding: 4px 8px; border-radius: var(--radius-pill); color: #fff; background: rgb(220 38 38 / 90%); font-size: .64rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
@@ -149,6 +195,8 @@
     .iptv-topbar { align-items: flex-start; }
     .iptv-topbar-actions { align-items: flex-end; flex-direction: column-reverse; }
     .iptv-player-stage { min-height: 0; }
+    .iptv-native-controls { grid-template-columns: minmax(120px, .55fr) minmax(220px, 1fr); }
+    .iptv-native-actions { grid-column: 1 / -1; justify-content: flex-start; }
     .iptv-channel-grid, .iptv-channel-loading { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .iptv-toolbar { grid-template-columns: 1fr minmax(180px, .42fr); }
     .iptv-toolbar > button { grid-column: 1 / -1; justify-self: end; }
@@ -165,6 +213,15 @@
     .iptv-player-chrome { align-items: stretch; flex-direction: column; gap: 12px; }
     .iptv-player-controls { align-self: flex-start; justify-content: flex-start; max-width: 100%; }
     .iptv-player-now strong { max-width: 75vw; }
+    .iptv-player-error { padding: 14px; }
+    .iptv-player-error > svg { display: none; }
+    .iptv-player-error h2 { font-size: clamp(1.1rem, 5.5vw, 1.45rem); }
+    .iptv-player-error p { margin-top: 4px; font-size: .88rem; }
+    .iptv-player-error > div { flex-wrap: nowrap; margin-top: 12px; }
+    .iptv-player-error button { min-height: 38px; padding: 0 12px; }
+    .iptv-native-controls { grid-template-columns: 1fr; }
+    .iptv-native-progress, .iptv-native-actions { grid-column: auto; }
+    .iptv-native-actions { flex-wrap: wrap; justify-content: flex-start; }
     .iptv-channel-grid, .iptv-channel-loading { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .iptv-content-heading { align-items: flex-start; flex-direction: column; }
     .iptv-toolbar { grid-template-columns: 1fr; }

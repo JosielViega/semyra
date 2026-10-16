@@ -6,7 +6,21 @@ public sealed record MediaSnapshot(
     string? ChannelName,
     int Attempt,
     string? LastErrorCode,
-    string Mode = "local")
+    string Mode = "local",
+    string? PlaybackKind = null,
+    string? SessionId = null,
+    double Position = 0,
+    double Duration = 0,
+    bool Seekable = false,
+    bool Muted = false,
+    double Volume = 100,
+    string? Container = null,
+    string? VideoCodec = null,
+    string? AudioCodec = null,
+    string? MediaKind = null,
+    bool Fullscreen = false,
+    bool Paused = false,
+    bool Buffering = false)
 {
     public static MediaSnapshot Idle { get; } = new("idle", null, null, 0, null, "local");
 }

@@ -39,6 +39,10 @@ public static partial class DesktopMessage
     public const string IptvFavoriteSetResultType = "semyra.desktop.iptv.favorite.set-result";
     public const string IptvRecentsListType = "semyra.desktop.iptv.recents.list";
     public const string IptvRecentsListResultType = "semyra.desktop.iptv.recents.list-result";
+    public const string IptvRecentRemoveType = "semyra.desktop.iptv.recent.remove";
+    public const string IptvRecentRemoveResultType = "semyra.desktop.iptv.recent.remove-result";
+    public const string IptvRecentsClearType = "semyra.desktop.iptv.recents.clear";
+    public const string IptvRecentsClearResultType = "semyra.desktop.iptv.recents.clear-result";
     public const string IptvMediaStartType = "semyra.desktop.iptv.media.start";
     public const string IptvMediaStartResultType = "semyra.desktop.iptv.media.start-result";
     public const string IptvMediaStopType = "semyra.desktop.iptv.media.stop";
@@ -52,6 +56,13 @@ public static partial class DesktopMessage
     public const string IptvViewStopResultType = "semyra.desktop.iptv.view.stop-result";
     public const string IptvViewStatusType = "semyra.desktop.iptv.view.status";
     public const string IptvViewStatusResultType = "semyra.desktop.iptv.view.status-result";
+    public const string IptvPlayerControlType = "semyra.desktop.iptv.player.control";
+    public const string IptvPlayerControlResultType = "semyra.desktop.iptv.player.control-result";
+    public const string IptvPlayerGeometryType = "semyra.desktop.player.geometry";
+    public const string IptvPlayerGeometryResultType = "semyra.desktop.player.geometry-result";
+    public const string IptvPlayerFullscreenType = "semyra.desktop.player.fullscreen";
+    public const string IptvPlayerFullscreenResultType = "semyra.desktop.player.fullscreen-result";
+    public const string PlayerControlsVisibilityType = "semyra.desktop.player.controls-visibility";
     public const string IptvPublishStartType = "semyra.desktop.iptv.publish.start";
     public const string IptvPublishStartResultType = "semyra.desktop.iptv.publish.start-result";
     public const string IptvPublishStopType = "semyra.desktop.iptv.publish.stop";
@@ -59,6 +70,43 @@ public static partial class DesktopMessage
     public const string IptvPublishStatusType = "semyra.desktop.iptv.publish.status";
     public const string IptvPublishStatusResultType = "semyra.desktop.iptv.publish.status-result";
     public const int ProtocolVersion = 1;
+
+    public static bool TryReadPlayerControlsVisibility(string json, out bool hidden)
+    {
+        hidden = false;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
+            string? type = null;
+            bool? parsedHidden = null;
+            var count = 0;
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                count++;
+                if (property.NameEquals("type") && property.Value.ValueKind == JsonValueKind.String)
+                {
+                    type = property.Value.GetString();
+                }
+                else if (property.NameEquals("hidden")
+                    && property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    parsedHidden = property.Value.GetBoolean();
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            if (count != 2 || type != PlayerControlsVisibilityType || parsedHidden is null) return false;
+            hidden = parsedHidden.Value;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 
     public static bool TryReadRequest(string json, out DesktopRequest request)
     {
@@ -140,6 +188,65 @@ public static partial class DesktopMessage
                 return true;
             }
 
+            if (type == IptvPlayerControlType)
+            {
+                if (properties.Count is < 5 or > 6
+                    || !TryAccountContext(properties, out var contextId)
+                    || !TryString(properties, "sessionId", out var sessionId) || !SessionIdPattern().IsMatch(sessionId)
+                    || !TryString(properties, "command", out var command)
+                    || command is not ("pause" or "play" or "seek-relative" or "seek-absolute" or "mute" or "unmute" or "volume" or "stop"))
+                {
+                    return false;
+                }
+                double? value = null;
+                if (command is "seek-relative" or "seek-absolute" or "volume")
+                {
+                    if (properties.Count != 6 || !TryDouble(properties, "value", out var parsed)) return false;
+                    value = parsed;
+                }
+                else if (properties.Count != 5)
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Player: new PlayerRequest(contextId, sessionId, command, value));
+                return true;
+            }
+
+            if (type == IptvPlayerGeometryType)
+            {
+                if (properties.Count != 11
+                    || !TryAccountContext(properties, out var contextId)
+                    || !TryString(properties, "sessionId", out var sessionId) || !SessionIdPattern().IsMatch(sessionId)
+                    || !TryDouble(properties, "x", out var x)
+                    || !TryDouble(properties, "y", out var y)
+                    || !TryDouble(properties, "width", out var width)
+                    || !TryDouble(properties, "height", out var height)
+                    || !TryDouble(properties, "viewportWidth", out var viewportWidth)
+                    || !TryDouble(properties, "viewportHeight", out var viewportHeight)
+                    || !TryBoolean(properties, "visible", out var visible))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Player: new PlayerRequest(
+                    contextId, sessionId, X: x, Y: y, Width: width, Height: height,
+                    ViewportWidth: viewportWidth, ViewportHeight: viewportHeight, Visible: visible));
+                return true;
+            }
+
+            if (type == IptvPlayerFullscreenType)
+            {
+                if (properties.Count != 5
+                    || !TryAccountContext(properties, out var contextId)
+                    || !TryString(properties, "sessionId", out var sessionId) || !SessionIdPattern().IsMatch(sessionId)
+                    || !TryBoolean(properties, "fullscreen", out var fullscreen))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Player: new PlayerRequest(
+                    contextId, sessionId, Fullscreen: fullscreen));
+                return true;
+            }
+
             if (type == IptvSourcesAddType)
             {
                 if (properties.Count != 6
@@ -168,6 +275,30 @@ public static partial class DesktopMessage
             }
 
             if (type == IptvRecentsListType)
+            {
+                if (properties.Count != 4 || !TryPositiveInt64(properties, "sourceId", out var sourceId) || !TryAccountContext(properties, out var contextId))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, AccountContextId: contextId));
+                return true;
+            }
+
+            if (type == IptvRecentRemoveType)
+            {
+                if (properties.Count != 5
+                    || !TryPositiveInt64(properties, "sourceId", out var sourceId)
+                    || !TryPositiveInt64(properties, "recentId", out var recentId)
+                    || !TryAccountContext(properties, out var contextId))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(
+                    SourceId: sourceId, RecentId: recentId, AccountContextId: contextId));
+                return true;
+            }
+
+            if (type == IptvRecentsClearType)
             {
                 if (properties.Count != 4 || !TryPositiveInt64(properties, "sourceId", out var sourceId) || !TryAccountContext(properties, out var contextId))
                 {
@@ -280,6 +411,15 @@ public static partial class DesktopMessage
             && element.TryGetInt32(out value);
     }
 
+    private static bool TryDouble(IReadOnlyDictionary<string, JsonElement> properties, string name, out double value)
+    {
+        value = 0;
+        return properties.TryGetValue(name, out var element)
+            && element.ValueKind == JsonValueKind.Number
+            && element.TryGetDouble(out value)
+            && double.IsFinite(value);
+    }
+
     private static bool TryBoolean(IReadOnlyDictionary<string, JsonElement> properties, string name, out bool value)
     {
         value = false;
@@ -342,4 +482,7 @@ public static partial class DesktopMessage
 
     [GeneratedRegex("^[a-f0-9]{32}$", RegexOptions.CultureInvariant)]
     private static partial Regex AccountContextIdPattern();
+
+    [GeneratedRegex("^[a-f0-9]{32}$", RegexOptions.CultureInvariant)]
+    private static partial Regex SessionIdPattern();
 }

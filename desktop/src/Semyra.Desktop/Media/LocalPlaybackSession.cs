@@ -4,7 +4,11 @@ using System.IO;
 
 namespace Semyra.Desktop.Media;
 
-public sealed record LocalPlaybackStartResult(MediaSnapshot Snapshot, string PlaybackUrl);
+public sealed record LocalPlaybackStartResult(
+    MediaSnapshot Snapshot,
+    string? PlaybackUrl,
+    string PlaybackKind = "legacy-hls",
+    string? SessionId = null);
 
 public sealed record LocalPlaybackResource(string ContentType, byte[] Content);
 

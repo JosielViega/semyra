@@ -113,6 +113,14 @@ public sealed class IptvDesktopBridgeTests : IDisposable
             $$"""{"type":"semyra.desktop.iptv.favorite.set","requestId":"stale-favorite","accountContextId":"{{oldContext}}","channelId":1,"favorite":true}""",
             engine,
             () => null);
+        var staleRecentRemove = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.recent.remove","requestId":"stale-remove","accountContextId":"{{oldContext}}","sourceId":1,"recentId":1}""",
+            engine,
+            () => null);
+        var staleRecentsClear = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.recents.clear","requestId":"stale-clear","accountContextId":"{{oldContext}}","sourceId":1}""",
+            engine,
+            () => null);
         var current = await DesktopBridge.TryHandleAsync(
             $$"""{"type":"semyra.desktop.iptv.sources.list","requestId":"current","accountContextId":"{{currentContext}}"}""",
             engine,
@@ -126,6 +134,8 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         Assert.Contains("\"ok\":true", current.Response);
         Assert.True(staleFavorite.Handled);
         Assert.Contains("account_context_changed", staleFavorite.Response);
+        Assert.Contains("account_context_changed", staleRecentRemove.Response);
+        Assert.Contains("account_context_changed", staleRecentsClear.Response);
     }
 
     [Fact]
@@ -161,7 +171,25 @@ public sealed class IptvDesktopBridgeTests : IDisposable
             engine,
             () => null);
         AssertResult(recents, DesktopMessage.IptvRecentsListResultType, true);
-        Assert.Empty(JsonDocument.Parse(recents.Response).RootElement.GetProperty("channels").EnumerateArray());
+        var recentItems = JsonDocument.Parse(recents.Response).RootElement.GetProperty("channels").EnumerateArray().ToArray();
+        Assert.Single(recentItems);
+        Assert.Equal(setup.RecentId, recentItems[0].GetProperty("recentId").GetInt64());
+
+        var removeRecent = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.recent.remove","requestId":"recent-remove","accountContextId":"{{context}}","sourceId":{{setup.SourceId}},"recentId":{{setup.RecentId}}}""",
+            engine,
+            () => null);
+        AssertResult(removeRecent, DesktopMessage.IptvRecentRemoveResultType, true);
+        Assert.True(JsonDocument.Parse(removeRecent.Response).RootElement.GetProperty("removed").GetBoolean());
+
+        setup.Store.RecordRecent(setup.ChannelId);
+
+        var clearRecents = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.recents.clear","requestId":"recents-clear","accountContextId":"{{context}}","sourceId":{{setup.SourceId}}}""",
+            engine,
+            () => null);
+        AssertResult(clearRecents, DesktopMessage.IptvRecentsClearResultType, true);
+        Assert.Equal(1, JsonDocument.Parse(clearRecents.Response).RootElement.GetProperty("removedCount").GetInt32());
 
         var unfavorite = await DesktopBridge.TryHandleAsync(
             $$"""{"type":"semyra.desktop.iptv.favorite.set","requestId":"favorite-false","accountContextId":"{{context}}","channelId":{{setup.ChannelId}},"favorite":false}""",
@@ -197,7 +225,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         return engine;
     }
 
-    private async Task<(HostEngine Engine, long SourceId, long ChannelId)> EngineWithChannelAsync()
+    private async Task<(HostEngine Engine, IptvStore Store, long SourceId, long ChannelId, long RecentId)> EngineWithChannelAsync()
     {
         Directory.CreateDirectory(_directory);
         var protector = new TestProtector();
@@ -206,11 +234,13 @@ public sealed class IptvDesktopBridgeTests : IDisposable
         var source = store.AddSource("Fonte", IptvSourceType.M3uUrl, "https://provider.example/list.m3u");
         await store.ReplaceChannelsAsync(source.Id, OneChannel(), default);
         var channel = Assert.Single(store.SearchChannels(source.Id, "", null, 0, 50).Channels);
+        store.RecordRecent(channel.Id);
+        var recentId = Assert.Single(store.ListRecents(source.Id)).RecentId;
         var catalog = new IptvCatalogService(store, protector, new M3uParser(), new HttpClient());
         var engine = new HostEngine(catalog);
         engine.Start();
         await engine.ActivateAccountAsync(new string('a', 64));
-        return (engine, source.Id, channel.Id);
+        return (engine, store, source.Id, channel.Id, recentId);
     }
 
     private static async IAsyncEnumerable<ParsedM3uChannel> OneChannel()

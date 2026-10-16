@@ -25,6 +25,15 @@ public sealed record IptvChannelSummary(
     string? TvgId,
     bool IsFavorite);
 
+public sealed record IptvRecentSummary(
+    long RecentId,
+    long ChannelId,
+    string Name,
+    string? GroupName,
+    string? LogoUrl,
+    string? TvgId,
+    bool IsFavorite);
+
 public sealed record IptvChannelSearchResult(
     IReadOnlyList<IptvChannelSummary> Channels,
     int Offset,

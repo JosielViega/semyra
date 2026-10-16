@@ -39,7 +39,7 @@ final class DesktopIptvController
             'title' => 'Minha IPTV — Semyra',
             'csrfField' => $this->csrf->field(),
             'currentUser' => $currentUser,
-            'pageStyles' => ['/assets/css/desktop-iptv.css?v=11i-favorites-recents'],
+            'pageStyles' => ['/assets/css/desktop-iptv.css?v=11j-c-mpv-player'],
         ]));
     }
 }

@@ -15,12 +15,12 @@ final class DesktopIptvViewTest extends TestCase
             'title' => 'Fontes IPTV — Semyra',
             'csrfField' => '',
             'currentUser' => null,
-            'pageStyles' => ['/assets/css/desktop-iptv.css?v=11i-favorites-recents'],
+            'pageStyles' => ['/assets/css/desktop-iptv.css?v=11j-c-mpv-player'],
         ]);
 
         self::assertStringContainsString('Abra esta página no Semyra Desktop', $html);
-        self::assertStringContainsString('/assets/css/desktop-iptv.css?v=11i-favorites-recents', $html);
-        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11i-favorites-recents', $html);
+        self::assertStringContainsString('/assets/css/desktop-iptv.css?v=11j-c-mpv-player', $html);
+        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11j-c-mpv-player', $html);
         self::assertStringContainsString('data-iptv-pick-file', $html);
         self::assertStringContainsString('data-iptv-url-form', $html);
         self::assertStringContainsString('data-iptv-settings', $html);
@@ -29,11 +29,29 @@ final class DesktopIptvViewTest extends TestCase
         self::assertStringContainsString('data-iptv-channel-list aria-live="polite" aria-busy="false"', $html);
         self::assertStringContainsString('data-iptv-source-loading aria-live="polite" aria-busy="true"', $html);
         self::assertStringContainsString('data-iptv-browser-notice role="status" hidden', $html);
-        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11i-favorites-recents', $html);
+        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11j-c-mpv-player', $html);
+        self::assertStringContainsString('data-iptv-recents-clear', $html);
+        self::assertStringContainsString('data-iptv-recents-feedback role="status" aria-live="polite"', $html);
+        self::assertStringContainsString('id="iptv-icon-play"', $html);
+        self::assertStringContainsString('id="iptv-icon-pause"', $html);
+        self::assertStringContainsString('id="iptv-icon-volume"', $html);
+        self::assertStringContainsString('id="iptv-icon-muted"', $html);
+        self::assertStringContainsString('value="100" data-range-progress="100" style="--iptv-range-progress:100%" data-iptv-native-volume', $html);
+        self::assertStringContainsString('data-iptv-native-controls hidden', $html);
+        self::assertMatchesRegularExpression('/data-iptv-native-playback[^>]*><svg data-player-icon="pause"[^>]*><use href="#iptv-icon-pause"><\/use><\/svg><\/button>/', $html);
+        self::assertMatchesRegularExpression('/data-iptv-native-mute[^>]*><svg data-player-icon="volume"[^>]*><use href="#iptv-icon-volume"><\/use><\/svg><\/button>/', $html);
         self::assertStringContainsString('data-iptv-view-tabs role="tablist"', $html);
         self::assertStringContainsString('data-iptv-view="favorites" role="tab"', $html);
         self::assertStringContainsString('data-iptv-view="recents" role="tab"', $html);
-        self::assertStringContainsString('data-iptv-view="live" role="tab" aria-selected="true"', $html);
+        self::assertStringContainsString('data-iptv-view="all" role="tab" aria-selected="true"', $html);
+        self::assertStringContainsString('>Todos</button>', $html);
+        self::assertStringContainsString('data-iptv-native-progress aria-label="Posição do vídeo"', $html);
+        self::assertStringContainsString('data-iptv-native-fullscreen', $html);
+        self::assertStringContainsString('data-iptv-native-vod hidden', $html);
+        self::assertStringContainsString('aria-label="Voltar 30 segundos" title="Voltar 30 segundos"', $html);
+        self::assertStringContainsString('aria-label="Avançar 30 segundos" title="Avançar 30 segundos"', $html);
+        self::assertStringContainsString('Não foi possível reproduzir este conteúdo.', $html);
+        self::assertStringContainsString('Escolher outro</button>', $html);
         self::assertStringContainsString('role="tabpanel"', $html);
         self::assertStringContainsString('id="iptv-icon-heart"', $html);
         self::assertStringContainsString('data-settings-state="idle"', $html);

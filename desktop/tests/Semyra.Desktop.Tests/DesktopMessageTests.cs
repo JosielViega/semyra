@@ -146,6 +146,34 @@ public sealed class DesktopMessageTests
     }
 
     [Fact]
+    public void NativePlayerProtocolIsStrictAndContainsNoProviderUrl()
+    {
+        var context = new string('e', 32);
+        var session = new string('a', 32);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.player.control","requestId":"control-1","accountContextId":"{{context}}","sessionId":"{{session}}","command":"seek-relative","value":30}""",
+            out var control));
+        Assert.Equal("seek-relative", control.Player!.Command);
+        Assert.Equal(30, control.Player.Value);
+
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.player.geometry","requestId":"geometry-1","accountContextId":"{{context}}","sessionId":"{{session}}","x":10,"y":20,"width":800,"height":450,"viewportWidth":1200,"viewportHeight":800,"visible":true}""",
+            out var geometry));
+        Assert.Equal(800, geometry.Player!.Width);
+
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.player.control","requestId":"bad","accountContextId":"{{context}}","sessionId":"{{session}}","command":"pause","url":"https://example.invalid/private"}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.player.geometry","requestId":"bad-geometry","accountContextId":"{{context}}","sessionId":"{{session}}","x":0,"y":0,"width":800,"height":450,"viewportWidth":1200,"viewportHeight":800,"visible":true,"extra":true}""",
+            out _));
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.player.fullscreen","requestId":"fullscreen-1","accountContextId":"{{context}}","sessionId":"{{session}}","fullscreen":true}""",
+            out var fullscreen));
+        Assert.True(fullscreen.Player!.Fullscreen);
+    }
+
+    [Fact]
     public void FavoriteAndRecentProtocolAcceptsOnlyStrictSafeFields()
     {
         var context = new string('e', 32);
@@ -165,6 +193,15 @@ public sealed class DesktopMessageTests
             $$"""{"type":"semyra.desktop.iptv.favorite.set","requestId":"favorite-false","accountContextId":"{{context}}","channelId":42,"favorite":false}""",
             out var unfavorite));
         Assert.False(unfavorite.Iptv!.Favorite);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.recent.remove","requestId":"recent-remove","accountContextId":"{{context}}","sourceId":7,"recentId":42}""",
+            out var removeRecent));
+        Assert.Equal(7, removeRecent.Iptv!.SourceId);
+        Assert.Equal(42, removeRecent.Iptv.RecentId);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.recents.clear","requestId":"recents-clear","accountContextId":"{{context}}","sourceId":7}""",
+            out var clearRecents));
+        Assert.Equal(7, clearRecents.Iptv!.SourceId);
 
         Assert.False(DesktopMessage.TryReadRequest(
             $$"""{"type":"semyra.desktop.iptv.favorite.set","requestId":"bad","accountContextId":"{{context}}","channelId":42,"favorite":true,"stable_key":"secret"}""",
@@ -174,6 +211,12 @@ public sealed class DesktopMessageTests
             out _));
         Assert.False(DesktopMessage.TryReadRequest(
             $$"""{"type":"semyra.desktop.iptv.recents.list","requestId":"bad-extra","accountContextId":"{{context}}","sourceId":7,"logical_key":"secret"}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.recent.remove","requestId":"bad-remove","accountContextId":"{{context}}","sourceId":7,"recentId":42,"channelId":42}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.recents.clear","requestId":"bad-clear","accountContextId":"{{context}}","sourceId":7,"channelId":42}""",
             out _));
     }
 

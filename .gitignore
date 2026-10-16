@@ -13,6 +13,7 @@
 /deploy/bridge-worker/release/
 /bridge-worker/.private/
 /bridge-worker/runtime/
+/runtime/
 
 /desktop/.vs/
 /desktop/**/.vs/

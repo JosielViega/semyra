@@ -13,18 +13,35 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private string? _accountContextId;
     private readonly Func<string, IptvCatalogService> _catalogFactory;
     private readonly Func<IptvCatalogService, MediaEngine> _mediaFactory;
+    private readonly LocalPlayerOptions _localPlayerOptions;
+    private readonly MpvRuntime _mpvRuntime;
+    private readonly Func<MpvRuntime, nint, MpvPlayer> _mpvFactory;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private MpvPlayer? _mpvPlayer;
+    private nint _nativeVideoHost;
     private bool _disposed;
 
     public HostEngine()
-        : this(IptvCatalogService.CreateDefault, catalog => MediaEngine.CreateDefault(catalog, GStreamerRuntime.DiscoverDefault()))
+        : this(
+            IptvCatalogService.CreateDefault,
+            catalog => MediaEngine.CreateDefault(catalog, GStreamerRuntime.DiscoverDefault()),
+            LocalPlayerOptions.FromEnvironment(),
+            MpvRuntime.DiscoverDefault())
     {
     }
 
-    internal HostEngine(Func<string, IptvCatalogService> catalogFactory, Func<IptvCatalogService, MediaEngine> mediaFactory)
+    internal HostEngine(
+        Func<string, IptvCatalogService> catalogFactory,
+        Func<IptvCatalogService, MediaEngine> mediaFactory,
+        LocalPlayerOptions? localPlayerOptions = null,
+        MpvRuntime? mpvRuntime = null,
+        Func<MpvRuntime, nint, MpvPlayer>? mpvFactory = null)
     {
         _catalogFactory = catalogFactory;
         _mediaFactory = mediaFactory;
+        _localPlayerOptions = localPlayerOptions ?? new LocalPlayerOptions(LocalPlayerMode.Auto);
+        _mpvRuntime = mpvRuntime ?? MpvRuntime.Unavailable();
+        _mpvFactory = mpvFactory ?? ((runtime, handle) => new MpvPlayer(runtime, handle));
     }
 
     internal HostEngine(IptvCatalogService catalog, MediaEngine? media = null)
@@ -42,7 +59,26 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     public HostEngineState State { get; private set; } = HostEngineState.Stopped;
     public event EventHandler<MediaSnapshot>? MediaStateChanged;
+    internal event EventHandler<MpvGeometry>? NativeVideoGeometryChanged;
+    internal event EventHandler<bool>? NativeVideoVisibilityChanged;
+    internal event EventHandler<bool>? NativeVideoFullscreenChanged;
     internal string? CurrentAccountContextId => _accountContextId;
+    internal MpvRuntime MpvRuntime => _mpvRuntime;
+    internal LocalPlaybackEngine LocalPlaybackEngine => _localPlayerOptions.Mode switch
+    {
+        LocalPlayerMode.Mpv => MpvReady ? LocalPlaybackEngine.Mpv : LocalPlaybackEngine.Unavailable,
+        LocalPlayerMode.Legacy => LocalPlaybackEngine.Legacy,
+        _ => MpvReady ? LocalPlaybackEngine.Mpv : LocalPlaybackEngine.Legacy,
+    };
+    private bool MpvReady => _mpvRuntime.Available && _nativeVideoHost != 0;
+    private bool CanUseMpv => LocalPlaybackEngine == LocalPlaybackEngine.Mpv;
+    private bool CanUseLegacy => _localPlayerOptions.Mode != LocalPlayerMode.Mpv;
+
+    internal void SetNativeVideoHost(nint handle)
+    {
+        if (handle == 0) throw new ArgumentOutOfRangeException(nameof(handle));
+        _nativeVideoHost = handle;
+    }
 
     public void Start() => State = HostEngineState.Ready;
 
@@ -117,10 +153,12 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private async Task ClearAccountCoreAsync()
     {
         var media = _media;
+        var mpv = _mpvPlayer;
         var catalog = _iptv;
         _accountContextId = null;
         _authorization = null;
         _media = null;
+        _mpvPlayer = null;
         _iptv = null;
         _activeProfileId = null;
         if (media is not null)
@@ -128,8 +166,17 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
             media.StateChanged -= OnMediaStateChanged;
             media.InvalidatePlaybackAndCancel();
         }
+        if (mpv is not null)
+        {
+            NativeVideoVisibilityChanged?.Invoke(this, false);
+            NativeVideoFullscreenChanged?.Invoke(this, false);
+            mpv.StateChanged -= OnMpvStateChanged;
+            mpv.VisibilityChanged -= OnMpvVisibilityChanged;
+            mpv.PlaybackConfirmed -= OnMpvPlaybackConfirmed;
+        }
         try
         {
+            if (mpv is not null) await mpv.DisposeAsync();
             if (media is not null)
             {
                 await media.DisposeAsync();
@@ -180,7 +227,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         _accountContextId is not null,
         _media?.IsAvailable == true,
         _media?.Runtime.IsWhipAvailable == true,
-        _media?.Runtime.IsLocalViewAvailable == true);
+        CanUseMpv || CanUseLegacy && _media?.Runtime.IsLocalViewAvailable == true);
 
     public IReadOnlyList<IptvSourceSummary> ListIptvSources() => Catalog().ListSources();
     public IptvSourceSummary AddIptvUrl(string name, string location) => Catalog().AddUrlSource(name, location);
@@ -190,11 +237,25 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     public IReadOnlyList<string> GetIptvGroups(long sourceId) => Catalog().GetGroups(sourceId);
     public IptvChannelSearchResult SearchIptvChannels(long sourceId, string? query, string? group, int offset, int limit) => Catalog().SearchChannels(sourceId, query, group, offset, limit);
     public IptvChannelSearchResult ListIptvFavorites(long sourceId, int offset, int limit) => Catalog().ListFavorites(sourceId, offset, limit);
-    public IReadOnlyList<IptvChannelSummary> ListIptvRecents(long sourceId) => Catalog().ListRecents(sourceId);
+    public IReadOnlyList<IptvRecentSummary> ListIptvRecents(long sourceId) => Catalog().ListRecents(sourceId);
+    public bool RemoveIptvRecent(long sourceId, long recentId) => Catalog().RemoveRecent(sourceId, recentId);
+    public int ClearIptvRecents(long sourceId) => Catalog().ClearRecents(sourceId);
     public bool SetIptvFavorite(long channelId, bool favorite) => Catalog().SetFavorite(channelId, favorite);
     public Task<MediaSnapshot> StartIptvMediaAsync(long channelId, CancellationToken cancellationToken) => Media().StartAsync(channelId, cancellationToken);
-    public Task<LocalPlaybackStartResult> StartIptvLocalViewAsync(long channelId, CancellationToken cancellationToken) =>
-        Media().StartLocalViewAsync(channelId, cancellationToken);
+    public async Task<LocalPlaybackStartResult> StartIptvLocalViewAsync(long channelId, CancellationToken cancellationToken)
+    {
+        if (CanUseMpv)
+        {
+            var channel = Catalog().ResolveChannelForPlayback(channelId);
+            var player = EnsureMpvPlayer();
+            return await player.StartAsync(channel, cancellationToken);
+        }
+        if (!CanUseLegacy)
+        {
+            throw new MediaEngineException("mpv_runtime_unavailable");
+        }
+        return await Media().StartLocalViewAsync(channelId, cancellationToken);
+    }
 
     public Task<MediaSnapshot> StartIptvPublishAsync(long channelId, CancellationToken cancellationToken)
     {
@@ -205,8 +266,43 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         return Media().StartPublishAsync(channelId, () => _authorization, cancellationToken);
     }
 
-    public Task<MediaSnapshot> StopIptvMediaAsync() => Media().StopAsync();
-    public MediaSnapshot IptvMediaSnapshot() => _media?.Snapshot() ?? MediaSnapshot.Idle;
+    public async Task<MediaSnapshot> StopIptvMediaAsync()
+    {
+        if (_mpvPlayer is not null && _mpvPlayer.Snapshot().State != "idle")
+        {
+            throw new MediaEngineException("playback_session_required");
+        }
+        return await Media().StopAsync();
+    }
+    public MediaSnapshot IptvMediaSnapshot() =>
+        _mpvPlayer is not null && _mpvPlayer.Snapshot().State != "idle"
+            ? _mpvPlayer.Snapshot()
+            : _media?.Snapshot() ?? MediaSnapshot.Idle;
+
+    internal async Task<MediaSnapshot> ControlMpvAsync(string sessionId, string command, double? value, CancellationToken cancellationToken)
+    {
+        var player = _mpvPlayer ?? throw new MediaEngineException("playback_session_changed");
+        var snapshot = await player.ControlAsync(sessionId, command, value, cancellationToken);
+        if (command == "stop") NativeVideoFullscreenChanged?.Invoke(this, false);
+        return snapshot;
+    }
+
+    internal MediaSnapshot UpdateMpvGeometry(string sessionId, MpvGeometry geometry)
+    {
+        var snapshot = _mpvPlayer?.Snapshot() ?? throw new MediaEngineException("playback_session_changed");
+        if (!geometry.IsValid || !string.Equals(snapshot.SessionId, sessionId, StringComparison.Ordinal))
+            throw new MediaEngineException(!geometry.IsValid ? "invalid_player_geometry" : "playback_session_changed");
+        NativeVideoGeometryChanged?.Invoke(this, geometry);
+        return snapshot;
+    }
+
+    internal MediaSnapshot SetMpvFullscreen(string sessionId, bool fullscreen)
+    {
+        var snapshot = _mpvPlayer?.SetFullscreen(sessionId, fullscreen)
+            ?? throw new MediaEngineException("playback_session_changed");
+        NativeVideoFullscreenChanged?.Invoke(this, fullscreen);
+        return snapshot;
+    }
     public bool TryReadLocalPlayback(Uri requestUri, string method, out LocalPlaybackResource? resource)
     {
         resource = null;
@@ -244,6 +340,34 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
             }
         }
         MediaStateChanged?.Invoke(this, snapshot);
+    }
+
+    private MpvPlayer EnsureMpvPlayer()
+    {
+        if (_mpvPlayer is not null) return _mpvPlayer;
+        var player = _mpvFactory(_mpvRuntime, _nativeVideoHost);
+        player.StateChanged += OnMpvStateChanged;
+        player.VisibilityChanged += OnMpvVisibilityChanged;
+        player.PlaybackConfirmed += OnMpvPlaybackConfirmed;
+        _mpvPlayer = player;
+        return player;
+    }
+
+    private void OnMpvStateChanged(object? sender, MediaSnapshot snapshot)
+    {
+        if (!ReferenceEquals(sender, _mpvPlayer)) return;
+        MediaStateChanged?.Invoke(this, snapshot);
+    }
+
+    private void OnMpvPlaybackConfirmed(object? sender, long channelId)
+    {
+        if (!ReferenceEquals(sender, _mpvPlayer)) return;
+        try { _iptv?.RecordRecent(channelId); } catch { }
+    }
+
+    private void OnMpvVisibilityChanged(object? sender, bool visible)
+    {
+        if (ReferenceEquals(sender, _mpvPlayer)) NativeVideoVisibilityChanged?.Invoke(this, visible);
     }
     private static bool ValidProfileId(string value) => value.Length == 64 && value.All(character => character is >= 'a' and <= 'f' or >= '0' and <= '9');
 

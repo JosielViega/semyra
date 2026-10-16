@@ -8,7 +8,8 @@ public sealed record DesktopRequest(
     HostAuthorization? Authorization = null,
     IptvRequest? Iptv = null,
     MediaRequest? Media = null,
-    AccountRequest? Account = null);
+    AccountRequest? Account = null,
+    PlayerRequest? Player = null);
 
 public sealed record AccountRequest(string? ProfileId = null);
 
@@ -21,7 +22,22 @@ public sealed record IptvRequest(
     int Offset = 0,
     int Limit = 50,
     long? ChannelId = null,
+    long? RecentId = null,
     bool? Favorite = null,
     string? AccountContextId = null);
 
 public sealed record MediaRequest(long? ChannelId = null, string? AccountContextId = null);
+
+public sealed record PlayerRequest(
+    string AccountContextId,
+    string SessionId,
+    string? Command = null,
+    double? Value = null,
+    double X = 0,
+    double Y = 0,
+    double Width = 0,
+    double Height = 0,
+    double ViewportWidth = 0,
+    double ViewportHeight = 0,
+    bool Visible = true,
+    bool? Fullscreen = null);

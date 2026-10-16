@@ -8,6 +8,7 @@ namespace Semyra.Desktop.Desktop;
 
 public static class DesktopBridge
 {
+    public const string PlayerUserActivityType = "semyra.desktop.player.user-activity";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static bool TryHandle(string json, HostEngine hostEngine, out string response)
@@ -58,6 +59,10 @@ public static class DesktopBridge
 
         if (request.Iptv is null)
         {
+            if (request.Player is not null)
+            {
+                return await HandlePlayerAsync(request, hostEngine, cancellationToken);
+            }
             if (request.Media is not null)
             {
                 return await HandleMediaAsync(request, hostEngine, cancellationToken);
@@ -117,6 +122,25 @@ public static class DesktopBridge
                     DesktopMessage.IptvRecentsListResultType,
                     request.RequestId,
                     new { channels = hostEngine.ListIptvRecents(request.Iptv.SourceId!.Value) }),
+                DesktopMessage.IptvRecentRemoveType => Success(
+                    DesktopMessage.IptvRecentRemoveResultType,
+                    request.RequestId,
+                    new
+                    {
+                        sourceId = request.Iptv.SourceId!.Value,
+                        recentId = request.Iptv.RecentId!.Value,
+                        removed = hostEngine.RemoveIptvRecent(
+                            request.Iptv.SourceId.Value,
+                            request.Iptv.RecentId.Value),
+                    }),
+                DesktopMessage.IptvRecentsClearType => Success(
+                    DesktopMessage.IptvRecentsClearResultType,
+                    request.RequestId,
+                    new
+                    {
+                        sourceId = request.Iptv.SourceId!.Value,
+                        removedCount = hostEngine.ClearIptvRecents(request.Iptv.SourceId.Value),
+                    }),
                 DesktopMessage.IptvFavoriteSetType => Success(
                     DesktopMessage.IptvFavoriteSetResultType,
                     request.RequestId,
@@ -139,6 +163,39 @@ public static class DesktopBridge
         catch
         {
             return (true, Error(ResultType(request.Type), request.RequestId, "Não foi possível concluir a operação local."));
+        }
+    }
+
+    private static async Task<(bool Handled, string Response)> HandlePlayerAsync(
+        DesktopRequest request,
+        HostEngine hostEngine,
+        CancellationToken cancellationToken)
+    {
+        var player = request.Player!;
+        if (!hostEngine.IsCurrentAccountContext(player.AccountContextId))
+            return (true, MediaError(ResultType(request.Type), request.RequestId, "account_context_changed"));
+        try
+        {
+            var snapshot = request.Type switch
+            {
+                DesktopMessage.IptvPlayerControlType => await hostEngine.ControlMpvAsync(
+                    player.SessionId, player.Command!, player.Value, cancellationToken),
+                DesktopMessage.IptvPlayerGeometryType => hostEngine.UpdateMpvGeometry(
+                    player.SessionId,
+                    new MpvGeometry(player.X, player.Y, player.Width, player.Height, player.ViewportWidth, player.ViewportHeight, player.Visible)),
+                DesktopMessage.IptvPlayerFullscreenType => hostEngine.SetMpvFullscreen(
+                    player.SessionId, player.Fullscreen!.Value),
+                _ => throw new MediaEngineException("invalid_player_control"),
+            };
+            return (true, MediaResult(ResultType(request.Type), request.RequestId, snapshot));
+        }
+        catch (OperationCanceledException)
+        {
+            return (true, MediaError(ResultType(request.Type), request.RequestId, "media_cancelled"));
+        }
+        catch (MediaEngineException exception)
+        {
+            return (true, MediaError(ResultType(request.Type), request.RequestId, exception.Code));
         }
     }
 
@@ -198,9 +255,28 @@ public static class DesktopBridge
             attempt = snapshot.Attempt,
             errorCode = snapshot.LastErrorCode,
             mode = snapshot.Mode,
+            playbackKind = snapshot.PlaybackKind,
+            sessionId = snapshot.SessionId,
+            position = snapshot.Position,
+            duration = snapshot.Duration,
+            seekable = snapshot.Seekable,
+            muted = snapshot.Muted,
+            volume = snapshot.Volume,
+            container = snapshot.Container,
+            videoCodec = snapshot.VideoCodec,
+            audioCodec = snapshot.AudioCodec,
+            mediaKind = snapshot.MediaKind,
+            fullscreen = snapshot.Fullscreen,
+            paused = snapshot.Paused,
+            buffering = snapshot.Buffering,
             accountContextId,
         }, JsonOptions);
     }
+
+    public static string CreatePlayerUserActivityEvent() => JsonSerializer.Serialize(new
+    {
+        type = PlayerUserActivityType,
+    }, JsonOptions);
 
     private static string CreatePong(string requestId)
     {
@@ -361,6 +437,20 @@ public static class DesktopBridge
             attempt = snapshot.Attempt,
             errorCode = snapshot.LastErrorCode,
             mode = snapshot.Mode,
+            playbackKind = snapshot.PlaybackKind,
+            sessionId = snapshot.SessionId,
+            position = snapshot.Position,
+            duration = snapshot.Duration,
+            seekable = snapshot.Seekable,
+            muted = snapshot.Muted,
+            volume = snapshot.Volume,
+            container = snapshot.Container,
+            videoCodec = snapshot.VideoCodec,
+            audioCodec = snapshot.AudioCodec,
+            mediaKind = snapshot.MediaKind,
+            fullscreen = snapshot.Fullscreen,
+            paused = snapshot.Paused,
+            buffering = snapshot.Buffering,
         }, JsonOptions);
     }
 
@@ -392,6 +482,8 @@ public static class DesktopBridge
             errorCode = snapshot.LastErrorCode,
             mode = snapshot.Mode,
             playbackUrl = result.PlaybackUrl,
+            playbackKind = result.PlaybackKind,
+            sessionId = result.SessionId,
         }, JsonOptions);
     }
 
@@ -407,12 +499,17 @@ public static class DesktopBridge
         DesktopMessage.IptvFavoritesListType => DesktopMessage.IptvFavoritesListResultType,
         DesktopMessage.IptvFavoriteSetType => DesktopMessage.IptvFavoriteSetResultType,
         DesktopMessage.IptvRecentsListType => DesktopMessage.IptvRecentsListResultType,
+        DesktopMessage.IptvRecentRemoveType => DesktopMessage.IptvRecentRemoveResultType,
+        DesktopMessage.IptvRecentsClearType => DesktopMessage.IptvRecentsClearResultType,
         DesktopMessage.IptvMediaStartType => DesktopMessage.IptvMediaStartResultType,
         DesktopMessage.IptvMediaStopType => DesktopMessage.IptvMediaStopResultType,
         DesktopMessage.IptvMediaStatusType => DesktopMessage.IptvMediaStatusResultType,
         DesktopMessage.IptvViewStartType => DesktopMessage.IptvViewStartResultType,
         DesktopMessage.IptvViewStopType => DesktopMessage.IptvViewStopResultType,
         DesktopMessage.IptvViewStatusType => DesktopMessage.IptvViewStatusResultType,
+        DesktopMessage.IptvPlayerControlType => DesktopMessage.IptvPlayerControlResultType,
+        DesktopMessage.IptvPlayerGeometryType => DesktopMessage.IptvPlayerGeometryResultType,
+        DesktopMessage.IptvPlayerFullscreenType => DesktopMessage.IptvPlayerFullscreenResultType,
         DesktopMessage.IptvPublishStartType => DesktopMessage.IptvPublishStartResultType,
         DesktopMessage.IptvPublishStopType => DesktopMessage.IptvPublishStopResultType,
         DesktopMessage.IptvPublishStatusType => DesktopMessage.IptvPublishStatusResultType,

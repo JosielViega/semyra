@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Microsoft.Data.Sqlite;
@@ -148,13 +149,13 @@ public sealed class IptvFavoritesRecentsTests : IDisposable
         }
         var retained = store.ListRecents(source.Id);
         Assert.Equal(20, retained.Count);
-        Assert.Equal(channels[^1].Id, retained[0].Id);
+        Assert.Equal(channels[^1].Id, retained[0].ChannelId);
 
         var repeated = channels[5];
         store.RecordRecent(repeated.Id);
         retained = store.ListRecents(source.Id);
-        Assert.Equal(repeated.Id, retained[0].Id);
-        Assert.Equal(1, retained.Count(channel => channel.Id == repeated.Id));
+        Assert.Equal(repeated.Id, retained[0].ChannelId);
+        Assert.Equal(1, retained.Count(channel => channel.ChannelId == repeated.Id));
     }
 
     [Fact]
@@ -169,8 +170,71 @@ public sealed class IptvFavoritesRecentsTests : IDisposable
         await Import(store, source.Id, Channel("Canal", "https://provider.example/new", "RECENT-1"));
 
         var recent = Assert.Single(store.ListRecents(source.Id));
-        Assert.NotEqual(old.Id, recent.Id);
+        Assert.NotEqual(old.Id, recent.ChannelId);
         Assert.Equal("Canal", recent.Name);
+    }
+
+    [Fact]
+    public async Task RecentResolvedThroughLogicalIdentityCanBeRemovedAfterRefresh()
+    {
+        var store = Store();
+        var source = store.AddSource("Fonte", IptvSourceType.M3uUrl, "https://provider.example/list.m3u");
+        await Import(store, source.Id, Channel("Canal", "https://provider.example/old", "recent-logical"));
+        store.RecordRecent(Assert.Single(store.SearchChannels(source.Id, "", null, 0, 50).Channels).Id);
+        var recentId = Assert.Single(store.ListRecents(source.Id)).RecentId;
+        await Import(store, source.Id, Channel("Canal", "https://provider.example/new", "RECENT-LOGICAL"));
+        var refreshed = Assert.Single(store.ListRecents(source.Id));
+
+        Assert.Equal(recentId, refreshed.RecentId);
+        Assert.True(store.RemoveRecent(source.Id, refreshed.RecentId));
+        Assert.Empty(store.ListRecents(source.Id));
+    }
+
+    [Fact]
+    public async Task RecentCanBeRemovedWithoutChangingFavoriteOrOtherSource()
+    {
+        var store = Store();
+        var first = store.AddSource("Primeira", IptvSourceType.M3uUrl, "https://provider.example/a.m3u");
+        var second = store.AddSource("Segunda", IptvSourceType.M3uUrl, "https://provider.example/b.m3u");
+        await Import(store, first.Id, Channel("Primeiro", "https://provider.example/a", "a"));
+        await Import(store, second.Id, Channel("Segundo", "https://provider.example/b", "b"));
+        var firstChannel = Assert.Single(store.SearchChannels(first.Id, "", null, 0, 50).Channels);
+        var secondChannel = Assert.Single(store.SearchChannels(second.Id, "", null, 0, 50).Channels);
+        Assert.True(store.SetFavorite(firstChannel.Id, true));
+        store.RecordRecent(firstChannel.Id);
+        store.RecordRecent(secondChannel.Id);
+
+        var firstRecentId = Assert.Single(store.ListRecents(first.Id)).RecentId;
+        Assert.True(store.RemoveRecent(first.Id, firstRecentId));
+        Assert.False(store.RemoveRecent(first.Id, firstRecentId));
+        Assert.False(store.RemoveRecent(first.Id, 999999));
+        Assert.Empty(store.ListRecents(first.Id));
+        Assert.Single(store.ListRecents(second.Id));
+        Assert.Single(store.ListFavorites(first.Id, 0, 50).Channels);
+        Assert.Single(store.SearchChannels(first.Id, "", null, 0, 50).Channels);
+    }
+
+    [Fact]
+    public async Task ClearRecentsOnlyClearsRequestedSourceAndIsIdempotent()
+    {
+        var store = Store();
+        var first = store.AddSource("Primeira", IptvSourceType.M3uUrl, "https://provider.example/a.m3u");
+        var second = store.AddSource("Segunda", IptvSourceType.M3uUrl, "https://provider.example/b.m3u");
+        await Import(store, first.Id, Enumerable.Range(1, 20)
+            .Select(index => Channel("Primeiro " + index, "https://provider.example/a" + index, "a" + index)).ToArray());
+        await Import(store, second.Id, Enumerable.Range(1, 20)
+            .Select(index => Channel("Segundo " + index, "https://provider.example/b" + index, "b" + index)).ToArray());
+        foreach (var channel in store.SearchChannels(first.Id, "", null, 0, 50).Channels) store.RecordRecent(channel.Id);
+        foreach (var channel in store.SearchChannels(second.Id, "", null, 0, 50).Channels) store.RecordRecent(channel.Id);
+
+        var stopwatch = Stopwatch.StartNew();
+        Assert.Equal(20, store.ClearRecents(first.Id));
+        stopwatch.Stop();
+        Assert.Equal(0, store.ClearRecents(first.Id));
+        Assert.Empty(store.ListRecents(first.Id));
+        Assert.Equal(20, store.ListRecents(second.Id).Count);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));
+        Assert.Equal(0, store.ClearRecents(999999));
     }
 
     [Fact]
@@ -194,6 +258,10 @@ public sealed class IptvFavoritesRecentsTests : IDisposable
         Assert.Empty(storeB.ListRecents(sourceB.Id));
         Assert.Single(storeA.ListFavorites(sourceA.Id, 0, 50).Channels);
         Assert.Single(storeA.ListRecents(sourceA.Id));
+        var recentId = Assert.Single(storeA.ListRecents(sourceA.Id)).RecentId;
+        Assert.True(storeA.RemoveRecent(sourceA.Id, recentId));
+        Assert.Empty(storeA.ListRecents(sourceA.Id));
+        Assert.Empty(storeB.ListRecents(sourceB.Id));
     }
 
     [Fact]

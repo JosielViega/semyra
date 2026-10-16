@@ -10,8 +10,9 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
-    const VISUAL_STATES = ['idle', 'preparing', 'streaming', 'reconnecting', 'failed'];
-    const ACTIVE_STATES = ['preparing', 'streaming', 'reconnecting'];
+    const VISUAL_STATES = ['idle', 'preparing', 'loading', 'streaming', 'playing', 'paused', 'buffering', 'reconnecting', 'ended', 'failed'];
+    const ACTIVE_STATES = ['preparing', 'loading', 'streaming', 'playing', 'paused', 'buffering', 'reconnecting'];
+    const CONTROLS_AUTO_HIDE_MS = 3000;
     const SETTINGS_STATES = Object.freeze({
         'adding-file': ['Importando sua IPTV…', 'Lendo o arquivo e carregando os canais.'],
         'adding-url': ['Carregando sua IPTV…', 'Conectando à fonte e importando os canais.'],
@@ -21,13 +22,18 @@
     });
 
     function mediaStatusLabel(state, errorCode) {
+        if (state === 'loading') return 'Carregando no MPV...';
+        if (state === 'playing') return 'Reproduzindo no MPV';
+        if (state === 'paused') return 'Pausado';
+        if (state === 'buffering') return 'Armazenando dados...';
+        if (state === 'ended') return 'Reproducao concluida';
         if (state === 'idle') return 'Escolha um canal';
         if (state === 'preparing') return 'Preparando canal…';
         if (state === 'streaming') return 'Reproduzindo agora';
         if (state === 'reconnecting') return 'Reconectando…';
         if (['media_runtime_unavailable', 'local_view_runtime_unavailable'].includes(errorCode)) return 'Player local indisponível neste dispositivo.';
-        if (errorCode === 'local_view_playlist_unavailable') return 'Este canal não forneceu mídia compatível.';
-        return 'Não foi possível abrir este canal.';
+        if (errorCode === 'local_view_playlist_unavailable') return 'Este conteúdo não forneceu mídia compatível.';
+        return 'Não foi possível reproduzir este conteúdo.';
     }
 
     function validPlaybackUrl(value) {
@@ -38,6 +44,27 @@
     function localViewAvailable(snapshot) {
         return Boolean(snapshot && Array.isArray(snapshot.capabilities)
             && snapshot.capabilities.includes('iptv.local-view'));
+    }
+
+    function formatMediaTime(value) {
+        const seconds = Math.max(0, Math.floor(Number(value) || 0));
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const remainder = seconds % 60;
+        return (hours ? String(hours) + ':' + String(minutes).padStart(2, '0') : String(minutes))
+            + ':' + String(remainder).padStart(2, '0');
+    }
+
+    function syncRangeVisual(control, value, minimum = 0, maximum = 100) {
+        if (!control) return 0;
+        const min = Number.isFinite(Number(minimum)) ? Number(minimum) : 0;
+        const max = Number.isFinite(Number(maximum)) && Number(maximum) > min ? Number(maximum) : 100;
+        const normalized = Math.min(max, Math.max(min, Number(value) || 0));
+        const progress = ((normalized - min) / (max - min)) * 100;
+        control.value = String(Math.round(normalized));
+        control.dataset.rangeProgress = String(Math.round(progress));
+        control.style?.setProperty?.('--iptv-range-progress', progress + '%');
+        return normalized;
     }
 
     function channelMonogram(name) {
@@ -163,6 +190,8 @@
         let currentChannelName = '';
         let mediaState = 'idle';
         let hideTimer = null;
+        let controlsVisible = true;
+        let lastUserActivity = 0;
         let volumeAdjusting = false;
         let activated = false;
         let fallbackTimer = null;
@@ -170,11 +199,29 @@
         let listRequestToken = null;
         let groupsRequestToken = null;
         let searchRequestToken = null;
-        let activeView = 'live';
+        let activeView = 'all';
         let viewRequestAction = 'search';
         const favoriteRequests = new Map();
         let settingsOperation = null;
         let navigationStopRequested = false;
+        let playbackKind = 'legacy-hls';
+        let nativeSessionId = null;
+        let nativePaused = false;
+        let nativeMuted = false;
+        let nativeVolume = 100;
+        let nativeFullscreen = false;
+        let nativeScrubbing = false;
+        let nativeRecentSession = null;
+        let fullscreenScrollPosition = null;
+        let renderedChannels = [];
+        let renderedHasMore = false;
+        const recentRemoveRequests = new Map();
+        let recentsClearRequest = null;
+        let recentsConfirming = false;
+        let geometryTimer = null;
+        let geometryObserver = null;
+        let intersectionObserver = null;
+        let stageIntersecting = true;
         const groupsBySource = new Map();
         const limit = 50;
 
@@ -190,6 +237,12 @@
         function request(action, detail, clientRequestId) {
             target.dispatchEvent(new target.CustomEvent('semyra:iptv-request', {
                 detail: Object.assign({action}, detail || {}, clientRequestId ? {clientRequestId} : {}),
+            }));
+        }
+
+        function reportControlsVisibility(hidden) {
+            target.dispatchEvent(new target.CustomEvent('semyra:player-controls-visibility', {
+                detail: Object.freeze({hidden: hidden === true}),
             }));
         }
 
@@ -411,8 +464,36 @@
             select.removeAttribute('aria-busy');
         }
 
+        function recentsFeedback(message, error) {
+            const output = element('[data-iptv-recents-feedback]');
+            if (!output) return;
+            output.textContent = message || '';
+            output.dataset.state = error ? 'error' : 'ok';
+        }
+
+        function renderRecentsActions() {
+            const actions = element('[data-iptv-recents-actions]');
+            const clear = element('[data-iptv-recents-clear]');
+            const confirmation = element('[data-iptv-recents-confirm]');
+            const confirmClear = element('[data-iptv-recents-confirm-clear]');
+            const cancelClear = element('[data-iptv-recents-cancel]');
+            const visible = activeView === 'recents' && renderedChannels.length > 0;
+            if (actions) actions.hidden = !visible;
+            const pending = recentsClearRequest?.sourceId === selectedSourceId;
+            if (clear) {
+                clear.hidden = recentsConfirming;
+                clear.disabled = pending;
+                clear.setAttribute('aria-busy', pending ? 'true' : 'false');
+            }
+            if (confirmation) confirmation.hidden = !recentsConfirming;
+            if (confirmClear) confirmClear.disabled = pending;
+            if (cancelClear) cancelClear.disabled = pending;
+            if (activeView !== 'recents') recentsFeedback('', false);
+        }
+
         function renderActiveView() {
             if (!root || typeof root.querySelectorAll !== 'function') return;
+            renderRecentsActions();
             root.querySelectorAll('[data-iptv-view]').forEach(function (tab) {
                 const selected = tab.dataset.iptvView === activeView;
                 tab.setAttribute('aria-selected', selected ? 'true' : 'false');
@@ -421,7 +502,7 @@
             });
             const toolbar = element('[data-iptv-search-form]');
             const pagination = element('[data-iptv-pagination]');
-            if (toolbar) toolbar.hidden = activeView !== 'live';
+            if (toolbar) toolbar.hidden = activeView !== 'all';
             if (pagination) pagination.hidden = activeView === 'recents';
             const panel = element('[data-iptv-view-panel]');
             if (panel) panel.setAttribute('aria-labelledby', 'iptv-view-' + activeView);
@@ -432,8 +513,9 @@
         }
 
         function setActiveView(view, focus) {
-            if (!['favorites', 'recents', 'live'].includes(view) || view === activeView) return;
+            if (!['favorites', 'recents', 'all'].includes(view) || view === activeView) return;
             activeView = view;
+            recentsConfirming = false;
             offset = 0;
             renderActiveView();
             loadCurrentView('Carregando canais…');
@@ -452,6 +534,9 @@
             if (previous) previous.disabled = loading || offset === 0;
             if (next && loading) next.disabled = true;
             if (!loading) return;
+            renderedChannels = [];
+            renderedHasMore = false;
+            renderRecentsActions();
             const fragment = document.createDocumentFragment();
             for (let index = 0; index < 10; index += 1) fragment.appendChild(node('span', 'iptv-skeleton'));
             list.replaceChildren(fragment);
@@ -484,14 +569,16 @@
         function renderChannels(channels, hasMore) {
             const list = element('[data-iptv-channel-list]');
             if (!list) return;
+            renderedChannels = Array.isArray(channels) ? channels.slice() : [];
+            renderedHasMore = hasMore === true;
             const fragment = document.createDocumentFragment();
             const form = element('[data-iptv-search-form]');
-            const query = activeView === 'live' && form ? form.elements.query.value.trim() : '';
+            const query = activeView === 'all' && form ? form.elements.query.value.trim() : '';
             if (channels.length === 0) {
                 const message = activeView === 'favorites'
                     ? 'Seus canais favoritos aparecerão aqui. Favorite um canal para encontrá-lo mais rápido.'
                     : activeView === 'recents'
-                        ? 'Você ainda não assistiu nenhum canal.'
+                        ? 'Você ainda não assistiu nenhum conteúdo.'
                         : query ? 'Nenhum canal encontrado.' : 'Esta fonte ainda não possui canais.';
                 fragment.appendChild(renderChannelEmpty(message));
             } else {
@@ -506,13 +593,9 @@
                     play.setAttribute('aria-pressed', 'false');
                     const visual = node('span', 'iptv-channel-visual');
                     visual.appendChild(node('span', 'iptv-channel-monogram', channelMonogram(channel.name)));
-                    const live = node('span', 'iptv-channel-live', 'Ao vivo');
-                    live.dataset.iptvChannelLive = '';
-                    live.hidden = true;
-                    visual.appendChild(live);
                     const copy = node('span', 'iptv-channel-copy');
                     copy.appendChild(node('strong', '', channel.name));
-                    copy.appendChild(node('span', '', channel.groupName || 'Canal ao vivo'));
+                    copy.appendChild(node('span', '', channel.groupName || 'Sem grupo'));
                     play.appendChild(visual);
                     play.appendChild(copy);
                     card.appendChild(play);
@@ -530,6 +613,21 @@
                     icon.appendChild(use);
                     favorite.appendChild(icon);
                     card.appendChild(favorite);
+                    if (activeView === 'recents') {
+                        const removeRecent = node('button', 'iptv-recent-remove');
+                        removeRecent.type = 'button';
+                        removeRecent.dataset.iptvRecentRemove = 'true';
+                        removeRecent.dataset.recentId = String(channel.recentId);
+                        removeRecent.setAttribute('aria-label', 'Remover de recentes');
+                        removeRecent.title = 'Remover de recentes';
+                        const removeIcon = document.createElementNS ? document.createElementNS('http://www.w3.org/2000/svg', 'svg') : node('svg', '');
+                        removeIcon.setAttribute('aria-hidden', 'true');
+                        const removeUse = document.createElementNS ? document.createElementNS('http://www.w3.org/2000/svg', 'use') : node('use', '');
+                        removeUse.setAttribute('href', '#iptv-icon-close');
+                        removeIcon.appendChild(removeUse);
+                        removeRecent.appendChild(removeIcon);
+                        card.appendChild(removeRecent);
+                    }
                     fragment.appendChild(card);
                 });
             }
@@ -545,6 +643,7 @@
             if (page) page.textContent = 'Página ' + (Math.floor(offset / limit) + 1);
             const submit = form && form.querySelector ? form.querySelector('button[type="submit"]') : null;
             if (submit) submit.disabled = false;
+            renderRecentsActions();
             updateActiveCards();
         }
 
@@ -565,7 +664,7 @@
 
         function loadCurrentView(message) {
             if (!selectedSourceId) return;
-            if (activeView === 'live') {
+            if (activeView === 'all') {
                 viewRequestAction = 'search';
                 search(message);
                 return;
@@ -583,6 +682,7 @@
         function selectSource(sourceId) {
             if (!sources.some(function (source) { return source.id === sourceId; })) return null;
             selectedSourceId = sourceId;
+            recentsConfirming = false;
             offset = 0;
             renderSources();
             const group = element('[data-iptv-search-form] select[name="group"]');
@@ -661,11 +761,139 @@
         }
 
         function destroyPlayer() {
+            if (nativeSessionId || nativeFullscreen || !controlsVisible) reportControlsVisibility(false);
             if (player) player.destroy();
+            hideNativePlayerSurface();
             showAutoplayFallback(false);
-            clearTimeout(hideTimer);
+            clearHideTimer();
             const stage = element('[data-iptv-player-stage]');
-            if (stage) stage.dataset.controlsHidden = 'false';
+            if (stage) {
+                stage.dataset.controlsHidden = 'false';
+                stage.dataset.nativePlayer = 'false';
+            }
+            nativeSessionId = null;
+            nativeFullscreen = false;
+            nativeScrubbing = false;
+            nativeRecentSession = null;
+            playbackKind = 'legacy-hls';
+            clearTimeout(geometryTimer);
+            geometryTimer = null;
+            if (geometryObserver) geometryObserver.disconnect();
+            geometryObserver = null;
+            if (intersectionObserver) intersectionObserver.disconnect();
+            intersectionObserver = null;
+            stageIntersecting = true;
+            root?.classList?.remove?.('is-native-fullscreen', 'is-native-controls-hidden');
+            setDocumentFullscreenLock(false);
+            const controls = element('[data-iptv-native-controls]');
+            if (controls) controls.hidden = true;
+        }
+
+        function hideNativePlayerSurface() {
+            if (!nativeSessionId) return;
+            request('player-geometry', {
+                sessionId: nativeSessionId,
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                viewportWidth: Math.max(1, Number(target.innerWidth) || 1),
+                viewportHeight: Math.max(1, Number(target.innerHeight) || 1),
+                visible: false,
+            });
+        }
+
+        function sendNativeControl(command, value) {
+            if (!nativeSessionId) return;
+            userActivity();
+            const detail = {sessionId: nativeSessionId, command};
+            if (typeof value === 'number') detail.value = value;
+            request('player-control', detail);
+        }
+
+        function renderNativeControlModel(state) {
+            const playback = element('[data-iptv-native-playback]');
+            if (playback) {
+                playback.dataset.command = state.paused ? 'play' : 'pause';
+                playback.setAttribute('aria-label', state.paused ? 'Reproduzir' : 'Pausar');
+                playback.title = state.paused ? 'Reproduzir' : 'Pausar';
+                renderNativeIcon(playback, state.paused ? 'play' : 'pause');
+            }
+            const mute = element('[data-iptv-native-mute]');
+            if (mute) {
+                mute.setAttribute('aria-label', state.muted ? 'Ativar som' : 'Silenciar');
+                mute.title = state.muted ? 'Ativar som' : 'Silenciar';
+                renderNativeIcon(mute, state.muted ? 'muted' : 'volume');
+            }
+            syncRangeVisual(element('[data-iptv-native-volume]'), state.volume);
+        }
+
+        function renderNativeIcon(button, name) {
+            const current = button.children && button.children[0];
+            if (current && current.dataset && current.dataset.playerIcon === name) return;
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+            svg.dataset.playerIcon = name;
+            svg.setAttribute('aria-hidden', 'true');
+            use.setAttribute('href', '#iptv-icon-' + name);
+            svg.appendChild(use);
+            button.replaceChildren(svg);
+        }
+
+        function reportNativeGeometry() {
+            geometryTimer = null;
+            if (!nativeSessionId) return;
+            const stage = element('[data-iptv-player-stage]');
+            if (!stage || typeof stage.getBoundingClientRect !== 'function') return;
+            const rect = stage.getBoundingClientRect();
+            const viewportWidth = Math.max(1, Number(target.innerWidth) || rect.width || 1);
+            const viewportHeight = Math.max(1, Number(target.innerHeight) || rect.height || 1);
+            const left = Math.max(0, Math.min(viewportWidth, rect.left));
+            const top = Math.max(0, Math.min(viewportHeight, rect.top));
+            const rectRight = Number.isFinite(rect.right) ? rect.right : rect.left + rect.width;
+            const rectBottom = Number.isFinite(rect.bottom) ? rect.bottom : rect.top + rect.height;
+            const right = Math.max(left, Math.min(viewportWidth, rectRight));
+            const bottom = Math.max(top, Math.min(viewportHeight, rectBottom));
+            const visible = stageIntersecting && right - left >= 1 && bottom - top >= 1;
+            request('player-geometry', {
+                sessionId: nativeSessionId,
+                x: visible ? left : 0,
+                y: visible ? top : 0,
+                width: visible ? right - left : 0,
+                height: visible ? bottom - top : 0,
+                viewportWidth,
+                viewportHeight,
+                visible,
+            });
+        }
+
+        function scheduleNativeGeometry() {
+            if (!nativeSessionId || geometryTimer !== null) return;
+            geometryTimer = target.setTimeout(reportNativeGeometry, 50);
+        }
+
+        function attachNativePlayer(sessionId) {
+            if (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId)) return false;
+            playbackKind = 'native-mpv';
+            nativeSessionId = sessionId;
+            nativePaused = false;
+            const stage = element('[data-iptv-player-stage]');
+            if (stage) stage.dataset.nativePlayer = 'true';
+            const controls = element('[data-iptv-native-controls]');
+            if (controls) controls.hidden = false;
+            if (typeof target.ResizeObserver === 'function' && stage) {
+                geometryObserver = new target.ResizeObserver(scheduleNativeGeometry);
+                geometryObserver.observe(stage);
+            }
+            if (typeof target.IntersectionObserver === 'function' && stage) {
+                intersectionObserver = new target.IntersectionObserver(function (entries) {
+                    stageIntersecting = entries.some(function (entry) { return entry.isIntersecting && entry.intersectionRatio > 0; });
+                    scheduleNativeGeometry();
+                }, {threshold: [0, 0.01, 1]});
+                intersectionObserver.observe(stage);
+            }
+            scheduleNativeGeometry();
+            return true;
         }
 
         function attachPlayer(playbackUrl) {
@@ -674,6 +902,9 @@
         }
 
         function renderMediaState(detail) {
+            if (detail.playbackKind === 'native-mpv' && detail.sessionId && nativeSessionId !== detail.sessionId) {
+                attachNativePlayer(detail.sessionId);
+            }
             mediaState = VISUAL_STATES.includes(detail.state) ? detail.state : 'failed';
             if (Number.isSafeInteger(detail.channelId) && detail.channelId > 0) currentChannelId = detail.channelId;
             if (typeof detail.channelName === 'string' && detail.channelName) currentChannelName = detail.channelName;
@@ -682,7 +913,13 @@
                 currentChannelId = null;
                 currentChannelName = '';
             } else if (mediaState === 'failed') {
-                destroyPlayer();
+                if (playbackKind === 'native-mpv') {
+                    hideNativePlayerSurface();
+                    const nativeControls = element('[data-iptv-native-controls]');
+                    if (nativeControls) nativeControls.hidden = true;
+                } else {
+                    destroyPlayer();
+                }
             }
             const stage = element('[data-iptv-player-stage]');
             const empty = element('[data-iptv-player-empty]');
@@ -695,27 +932,68 @@
             const stop = element('[data-iptv-media-stop]');
             if (stage) stage.dataset.state = mediaState;
             if (empty) empty.hidden = mediaState !== 'idle';
-            if (state) state.hidden = !['preparing', 'reconnecting'].includes(mediaState);
+            if (state) state.hidden = !['preparing', 'loading', 'buffering', 'reconnecting'].includes(mediaState);
+            if (stateLabel) stateLabel.textContent = mediaStatusLabel(mediaState, detail.errorCode);
             if (stateLabel) stateLabel.textContent = mediaState === 'reconnecting' ? 'Reconectando…' : 'Preparando canal…';
+            if (stateLabel) stateLabel.textContent = mediaStatusLabel(mediaState, detail.errorCode);
             if (error) error.hidden = mediaState !== 'failed';
             const errorTitle = element('[data-iptv-error-title]');
             const errorCopy = element('[data-iptv-error-copy]');
             const retry = element('[data-iptv-retry]');
             const runtimeUnavailable = ['media_runtime_unavailable', 'local_view_runtime_unavailable'].includes(detail.errorCode);
-            if (errorTitle) errorTitle.textContent = runtimeUnavailable ? 'Player local indisponível.' : 'Não foi possível abrir este canal.';
+            if (errorTitle) errorTitle.textContent = runtimeUnavailable ? 'Player local indisponível.' : 'Não foi possível reproduzir este conteúdo.';
             if (errorCopy) errorCopy.textContent = runtimeUnavailable
                 ? 'Este dispositivo não possui os componentes necessários para a reprodução local.'
-                : 'Tente novamente ou escolha outro canal do catálogo.';
+                : 'Tente novamente ou escolha outro conteúdo do catálogo.';
             if (retry) retry.hidden = runtimeUnavailable || !currentChannelId;
-            if (live) live.hidden = mediaState !== 'streaming';
+            if (live) live.hidden = detail.mediaKind === 'vod' || !['streaming', 'playing', 'paused', 'buffering'].includes(mediaState);
             if (status) {
                 status.textContent = mediaStatusLabel(mediaState, detail.errorCode);
                 status.dataset.state = mediaState;
             }
             if (title) title.textContent = currentChannelName || 'Minha IPTV';
             if (stop) stop.disabled = !ACTIVE_STATES.includes(mediaState);
+            if (playbackKind === 'native-mpv') {
+                const wasPaused = nativePaused;
+                if (typeof detail.paused === 'boolean') nativePaused = detail.paused;
+                else if (mediaState === 'paused') nativePaused = true;
+                else if (mediaState === 'playing') nativePaused = false;
+                if (typeof detail.muted === 'boolean') nativeMuted = detail.muted;
+                if (typeof detail.volume === 'number') nativeVolume = Math.min(100, Math.max(0, detail.volume));
+                renderNativeControlModel({paused: nativePaused, muted: nativeMuted, volume: nativeVolume});
+                if (nativePaused) {
+                    clearHideTimer();
+                    setControlsVisible(true);
+                } else if (wasPaused && ['streaming', 'playing'].includes(mediaState)) {
+                    scheduleHide();
+                }
+                const mediaKind = detail.mediaKind === 'vod' ? 'vod' : detail.mediaKind === 'live' ? 'live' : null;
+                root.querySelectorAll?.('[data-iptv-native-vod]').forEach(function (control) { control.hidden = mediaKind !== 'vod'; });
+                const context = element('[data-iptv-native-context]');
+                if (context) context.textContent = mediaKind === 'vod' ? 'Vídeo' : mediaKind === 'live' ? 'Ao vivo' : 'Carregando';
+                const nativeTitle = element('[data-iptv-native-title]');
+                if (nativeTitle) nativeTitle.textContent = currentChannelName || 'Minha IPTV';
+                const buffering = element('[data-iptv-native-buffering]');
+                if (buffering) buffering.hidden = !['loading', 'buffering'].includes(mediaState);
+                const timeline = element('[data-iptv-native-timeline]');
+                if (timeline) timeline.textContent = mediaKind === 'vod'
+                    ? formatMediaTime(detail.position) + ' / ' + formatMediaTime(detail.duration)
+                    : '';
+                const progress = element('[data-iptv-native-progress]');
+                if (progress && mediaKind === 'vod') {
+                    progress.max = String(Math.max(0, detail.duration || 0));
+                    if (!nativeScrubbing) progress.value = String(Math.min(detail.position || 0, detail.duration || 0));
+                    progress.disabled = detail.seekable !== true;
+                }
+                if (typeof detail.fullscreen === 'boolean') applyNativeFullscreenUi(detail.fullscreen);
+                if (detail.sessionId && detail.position > 0 && nativeRecentSession !== detail.sessionId) {
+                    nativeRecentSession = detail.sessionId;
+                    if (activeView === 'recents') loadCurrentView('Atualizando recentes…');
+                }
+                if (mediaState === 'failed') hideNativePlayerSurface();
+                else scheduleNativeGeometry();
+            }
             updateActiveCards();
-            showControls();
         }
 
         function startChannel(channelId, channelName) {
@@ -723,6 +1001,7 @@
             if (currentChannelId === channelId && ACTIVE_STATES.includes(mediaState)) return;
             currentChannelId = channelId;
             currentChannelName = channelName || 'Canal selecionado';
+            nativePaused = false;
             renderMediaState({state: 'preparing', channelId, channelName: currentChannelName});
             request('view-start', {channelId});
             element('[data-iptv-player-stage]')?.scrollIntoView?.({behavior: 'smooth', block: 'center'});
@@ -736,19 +1015,34 @@
         }
 
         function stopPlayback() {
+            const sessionId = nativeSessionId;
             destroyPlayer();
             exitFullscreen();
             renderMediaState({state: 'idle'});
-            request('view-stop');
+            if (sessionId) request('player-control', {sessionId, command: 'stop'});
+            else request('view-stop');
+        }
+
+        function chooseOtherContent() {
+            const sessionId = nativeSessionId;
+            if (sessionId) request('player-control', {sessionId, command: 'stop'});
+            else if (currentChannelId !== null) request('view-stop');
+            destroyPlayer();
+            renderMediaState({state: 'idle'});
+            element('[data-iptv-search-form] input[name="query"]')?.focus();
         }
 
         function leavePage() {
             if (navigationStopRequested) return;
             navigationStopRequested = true;
             const shouldStop = mediaAvailable && (currentChannelId !== null || ACTIVE_STATES.includes(mediaState));
+            const sessionId = nativeSessionId;
             destroyPlayer();
             renderMediaState({state: 'idle'});
-            if (shouldStop) request('view-stop');
+            if (shouldStop) {
+                if (sessionId) request('player-control', {sessionId, command: 'stop'});
+                else request('view-stop');
+            }
         }
 
         function updateAudioUi(state) {
@@ -757,7 +1051,7 @@
             const volumeIcon = element('[data-iptv-volume-icon]');
             const mutedIcon = element('[data-iptv-muted-icon]');
             const muted = state.muted || state.volume === 0;
-            if (volume) volume.value = String(Math.round(state.volume * 100));
+            syncRangeVisual(volume, state.volume * 100);
             if (button) {
                 button.setAttribute('aria-label', muted ? 'Ativar som' : 'Silenciar');
                 button.title = muted ? 'Ativar som' : 'Silenciar';
@@ -769,8 +1063,54 @@
         function toggleFullscreen() {
             const stage = element('[data-iptv-player-stage]');
             if (!stage) return;
+            if (nativeSessionId) {
+                request('player-fullscreen', {sessionId: nativeSessionId, fullscreen: !nativeFullscreen});
+                return;
+            }
             if (document.fullscreenElement === stage) exitFullscreen();
             else if (typeof stage.requestFullscreen === 'function') Promise.resolve(stage.requestFullscreen()).catch(function () {});
+        }
+
+        function applyNativeFullscreenUi(fullscreen) {
+            const nextFullscreen = fullscreen === true;
+            const changed = nativeFullscreen !== nextFullscreen;
+            nativeFullscreen = nextFullscreen;
+            root?.classList?.toggle('is-native-fullscreen', nativeFullscreen);
+            setDocumentFullscreenLock(nativeFullscreen);
+            if (!nativeFullscreen) root?.classList?.remove?.('is-native-controls-hidden');
+            const button = element('[data-iptv-native-fullscreen]');
+            if (button) {
+                button.setAttribute('aria-label', nativeFullscreen ? 'Sair da tela cheia' : 'Entrar em tela cheia');
+                button.title = nativeFullscreen ? 'Sair da tela cheia' : 'Entrar em tela cheia';
+            }
+            const expand = element('[data-iptv-native-fullscreen-icon]');
+            const compress = element('[data-iptv-native-compress-icon]');
+            if (expand) expand.hidden = nativeFullscreen;
+            if (compress) compress.hidden = !nativeFullscreen;
+            if (changed && nativeFullscreen) userActivity();
+            if (changed && !nativeFullscreen) {
+                clearHideTimer();
+                setControlsVisible(true);
+            }
+            scheduleNativeGeometry();
+        }
+
+        function setDocumentFullscreenLock(active) {
+            const html = document.documentElement;
+            const body = document.body;
+            if (active && fullscreenScrollPosition === null) {
+                fullscreenScrollPosition = {
+                    x: Number(target.scrollX) || 0,
+                    y: Number(target.scrollY) || 0,
+                };
+            }
+            html?.classList?.toggle?.('semyra-player-fullscreen', active);
+            body?.classList?.toggle?.('semyra-player-fullscreen', active);
+            if (!active && fullscreenScrollPosition !== null) {
+                const position = fullscreenScrollPosition;
+                fullscreenScrollPosition = null;
+                target.scrollTo?.(position.x, position.y);
+            }
         }
 
         function updateFullscreenUi() {
@@ -786,16 +1126,50 @@
             if (compress) compress.hidden = !active;
         }
 
-        function showControls() {
+        function clearHideTimer() {
+            if (hideTimer === null) return;
+            if (typeof target.clearTimeout === 'function') target.clearTimeout(hideTimer);
+            else clearTimeout(hideTimer);
+            hideTimer = null;
+        }
+
+        function setControlsVisible(visible) {
             const stage = element('[data-iptv-player-stage]');
             if (!stage) return;
-            stage.dataset.controlsHidden = 'false';
-            clearTimeout(hideTimer);
-            if (mediaState !== 'streaming') return;
-            hideTimer = target.setTimeout(function () {
-                const focused = typeof stage.contains === 'function' && stage.contains(document.activeElement);
-                if (!focused && !volumeAdjusting && mediaState === 'streaming') stage.dataset.controlsHidden = 'true';
-            }, 3000);
+            const hidden = nativeFullscreen && !visible;
+            if (controlsVisible === visible
+                && root?.classList?.contains?.('is-native-controls-hidden') === hidden) return;
+            controlsVisible = visible;
+            root?.classList?.toggle?.('is-native-controls-hidden', hidden);
+            stage.dataset.controlsHidden = hidden ? 'true' : 'false';
+            reportControlsVisibility(hidden);
+            reportNativeGeometry();
+        }
+
+        function scheduleHide() {
+            clearHideTimer();
+            if (!nativeFullscreen
+                || !['streaming', 'playing'].includes(mediaState)
+                || nativePaused) return;
+            const elapsed = Math.max(0, Date.now() - lastUserActivity);
+            hideTimer = target.setTimeout(hideControls, Math.max(0, CONTROLS_AUTO_HIDE_MS - elapsed));
+        }
+
+        function hideControls() {
+            hideTimer = null;
+            if (!nativeFullscreen || nativePaused || !['streaming', 'playing'].includes(mediaState)) return;
+            if (nativeScrubbing || volumeAdjusting) {
+                lastUserActivity = Date.now();
+                scheduleHide();
+                return;
+            }
+            setControlsVisible(false);
+        }
+
+        function userActivity() {
+            lastUserActivity = Date.now();
+            setControlsVisible(true);
+            scheduleHide();
         }
 
         function loadSources() {
@@ -821,6 +1195,53 @@
             });
         }
 
+        function updateRecentRemoveButton(recentId, pending) {
+            if (!root || typeof root.querySelectorAll !== 'function') return;
+            root.querySelectorAll('[data-iptv-recent-remove]').forEach(function (button) {
+                if (Number(button.dataset.recentId) !== recentId) return;
+                button.disabled = Boolean(pending);
+                button.setAttribute('aria-busy', pending ? 'true' : 'false');
+            });
+        }
+
+        function removeRecentLocally(recentId) {
+            renderedChannels = renderedChannels.filter(function (channel) { return channel.recentId !== recentId; });
+            renderChannels(renderedChannels, renderedHasMore);
+        }
+
+        function requestRecentRemove(button) {
+            if (!button || button.disabled || activeView !== 'recents' || !selectedSourceId) return;
+            const recentId = Number(button.dataset.recentId);
+            if (!Number.isSafeInteger(recentId) || recentId < 1) return;
+            const token = nextRequestToken('recent-remove');
+            recentRemoveRequests.set(token, {recentId, sourceId: selectedSourceId});
+            updateRecentRemoveButton(recentId, true);
+            recentsFeedback('', false);
+            request('recent-remove', {sourceId: selectedSourceId, recentId}, token);
+        }
+
+        function requestRecentsClear() {
+            if (recentsClearRequest || activeView !== 'recents' || !selectedSourceId || renderedChannels.length === 0) return;
+            recentsConfirming = true;
+            recentsFeedback('', false);
+            renderRecentsActions();
+        }
+
+        function cancelRecentsClear() {
+            if (recentsClearRequest) return;
+            recentsConfirming = false;
+            renderRecentsActions();
+        }
+
+        function confirmRecentsClear() {
+            if (recentsClearRequest || !recentsConfirming || activeView !== 'recents' || !selectedSourceId || renderedChannels.length === 0) return;
+            const token = nextRequestToken('recents-clear');
+            recentsClearRequest = {token, sourceId: selectedSourceId};
+            recentsFeedback('', false);
+            renderRecentsActions();
+            request('recents-clear', {sourceId: selectedSourceId}, token);
+        }
+
         function onResult(event) {
             const detail = event && event.detail;
             if (!detail || typeof detail.action !== 'string') return;
@@ -830,6 +1251,11 @@
                 && (detail.action !== viewRequestAction || !isCurrentResult(detail, searchRequestToken))) return;
             const favoritePending = detail.action === 'favorite-set' ? favoriteRequests.get(detail.clientRequestId) : null;
             if (detail.action === 'favorite-set' && !favoritePending) return;
+            const recentPending = detail.action === 'recent-remove' ? recentRemoveRequests.get(detail.clientRequestId) : null;
+            if (detail.action === 'recent-remove' && !recentPending) return;
+            const clearPending = detail.action === 'recents-clear' && recentsClearRequest?.token === detail.clientRequestId
+                ? recentsClearRequest : null;
+            if (detail.action === 'recents-clear' && !clearPending) return;
             const ownedBySettings = operationOwns(detail);
             if (settingsOperation && settingsOperation.tokens.has(detail.action) && !ownedBySettings) return;
             if (!detail.ok) {
@@ -849,6 +1275,18 @@
                     favoriteRequests.delete(detail.clientRequestId);
                     updateFavoriteButtons(favoritePending.channelId, favoritePending.previous, false);
                     feedback('Não foi possível atualizar os favoritos.', true);
+                } else if (detail.action === 'recent-remove') {
+                    recentRemoveRequests.delete(detail.clientRequestId);
+                    if (recentPending.sourceId === selectedSourceId && activeView === 'recents') {
+                        updateRecentRemoveButton(recentPending.recentId, false);
+                        recentsFeedback('Não foi possível remover este item dos recentes.', true);
+                    }
+                } else if (detail.action === 'recents-clear') {
+                    recentsClearRequest = null;
+                    renderRecentsActions();
+                    if (clearPending.sourceId === selectedSourceId && activeView === 'recents') {
+                        recentsFeedback('Não foi possível limpar os recentes.', true);
+                    }
                 } else {
                     if (detail.action === 'groups') {
                         const group = element('[data-iptv-search-form] select[name="group"]');
@@ -940,17 +1378,41 @@
                 if (favoritePending.sourceId !== selectedSourceId) return;
                 updateFavoriteButtons(favoritePending.channelId, detail.favorite, false);
                 if (activeView === 'favorites' && !detail.favorite) loadCurrentView('Atualizando favoritos…');
+            } else if (detail.action === 'recent-remove') {
+                recentRemoveRequests.delete(detail.clientRequestId);
+                if (recentPending.sourceId !== selectedSourceId || activeView !== 'recents') return;
+                if (!detail.removed) {
+                    updateRecentRemoveButton(recentPending.recentId, false);
+                    recentsFeedback('Este item não estava mais nos recentes.', true);
+                    return;
+                }
+                removeRecentLocally(recentPending.recentId);
+                recentsFeedback('', false);
+            } else if (detail.action === 'recents-clear') {
+                recentsClearRequest = null;
+                recentsConfirming = false;
+                renderRecentsActions();
+                if (clearPending.sourceId !== selectedSourceId || activeView !== 'recents') return;
+                renderChannels([], false);
+                recentsFeedback('', false);
             } else if (['view-start', 'view-stop', 'view-status'].includes(detail.action)) {
-                if (detail.action === 'view-start' && detail.playbackUrl) attachPlayer(detail.playbackUrl);
+                if (['view-start', 'view-status'].includes(detail.action) && detail.playbackKind === 'native-mpv') attachNativePlayer(detail.sessionId);
+                else if (detail.action === 'view-start' && detail.playbackUrl) attachPlayer(detail.playbackUrl);
                 if (detail.action === 'view-stop') destroyPlayer();
                 renderMediaState(detail);
+            } else if (detail.action === 'player-control') {
+                renderMediaState(detail);
+            } else if (detail.action === 'player-fullscreen') {
+                if (detail.sessionId === nativeSessionId) renderMediaState(detail);
             }
         }
 
         function onMediaState(event) {
             if (!event || !event.detail) return;
+            if (event.detail.playbackKind === 'native-mpv' && nativeSessionId && event.detail.sessionId !== nativeSessionId) return;
             renderMediaState(event.detail);
-            if (activeView === 'recents' && event.detail.state === 'streaming' && event.detail.mode === 'view') {
+            if (event.detail.playbackKind !== 'native-mpv' && activeView === 'recents'
+                && ['streaming', 'playing'].includes(event.detail.state) && event.detail.mode === 'view') {
                 loadCurrentView('Atualizando recentes…');
             }
         }
@@ -1019,7 +1481,7 @@
             bind('[data-iptv-view-tabs]', 'keydown', function (event) {
                 if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
                 event.preventDefault();
-                const views = ['favorites', 'recents', 'live'];
+                const views = ['favorites', 'recents', 'all'];
                 let index = views.indexOf(activeView);
                 if (event.key === 'Home') index = 0;
                 else if (event.key === 'End') index = views.length - 1;
@@ -1047,6 +1509,13 @@
                 }
             });
             bind('[data-iptv-channel-list]', 'click', function (event) {
+                const recent = event.target.closest('[data-iptv-recent-remove]');
+                if (recent) {
+                    event.preventDefault?.();
+                    event.stopPropagation?.();
+                    requestRecentRemove(recent);
+                    return;
+                }
                 const favorite = event.target.closest('[data-iptv-favorite]');
                 if (favorite) {
                     event.stopPropagation?.();
@@ -1064,13 +1533,42 @@
                 const name = card.querySelector('.iptv-channel-copy strong');
                 startChannel(Number(card.dataset.iptvMediaStart), name ? name.textContent : '');
             });
+            bind('[data-iptv-recents-clear]', 'click', requestRecentsClear);
+            bind('[data-iptv-recents-cancel]', 'click', cancelRecentsClear);
+            bind('[data-iptv-recents-confirm-clear]', 'click', confirmRecentsClear);
             bind('[data-iptv-media-stop]', 'click', stopPlayback);
+            bind('[data-iptv-native-stop]', 'click', stopPlayback);
+            bind('[data-iptv-native-playback]', 'click', function (event) { sendNativeControl(event.currentTarget.dataset.command); });
+            bind('[data-iptv-native-seek="-30"]', 'click', function () { sendNativeControl('seek-relative', -30); });
+            bind('[data-iptv-native-seek="30"]', 'click', function () { sendNativeControl('seek-relative', 30); });
+            bind('[data-iptv-native-mute]', 'click', function () { sendNativeControl(nativeMuted ? 'unmute' : 'mute'); });
+            bind('[data-iptv-native-volume]', 'input', function (event) {
+                volumeAdjusting = true;
+                nativeVolume = syncRangeVisual(event.currentTarget, Number(event.currentTarget.value));
+                sendNativeControl('volume', nativeVolume);
+            });
+            bind('[data-iptv-native-volume]', 'pointerdown', function () { volumeAdjusting = true; userActivity(); });
+            bind('[data-iptv-native-volume]', 'pointerup', function () { volumeAdjusting = false; userActivity(); });
+            bind('[data-iptv-native-volume]', 'change', function () { volumeAdjusting = false; userActivity(); });
+            bind('[data-iptv-native-progress]', 'pointerdown', function () { nativeScrubbing = true; userActivity(); });
+            bind('[data-iptv-native-progress]', 'input', function (event) {
+                nativeScrubbing = true;
+                userActivity();
+                const timeline = element('[data-iptv-native-timeline]');
+                if (timeline) timeline.textContent = formatMediaTime(Number(event.currentTarget.value)) + ' / ' + formatMediaTime(Number(event.currentTarget.max));
+            });
+            bind('[data-iptv-native-progress]', 'change', function (event) {
+                sendNativeControl('seek-absolute', Number(event.currentTarget.value));
+                nativeScrubbing = false;
+                userActivity();
+            });
+            bind('[data-iptv-native-fullscreen]', 'click', toggleFullscreen);
             bind('[data-iptv-retry]', 'click', function () { if (currentChannelId) startChannel(currentChannelId, currentChannelName); });
-            bind('[data-iptv-choose-channel]', 'click', function () { element('[data-iptv-search-form] input[name="query"]')?.focus(); });
+            bind('[data-iptv-choose-channel]', 'click', chooseOtherContent);
             bind('[data-iptv-autoplay]', 'click', function () { if (player) player.play(); });
-            bind('[data-iptv-mute]', 'click', function () { updateAudioUi(ensurePlayer().toggleMuted()); showControls(); });
-            bind('[data-iptv-volume]', 'input', function (event) { volumeAdjusting = true; updateAudioUi(ensurePlayer().setVolume(Number(event.currentTarget.value) / 100)); showControls(); });
-            bind('[data-iptv-volume]', 'change', function () { volumeAdjusting = false; showControls(); });
+            bind('[data-iptv-mute]', 'click', function () { updateAudioUi(ensurePlayer().toggleMuted()); userActivity(); });
+            bind('[data-iptv-volume]', 'input', function (event) { volumeAdjusting = true; updateAudioUi(ensurePlayer().setVolume(Number(event.currentTarget.value) / 100)); userActivity(); });
+            bind('[data-iptv-volume]', 'change', function () { volumeAdjusting = false; userActivity(); });
             bind('[data-iptv-fullscreen]', 'click', toggleFullscreen);
             bind('[data-iptv-search-form]', 'submit', function (event) { event.preventDefault(); offset = 0; search('Buscando canais…'); });
             bind('[data-iptv-search-form] select[name="group"]', 'change', function () { offset = 0; search('Aplicando filtro…'); });
@@ -1078,9 +1576,24 @@
             bind('[data-iptv-next]', 'click', function () { offset += limit; loadCurrentView('Carregando próxima página…'); });
 
             const stage = element('[data-iptv-player-stage]');
-            ['mousemove', 'pointerdown', 'keydown', 'focusin', 'focusout'].forEach(function (type) { stage?.addEventListener(type, showControls); });
+            ['pointermove', 'pointerdown', 'keydown'].forEach(function (type) { stage?.addEventListener(type, userActivity); });
+            ['pointermove', 'pointerdown', 'keydown'].forEach(function (type) { root?.addEventListener?.(type, userActivity); });
+            target.addEventListener?.('semyra:player-user-activity', userActivity);
             document.addEventListener?.('fullscreenchange', updateFullscreenUi);
+            document.addEventListener?.('keydown', function (event) {
+                const tag = document.activeElement?.tagName?.toLowerCase();
+                if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+                if (nativeSessionId && (event.key === 'f' || event.key === 'F')) {
+                    event.preventDefault?.();
+                    toggleFullscreen();
+                } else if (nativeSessionId && nativeFullscreen && event.key === 'Escape') {
+                    event.preventDefault?.();
+                    request('player-fullscreen', {sessionId: nativeSessionId, fullscreen: false});
+                }
+            });
             target.addEventListener('pagehide', leavePage);
+            target.addEventListener('resize', scheduleNativeGeometry);
+            target.addEventListener('scroll', scheduleNativeGeometry, true);
             document.querySelector('form.account-logout[action="/logout"]')?.addEventListener('submit', destroyPlayer);
 
             fallbackTimer = target.setTimeout(function () {
@@ -1106,8 +1619,10 @@
         mediaStatusLabel,
         validPlaybackUrl,
         localViewAvailable,
+        formatMediaTime,
         channelMonogram,
         shouldRenderRemoteLogo,
         createHlsPlaybackController,
+        syncRangeVisual,
     });
 }));

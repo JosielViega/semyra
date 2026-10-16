@@ -110,8 +110,14 @@ public sealed class IptvCatalogService : IDisposable
         return _store.ListFavorites(PositiveId(sourceId), offset, limit);
     }
 
-    public IReadOnlyList<IptvChannelSummary> ListRecents(long sourceId) =>
+    public IReadOnlyList<IptvRecentSummary> ListRecents(long sourceId) =>
         _store.ListRecents(PositiveId(sourceId));
+
+    public bool RemoveRecent(long sourceId, long recentId) =>
+        _store.RemoveRecent(PositiveId(sourceId), PositiveId(recentId));
+
+    public int ClearRecents(long sourceId) =>
+        _store.ClearRecents(PositiveId(sourceId));
 
     public bool SetFavorite(long channelId, bool favorite) =>
         _store.SetFavorite(PositiveId(channelId), favorite);

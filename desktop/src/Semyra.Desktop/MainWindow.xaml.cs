@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.ComponentModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
+using System.Windows.Interop;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using Semyra.Desktop.Desktop;
@@ -16,16 +18,33 @@ public partial class MainWindow : Window
     private NavigationPolicy? _navigationPolicy;
     private LocalPlaybackRequestHandler? _playbackRequests;
     private readonly HostEngine _hostEngine;
+    private readonly PlayerCursorActivityController _cursorActivity;
+    private MpvGeometry? _mpvGeometry;
+    private bool _mpvVisible;
+    private bool _nativeVideoFullscreen;
+    private WindowStyle _savedWindowStyle;
+    private ResizeMode _savedResizeMode;
+    private WindowState _savedWindowState;
+    private Rect _savedWindowBounds;
     private bool _shutdownStarted;
     private bool _shutdownComplete;
 
     public MainWindow()
     {
         _hostEngine = new HostEngine();
+        _cursorActivity = new PlayerCursorActivityController(
+            new CursorActivityMonitor(new Win32CursorActivitySource()),
+            () => new WindowInteropHelper(this).Handle);
+        _cursorActivity.Activity += OnCursorActivity;
         _hostEngine.MediaStateChanged += OnMediaStateChanged;
+        _hostEngine.NativeVideoGeometryChanged += OnNativeVideoGeometryChanged;
+        _hostEngine.NativeVideoVisibilityChanged += OnNativeVideoVisibilityChanged;
+        _hostEngine.NativeVideoFullscreenChanged += OnNativeVideoFullscreenChanged;
         InitializeComponent();
         Loaded += OnLoaded;
         Closing += OnClosing;
+        SizeChanged += OnWindowSizeChanged;
+        PreviewKeyDown += OnPreviewKeyDown;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -34,6 +53,9 @@ public partial class MainWindow : Window
 
         try
         {
+            _hostEngine.SetNativeVideoHost(NativePlayerHost.HostHandle);
+            NativePlayerHost.SetPlaybackVisible(false);
+            NativePlayerHost.Visibility = Visibility.Collapsed;
             _hostEngine.Start();
             var configuration = SemyraWebConfiguration.Load();
             _navigationPolicy = new NavigationPolicy(configuration.BaseUri);
@@ -129,6 +151,7 @@ public partial class MainWindow : Window
 
         if (_navigationPolicy.IsAllowed(uri))
         {
+            _cursorActivity.Reset();
             return;
         }
 
@@ -160,6 +183,18 @@ public partial class MainWindow : Window
             || !_navigationPolicy.IsAllowed(source))
         {
             return;
+        }
+
+        if (DesktopMessage.TryReadPlayerControlsVisibility(e.WebMessageAsJson, out var hidden))
+        {
+            _cursorActivity.SetControlsHidden(hidden);
+            return;
+        }
+
+        if (DesktopMessage.TryReadRequest(e.WebMessageAsJson, out var request)
+            && request.Type == DesktopMessage.AccountClearType)
+        {
+            _cursorActivity.Reset();
         }
 
         var result = await DesktopBridge.TryHandleAsync(
@@ -206,6 +241,11 @@ public partial class MainWindow : Window
         _shutdownStarted = true;
 
         _hostEngine.MediaStateChanged -= OnMediaStateChanged;
+        _hostEngine.NativeVideoGeometryChanged -= OnNativeVideoGeometryChanged;
+        _hostEngine.NativeVideoVisibilityChanged -= OnNativeVideoVisibilityChanged;
+        _hostEngine.NativeVideoFullscreenChanged -= OnNativeVideoFullscreenChanged;
+        _cursorActivity.Activity -= OnCursorActivity;
+        _cursorActivity.Dispose();
         if (Browser.CoreWebView2 is not null)
         {
             Browser.CoreWebView2.NavigationStarting -= OnNavigationStarting;
@@ -228,8 +268,21 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         Closing -= OnClosing;
+        SizeChanged -= OnWindowSizeChanged;
+        PreviewKeyDown -= OnPreviewKeyDown;
         base.OnClosed(e);
     }
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_nativeVideoFullscreen || e.Key != Key.Escape) return;
+        var sessionId = _hostEngine.IptvMediaSnapshot().SessionId;
+        if (sessionId is null) return;
+        _hostEngine.SetMpvFullscreen(sessionId, false);
+        e.Handled = true;
+    }
+
+    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) => ApplyNativeVideoGeometry();
 
     private void OnMediaStateChanged(object? sender, MediaSnapshot snapshot)
     {
@@ -240,6 +293,115 @@ public partial class MainWindow : Window
                 Browser.CoreWebView2.PostWebMessageAsJson(DesktopBridge.CreateMediaStateEvent(snapshot, _hostEngine.CurrentAccountContextId));
             }
         });
+    }
+
+    private void OnCursorActivity(object? sender, EventArgs e)
+    {
+        RunOnUi(() =>
+        {
+            if (_cursorActivity.IsRunning && Browser.CoreWebView2 is not null)
+            {
+                ForwardPlayerUserActivity(Browser.CoreWebView2.PostWebMessageAsJson);
+            }
+        });
+    }
+
+    internal static void ForwardPlayerUserActivity(Action<string> postMessage) =>
+        postMessage(DesktopBridge.CreatePlayerUserActivityEvent());
+
+    private void OnNativeVideoGeometryChanged(object? sender, MpvGeometry geometry)
+    {
+        RunOnUi(() =>
+        {
+            _mpvGeometry = geometry;
+            ApplyNativeVideoGeometry();
+        });
+    }
+
+    private void OnNativeVideoVisibilityChanged(object? sender, bool visible)
+    {
+        RunOnUi(() =>
+        {
+            _mpvVisible = visible;
+            _cursorActivity.SetPlaybackVisible(visible);
+            if (!visible) _mpvGeometry = null;
+            ApplyNativeVideoGeometry();
+        });
+    }
+
+    private void OnNativeVideoFullscreenChanged(object? sender, bool fullscreen)
+    {
+        RunOnUi(() => ApplyNativeFullscreen(fullscreen));
+    }
+
+    private void ApplyNativeFullscreen(bool fullscreen)
+    {
+        _cursorActivity.SetFullscreen(fullscreen);
+        if (_nativeVideoFullscreen == fullscreen) return;
+        if (fullscreen)
+        {
+            _savedWindowStyle = WindowStyle;
+            _savedResizeMode = ResizeMode;
+            _savedWindowState = WindowState;
+            _savedWindowBounds = RestoreBounds;
+            WindowState = WindowState.Normal;
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            WindowState = WindowState.Maximized;
+        }
+        else
+        {
+            WindowState = WindowState.Normal;
+            WindowStyle = _savedWindowStyle;
+            ResizeMode = _savedResizeMode;
+            if (_savedWindowState == WindowState.Normal && !_savedWindowBounds.IsEmpty)
+            {
+                Left = _savedWindowBounds.Left;
+                Top = _savedWindowBounds.Top;
+                Width = _savedWindowBounds.Width;
+                Height = _savedWindowBounds.Height;
+            }
+            else
+            {
+                WindowState = _savedWindowState;
+            }
+        }
+        _nativeVideoFullscreen = fullscreen;
+        ApplyNativeVideoGeometry();
+    }
+
+    private void ApplyNativeVideoGeometry()
+    {
+        var layout = _mpvVisible && _mpvGeometry?.Visible == true
+            ? NativeVideoLayout.Calculate(_mpvGeometry, Browser.ActualWidth, Browser.ActualHeight)
+            : null;
+        if (layout is null)
+        {
+            NativePlayerHost.SetPlaybackVisible(false);
+            NativePlayerHost.Visibility = Visibility.Collapsed;
+            NativePlayerHost.Width = 1;
+            NativePlayerHost.Height = 1;
+            NativePlayerHost.Margin = new Thickness(-10000, 0, 0, 0);
+            return;
+        }
+        NativePlayerHost.Visibility = Visibility.Visible;
+        NativePlayerHost.Width = layout.Width;
+        NativePlayerHost.Height = layout.Height;
+        NativePlayerHost.Margin = new Thickness(layout.X, layout.Y, 0, 0);
+        NativePlayerHost.UpdateLayout();
+        NativePlayerHost.SetPlaybackVisible(true);
+        NativePlayerHost.PromoteForPlayback();
+    }
+
+    private void RunOnUi(Action action)
+    {
+        void RunUnlessClosing()
+        {
+            if (!_shutdownStarted) action();
+        }
+
+        if (Dispatcher.CheckAccess()) RunUnlessClosing();
+        else Dispatcher.InvokeAsync(RunUnlessClosing);
     }
 
     private static void OpenExternal(Uri uri)

@@ -13,6 +13,7 @@ Fundação Windows do Semyra: uma janela WPF hospeda o aplicativo web existente 
 - Windows x64;
 - .NET 10 SDK para compilar;
 - Microsoft Edge WebView2 Runtime para executar;
+- MPV x64 em `runtime/mpv/mpv.exe` ao lado do aplicativo para o player local preferencial;
 - GStreamer nativo Windows MSVC x64 com os plugins exigidos para habilitar `iptv.play`;
 - uma instância acessível do Semyra web.
 
@@ -47,7 +48,9 @@ Fontes M3U por URL HTTP(S) ou arquivo podem ser cadastradas na tela **Minha IPTV
 
 O refresh lê a playlist em streaming e só substitui o catálogo da fonte em uma transação SQLite válida. A interface consulta grupos e canais com busca e paginação limitada, sem carregar o catálogo inteiro.
 
-Favoritos e Recentes também permanecem somente nesse SQLite local, separados por conta e por fonte e disponíveis sem Premium. A versão 2 do schema adiciona uma identidade lógica derivada do `tvg-id` normalizado ou, na ausência dele, de nome + grupo normalizados. A identidade não inclui URL do stream, logo ou IDs técnicos; por isso uma preferência pode sobreviver ao refresh quando a URL muda. A chave exata continua prioritária e o fallback lógico só ocorre quando há um único canal candidato, evitando associação arbitrária. Recentes são gravados apenas quando o player local atinge `streaming`, mantêm no máximo 20 canais únicos por fonte e não incluem publicações para salas. Nada é sincronizado com o backend ou com outro dispositivo.
+Favoritos e Recentes também permanecem somente nesse SQLite local, separados por conta e por fonte e disponíveis sem Premium. A versão 2 do schema adiciona uma identidade lógica derivada do `tvg-id` normalizado ou, na ausência dele, de nome + grupo normalizados. A identidade não inclui URL do stream, logo ou IDs técnicos; por isso uma preferência pode sobreviver ao refresh quando a URL muda. A chave exata continua prioritária e o fallback lógico só ocorre quando há um único canal candidato, evitando associação arbitrária. No MPV, Recentes só são gravados depois que a posição real começa a avançar; tentativas mortas e simples aceite de `loadfile` não contam. São mantidos no máximo 20 canais únicos por fonte e publicações para salas não entram nessa lista. Nada é sincronizado com o backend ou com outro dispositivo.
+
+Um item recente pode ser removido diretamente, e a limpeza apaga o histórico inteiro somente da fonte atual, sempre cercada pela conta e fonte ativas. Como uma playlist M3U não fornece classificação estrutural confiável, o catálogo mantém a aba **Todos** ao lado de Favoritos e Recentes; categorias reais de TV, Filmes e Séries ficam reservadas a uma integração futura com Xtream.
 
 ## Media Engine local
 
@@ -59,13 +62,17 @@ O Media Engine atual valida somente entrada MPEG-TS contínua. VODs MP4, HLS, MK
 
 ### Player integrado
 
-Em **Minha IPTV**, o fluxo local é `provider → HttpClient nativo → stdin → GStreamer → HLS efêmero → WebResourceRequested → hls.js → <video>`. H.264 e AAC são apenas remontados em MPEG-TS; não há transcodificação, WHIP, LiveKit nem custo de media plane. O recurso `iptv.local-view` só é anunciado quando `mpegtsmux` e `hlssink` também estão disponíveis.
+Em **Minha IPTV**, o fluxo local preferencial é direto: `provider → MPV`. O Host Engine resolve o `channelId`, descriptografa a URL somente em memória e a envia ao IPC privado do sidecar por `loadfile`; ela não entra em argv, JavaScript, snapshot, evento ou log. O MPV detecta container e codecs, e seu estado real determina se a mídia é Live ou VOD. Nenhum probe por extensão, nome ou grupo antecede o início.
 
-Cada reprodução usa um diretório aleatório em `%LOCALAPPDATA%\Semyra\Cache\Playback`, playlist com referências relativas e token de 256 bits válido apenas durante a sessão. A WebView2 atende somente GET/HEAD para a playlist e segmentos allowlisted na origem atual; não existe servidor TCP ou rota PHP. Stop, troca de canal/conta, logout e fechamento invalidam o token, encerram o processo e removem os fragmentos best-effort. A URL privada do provider continua exclusivamente no native.
+O processo MPV permanece aquecido enquanto a conta está ativa. Trocas usam `loadfile replace`; stop interrompe a mídia e esconde o HWND sem matar o sidecar. Logout, troca de conta e fechamento invalidam a sessão, escondem o host e encerram o processo com timeout curto e kill-tree de contingência. O HWND é dimensionado pelo retângulo de interseção entre o stage e a viewport e fica oculto quando a interseção é vazia, impedindo que cubra catálogo, busca ou configurações.
 
-O player mínimo usa hls.js 1.7.3 (distribuição oficial, Apache-2.0) e controles nativos do `<video>`. O acabamento visual e os controles finais ficam para a 11H-B.
+Cada nova carga também limpa o estado transitório, força `pause=false` antes de `loadfile replace` e cerca os eventos pelo `playlist_entry_id`. O HWND só aparece depois de `playback-restart` e da confirmação de uma faixa de vídeo; falha, fim, stop ou troca o escondem imediatamente. `pause` observado no MPV é a autoridade do botão, enquanto `paused-for-cache` representa buffering sem inverter a intenção do usuário. Assim, uma falha intermediária não contamina a próxima tentativa no mesmo processo aquecido.
 
-O aplicativo procura primeiro `runtime/gstreamer/bin` ao lado do executável. Em Debug, `SEMYRA_GSTREAMER_HOME` e a instalação oficial MSVC x64 podem ser usados para desenvolvimento. O empacotamento definitivo do runtime será tratado na etapa de distribuição. `iptv.play` só é anunciado depois que `gst-launch`, `gst-inspect` e todos os elementos base forem validados; `iptv.local-view` exige adicionalmente `mpegtsmux` e `hlssink`.
+O fullscreen pertence à janela WPF, não à Fullscreen API do DOM. A barra HTML ocupa uma faixa fora do HWND e desaparece após inatividade; Live oferece somente volume, mute, fullscreen e stop, enquanto VOD acrescenta play/pause, ±30 s, posição, duração e seek absoluto. O player legado GStreamer/HLS permanece temporariamente como fallback apenas quando o MPV não está disponível.
+
+O aplicativo procura primeiro `runtime/mpv/mpv.exe`. Em Debug, `SEMYRA_MPV_HOME` ou o `PATH` podem fornecer o executável; `SEMYRA_LOCAL_PLAYER=legacy` força o fallback para diagnóstico. Separadamente, GStreamer continua sendo a engine permanente de publicação WHIP/LiveKit e de `iptv.play`: `SEMYRA_GSTREAMER_HOME` e `runtime/gstreamer/bin` permanecem válidos. A presença do MPV nunca habilita capacidades de publicação.
+
+O MPV não é distribuído neste commit. O empacotamento e a conformidade de licenças do runtime serão definidos antes de qualquer distribuição binária do Desktop; esta implementação é independente e não incorpora código de players de terceiros.
 
 ## Fronteira futura
 
@@ -73,4 +80,4 @@ O Desktop possui a camada WebView/UI, uma ponte `postMessage` allowlisted na ver
 
 Para a publicação de mídia, o backend emite uma Host Session curta de `media.publish`, ligada à sala, instance, revision e owner atuais. O validator fica somente como hash no banco; o token bruto chega ao Host Engine apenas em memória, é substituído por uma autorização nova e é apagado por `clear` ou `Stop()`. Segredos globais do bridge worker nunca são enviados ao cliente.
 
-Ainda não existem Premium, player customizado final, Xtream, EPG, gravação ou distribuição do runtime GStreamer. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.
+Ainda não existem Premium, Xtream, EPG, gravação ou distribuição definitiva dos runtimes MPV/GStreamer. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.
