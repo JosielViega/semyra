@@ -29,30 +29,17 @@
 .iptv-player-shell { display: grid; gap: 12px; min-width: 0; }
 .iptv-player-stage { position: relative; aspect-ratio: 16 / 9; max-height: calc(100vh - 150px); min-height: 360px; overflow: hidden; border: 1px solid rgb(39 56 81 / 65%); border-radius: clamp(18px, 2.5vw, 30px); color: #fff; background: #02040a; box-shadow: 0 28px 80px rgb(0 0 0 / 45%), 0 0 80px rgb(40 100 255 / 8%); isolation: isolate; }
 .iptv-player-stage::after { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: linear-gradient(180deg, rgb(0 0 0 / 2%) 45%, rgb(0 0 0 / 82%) 100%); content: ""; }
-.iptv-player-stage video { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: contain; background: #000; }
-.iptv-player-stage[data-state="idle"] video, .iptv-player-stage[data-state="failed"] video { opacity: 0; }
 .iptv-player-ambient { position: absolute; inset: 0; z-index: -1; background: radial-gradient(circle at 30% 28%, rgb(22 199 255 / 18%), transparent 34%), radial-gradient(circle at 72% 72%, rgb(123 60 255 / 17%), transparent 38%), linear-gradient(135deg, #091326, #030713 72%); }
 .iptv-player-empty, .iptv-player-state, .iptv-player-error { position: absolute; inset: 0; z-index: 3; display: grid; align-content: center; justify-items: center; padding: 30px; text-align: center; }
 .iptv-player-empty svg, .iptv-player-error > svg { width: clamp(42px, 5vw, 70px); height: clamp(42px, 5vw, 70px); margin-bottom: 20px; color: rgb(213 220 232 / 42%); }
 .iptv-player-empty h2, .iptv-player-error h2 { margin: 0; font-size: clamp(1.45rem, 3vw, 2.4rem); letter-spacing: -.03em; }
 .iptv-player-empty p, .iptv-player-error p { margin: 8px 0 0; color: var(--color-text-muted); }
-.iptv-player-empty[hidden], .iptv-player-state[hidden], .iptv-player-error[hidden], .iptv-autoplay-action[hidden], .iptv-live-badge[hidden], [data-iptv-volume-icon][hidden], [data-iptv-muted-icon][hidden], [data-iptv-fullscreen-icon][hidden], [data-iptv-compress-icon][hidden] { display: none !important; }
+.iptv-player-empty[hidden], .iptv-player-state[hidden], .iptv-player-error[hidden] { display: none !important; }
 .iptv-player-state { gap: 16px; background: rgb(2 4 10 / 35%); backdrop-filter: blur(3px); }
 .iptv-player-state p { margin: 0; color: var(--color-text-soft); font-weight: 750; }
 .iptv-player-spinner { width: 36px; height: 36px; border: 3px solid rgb(255 255 255 / 16%); border-top-color: var(--color-cyan); border-radius: 50%; animation: iptv-spin .85s linear infinite; }
 .iptv-player-error { background: rgb(2 4 10 / 82%); backdrop-filter: blur(10px); }
 .iptv-player-error > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 24px; }
-.iptv-autoplay-action { position: absolute; top: 50%; left: 50%; z-index: 6; min-height: 48px; padding: 0 20px; border: 1px solid rgb(255 255 255 / 24%); border-radius: var(--radius-pill); color: #fff; background: rgb(5 8 17 / 82%); backdrop-filter: blur(12px); transform: translate(-50%, -50%); }
-.iptv-player-chrome { position: absolute; right: 0; bottom: 0; left: 0; z-index: 5; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: clamp(18px, 3vw, 34px); transition: opacity var(--motion-base) ease, transform var(--motion-base) ease; }
-.iptv-player-chrome::before { position: absolute; inset: -60px 0 0; z-index: -1; pointer-events: none; background: linear-gradient(180deg, transparent, rgb(1 3 9 / 88%)); content: ""; }
-.iptv-player-stage[data-state="idle"] .iptv-player-chrome, .iptv-player-stage[data-state="failed"] .iptv-player-chrome { display: none; }
-.iptv-player-stage[data-controls-hidden="true"] .iptv-player-chrome { opacity: 0; pointer-events: none; transform: translateY(10px); }
-.iptv-player-now { display: grid; min-width: 0; gap: 4px; }
-.iptv-player-now strong { max-width: min(50vw, 660px); overflow: hidden; font-size: clamp(1rem, 2vw, 1.35rem); text-overflow: ellipsis; white-space: nowrap; }
-.iptv-player-status { color: rgb(213 220 232 / 72%); font-size: .82rem; }
-.iptv-live-badge { display: inline-flex; align-items: center; justify-self: start; gap: 7px; margin-bottom: 4px; padding: 4px 9px; border-radius: var(--radius-pill); color: #fff; background: rgb(220 38 38 / 85%); font-size: .68rem; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
-.iptv-live-badge i { width: 6px; height: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 8px #fff; }
-.iptv-player-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 6px; border: 1px solid rgb(255 255 255 / 10%); border-radius: var(--radius-pill); background: rgb(4 8 17 / 62%); box-shadow: 0 10px 34px rgb(0 0 0 / 28%); backdrop-filter: blur(14px); }
 .iptv-icon-button, .iptv-stop-button, .iptv-button-quiet { border: 1px solid rgb(255 255 255 / 12%); color: var(--color-text); background: rgb(9 15 28 / 72%); backdrop-filter: blur(12px); }
 .iptv-icon-button { display: grid; flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0; place-items: center; border-radius: 50%; }
 .iptv-stop-button, .iptv-button-quiet { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 15px; }
@@ -64,7 +51,6 @@
     .iptv-volume-control input { height: 4px; min-height: 4px; border-radius: var(--radius-pill); appearance: none; background: linear-gradient(90deg, var(--color-cyan) 0 var(--iptv-range-progress), rgb(255 255 255 / 18%) var(--iptv-range-progress) 100%); }
     .iptv-volume-control input::-webkit-slider-thumb { width: 16px; height: 16px; border: 2px solid #dff9ff; border-radius: 50%; appearance: none; background: var(--color-cyan); box-shadow: 0 0 0 3px rgb(22 199 255 / 15%); }
 }
-.iptv-player-stage:fullscreen { max-height: none; border: 0; border-radius: 0; }
 .iptv-native-controls { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(260px, 1.3fr) auto; align-items: center; gap: 18px; padding: 16px 18px; border: 1px solid rgb(39 56 81 / 72%); border-radius: 18px; color: #fff; background: linear-gradient(135deg, rgb(10 18 34 / 98%), rgb(5 10 22 / 98%)); box-shadow: 0 18px 48px rgb(0 0 0 / 30%); }
 .iptv-native-controls[hidden] { display: none; }
 .iptv-native-heading { display: grid; min-width: 0; gap: 3px; }
@@ -82,7 +68,6 @@
 .iptv-seek-button:hover, .iptv-seek-button:focus-visible { border-color: rgb(22 199 255 / 65%); background: rgb(22 199 255 / 14%); }
 .iptv-seek-button span { font-size: 1.2rem; line-height: 1; }
 .iptv-seek-button strong { font-size: .76rem; font-variant-numeric: tabular-nums; }
-.iptv-player-stage[data-native-player="true"] video, .iptv-player-stage[data-native-player="true"] .iptv-player-chrome { visibility: hidden; }
 html.semyra-player-fullscreen, body.semyra-player-fullscreen { overflow: hidden; overscroll-behavior: none; }
 body.semyra-player-fullscreen { width: 100%; height: 100dvh; }
 .iptv-experience.is-native-fullscreen { position: fixed; inset: 0; z-index: 10000; width: 100vw; height: 100dvh; padding: 0; overflow: hidden; overscroll-behavior: none; background: #000; }
@@ -210,9 +195,6 @@ body.semyra-player-fullscreen { width: 100%; height: 100dvh; }
     .iptv-source-switcher { text-align: left; }
     .iptv-source-select-wrap select { width: 100%; max-width: none; }
     .iptv-settings-trigger { align-self: flex-start; }
-    .iptv-player-chrome { align-items: stretch; flex-direction: column; gap: 12px; }
-    .iptv-player-controls { align-self: flex-start; justify-content: flex-start; max-width: 100%; }
-    .iptv-player-now strong { max-width: 75vw; }
     .iptv-player-error { padding: 14px; }
     .iptv-player-error > svg { display: none; }
     .iptv-player-error h2 { font-size: clamp(1.1rem, 5.5vw, 1.45rem); }
@@ -238,7 +220,6 @@ body.semyra-player-fullscreen { width: 100%; height: 100dvh; }
     .iptv-channel-card { min-height: 170px; }
     .iptv-channel-visual { min-height: 106px; }
     .iptv-volume-control { flex: 1 1 auto; }
-    .iptv-player-controls { width: 100%; }
     .iptv-stop-button { font-size: 0; }
     .iptv-stop-button svg { width: 1.25rem; height: 1.25rem; }
     .iptv-settings { width: calc(100% - 16px); }

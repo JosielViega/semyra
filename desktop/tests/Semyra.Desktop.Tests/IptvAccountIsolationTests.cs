@@ -56,33 +56,6 @@ public sealed class IptvAccountIsolationTests : IDisposable
     }
 
     [Fact]
-    public async Task AccountSwitchStopsLocalMediaAndClearsAuthorization()
-    {
-        var pipelines = new PipelineFactory();
-        var media = new List<MediaEngine>();
-        await using var engine = EngineWithMedia(() => new MediaEngine(
-            Resolve,
-            GStreamerRuntime.AvailableForTests(),
-            new Provider(),
-            pipelines));
-        engine.Start();
-        await engine.ActivateAccountAsync(ProfileA);
-        var oldMedia = media.Single();
-        Assert.True(engine.Authorize(Authorization()));
-        await engine.StartIptvMediaAsync(1, default);
-
-        await engine.ActivateAccountAsync(ProfileB);
-
-        Assert.Equal("idle", oldMedia.Snapshot().State);
-        Assert.True(pipelines.Pipelines[0].Stopped);
-        Assert.False(engine.Snapshot().Authorization.Authorized);
-
-        HostEngine EngineWithMedia(Func<MediaEngine> create) => new(
-            profile => Catalog(profile),
-            _ => { var created = create(); media.Add(created); return created; });
-    }
-
-    [Fact]
     public async Task AccountSwitchStopsPublicationAndCleansIngress()
     {
         var pipelines = new PipelineFactory();
@@ -104,51 +77,6 @@ public sealed class IptvAccountIsolationTests : IDisposable
     }
 
     [Fact]
-    public async Task AccountSwitchInvalidatesLocalViewTokenAndStopsPipeline()
-    {
-        var pipelines = new PipelineFactory();
-        MediaEngine? oldMedia = null;
-        await using var engine = new HostEngine(
-            profile => Catalog(profile),
-            _ => oldMedia = new MediaEngine(Resolve, GStreamerRuntime.AvailableForTests(), new Provider(), pipelines));
-        engine.Start();
-        await engine.ActivateAccountAsync(ProfileA);
-        var started = await engine.StartIptvLocalViewAsync(1, default);
-        var oldUrl = new Uri(new Uri("https://semyra.example/"), started.PlaybackUrl);
-
-        await engine.ActivateAccountAsync(ProfileB);
-
-        Assert.Equal("idle", oldMedia!.Snapshot().State);
-        Assert.True(pipelines.Pipelines[0].Stopped);
-        Assert.False(oldMedia.TryReadLocalPlayback(oldUrl, "GET", out _));
-    }
-
-    [Fact]
-    public async Task AccountClearReturnsPendingTaskAndInvalidatesContextBeforeMediaStopCompletes()
-    {
-        var stopGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var pipelines = new PipelineFactory(stopGate);
-        MediaEngine? media = null;
-        await using var engine = new HostEngine(
-            profile => Catalog(profile),
-            _ => media = new MediaEngine(Resolve, GStreamerRuntime.AvailableForTests(), new Provider(), pipelines));
-        engine.Start();
-        var context = await engine.ActivateAccountAsync(ProfileA);
-        var started = await engine.StartIptvLocalViewAsync(1, default);
-        var oldUrl = new Uri(new Uri("https://semyra.example/"), started.PlaybackUrl);
-
-        var clear = engine.ClearAccountAsync();
-
-        Assert.False(clear.IsCompleted);
-        Assert.False(engine.IsCurrentAccountContext(context));
-        Assert.False(media!.TryReadLocalPlayback(oldUrl, "GET", out _));
-        await pipelines.Pipelines[0].StopStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        stopGate.SetResult(true);
-        await clear;
-        Assert.True(pipelines.Pipelines[0].Stopped);
-    }
-
-    [Fact]
     public async Task AccountSwitchWaitsAsynchronouslyForOldCleanupBeforeActivatingNewProfile()
     {
         var stopGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -156,10 +84,11 @@ public sealed class IptvAccountIsolationTests : IDisposable
         var mediaCreated = 0;
         await using var engine = new HostEngine(
             profile => Catalog(profile),
-            _ => { mediaCreated++; return new MediaEngine(Resolve, GStreamerRuntime.AvailableForTests(), new Provider(), pipelines); });
+            _ => { mediaCreated++; return new MediaEngine(Resolve, GStreamerRuntime.AvailableForTests(), new Provider(), pipelines, publishClient: new PublishClient()); });
         engine.Start();
         var contextA = await engine.ActivateAccountAsync(ProfileA);
-        await engine.StartIptvMediaAsync(1, default);
+        Assert.True(engine.Authorize(Authorization()));
+        await engine.StartIptvPublishAsync(1, default);
 
         var switchAccount = engine.ActivateAccountAsync(ProfileB);
 
@@ -228,13 +157,7 @@ public sealed class IptvAccountIsolationTests : IDisposable
     private sealed class PipelineFactory(TaskCompletionSource<bool>? stopGate = null) : IMediaPipelineFactory
     {
         public List<Pipeline> Pipelines { get; } = [];
-        public IMediaPipeline Create() { var value = new Pipeline(stopGate); Pipelines.Add(value); return value; }
-        public IMediaPipeline CreatePublish(Uri whipEndpoint) => Create();
-        public IMediaPipeline CreateLocalView(string outputDirectory)
-        {
-            File.WriteAllText(Path.Combine(outputDirectory, "index.m3u8"), "#EXTM3U\n");
-            return Create();
-        }
+        public IMediaPipeline CreatePublish(Uri whipEndpoint) { var value = new Pipeline(stopGate); Pipelines.Add(value); return value; }
     }
 
     private sealed class Pipeline(TaskCompletionSource<bool>? stopGate) : IMediaPipeline

@@ -5,7 +5,7 @@ const test = require('node:test');
 const desktop = require('../../public/assets/js/desktop-bridge.js');
 const real11iCapabilities = [
     'host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog',
-    'iptv.play', 'iptv.local-view', 'media.whip', 'livekit.publish',
+    'iptv.local-view', 'media.whip', 'livekit.publish',
 ];
 
 test('desktop bridge account-scoped protocol', async () => {
@@ -127,13 +127,13 @@ messageListener({data: {
     protocolVersion: 1,
     host: {
         state: 'ready',
-        capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.play', 'iptv.local-view'],
+        capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.local-view'],
         authorization: {authorized: false},
     },
 }});
 assert.deepEqual(webviewBridge.getHostSnapshot(), {
     state: 'ready',
-    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.play', 'iptv.local-view'],
+    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.local-view'],
     authorization: {
         authorized: false,
         permission: null,
@@ -145,7 +145,7 @@ assert.equal(dispatched.length, 2);
 assert.equal(dispatched[1].type, 'semyra:host-ready');
 assert.deepEqual(dispatched[1].detail, {
     state: 'ready',
-    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.play', 'iptv.local-view'],
+    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.local-view'],
     authorization: {
         authorized: false,
         permission: null,
@@ -285,15 +285,6 @@ assert.deepEqual(dispatched.at(-1).detail, {
 });
 assert.equal(bridgeTimers.size, 0);
 
-webviewWindow.crypto.randomUUID = () => 'media-start';
-windowListeners.get('semyra:iptv-request')({detail: {
-    action: 'media-start', channelId: 7, url: 'https://must-not-cross.example/live.ts',
-}});
-assert.deepEqual(posted.at(-1), {
-    type: 'semyra.desktop.iptv.media.start', requestId: 'media-start', accountContextId: 'b'.repeat(32), channelId: 7,
-});
-assert.equal(JSON.stringify(posted.at(-1)).includes('must-not-cross'), false);
-
 webviewWindow.crypto.randomUUID = () => 'view-start';
 windowListeners.get('semyra:iptv-request')({detail: {
     action: 'view-start', channelId: 8, url: 'https://must-not-cross.example/live.ts',
@@ -325,15 +316,6 @@ windowListeners.get('semyra:iptv-request')({detail: {
     viewportWidth: 1200, viewportHeight: 800, visible: true,
 }});
 assert.equal(posted.at(-1).type, 'semyra.desktop.player.geometry');
-
-for (const [action, type] of [
-    ['media-stop', 'semyra.desktop.iptv.media.stop'],
-    ['media-status', 'semyra.desktop.iptv.media.status'],
-]) {
-    webviewWindow.crypto.randomUUID = () => action;
-    windowListeners.get('semyra:iptv-request')({detail: {action}});
-    assert.deepEqual(posted.at(-1), {type, requestId: action, accountContextId: 'b'.repeat(32)});
-}
 
 messageListener({data: {
     type: 'semyra.desktop.iptv.media.state', protocolVersion: 1,

@@ -18,12 +18,11 @@ public sealed class MpvHostEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task ExplicitMpvWithMissingRuntimeIsUnavailableAndNeverFallsBack()
+    public async Task MissingMpvRuntimeDisablesLocalPlaybackWithoutGStreamerFallback()
     {
         await using var host = new HostEngine(
             _ => throw new InvalidOperationException("Catalog must not be opened."),
-            _ => throw new InvalidOperationException("Legacy player must not be selected."),
-            new LocalPlayerOptions(LocalPlayerMode.Mpv),
+            _ => throw new InvalidOperationException("GStreamer must not be selected for local playback."),
             MpvRuntime.Unavailable());
         host.SetNativeVideoHost((nint)123);
 
@@ -34,24 +33,34 @@ public sealed class MpvHostEngineTests : IDisposable
         Assert.DoesNotContain("iptv.local-view", host.Snapshot().Capabilities);
     }
 
-    [Fact]
-    public async Task AutoModeMaySelectLegacyButForcedMpvSelectsRealMpvEngine()
+    [Theory]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, true, true, true)]
+    public async Task LocalViewAndPublishCapabilitiesComeFromIndependentRuntimes(
+        bool mpvAvailable,
+        bool gstreamerAvailable,
+        bool expectLocalView,
+        bool expectPublish)
     {
-        await using var automatic = new HostEngine(
-            _ => throw new InvalidOperationException(),
-            _ => throw new InvalidOperationException(),
-            new LocalPlayerOptions(LocalPlayerMode.Auto),
-            MpvRuntime.Unavailable());
-        automatic.SetNativeVideoHost((nint)123);
-        Assert.Equal(LocalPlaybackEngine.Legacy, automatic.LocalPlaybackEngine);
+        Directory.CreateDirectory(_root);
+        var profile = new string((char)('b' + Directory.GetFiles(_root, "*.db").Length), 64);
+        var protector = new Protector();
+        await using var host = new HostEngine(
+            _ => new IptvCatalogService(new IptvStore(Path.Combine(_root, profile + ".db"), protector), protector, new M3uParser()),
+            catalog => MediaEngine.CreateDefault(catalog, gstreamerAvailable
+                ? GStreamerRuntime.AvailableForTests()
+                : GStreamerRuntime.UnavailableForTests()),
+            mpvAvailable
+                ? new MpvRuntime(true, "mpv.exe", "test", "test", null)
+                : MpvRuntime.Unavailable());
+        host.SetNativeVideoHost((nint)123);
+        host.Start();
+        await host.ActivateAccountAsync(profile);
 
-        await using var forced = new HostEngine(
-            _ => throw new InvalidOperationException(),
-            _ => throw new InvalidOperationException(),
-            new LocalPlayerOptions(LocalPlayerMode.Mpv),
-            new MpvRuntime(true, "mpv.exe", "test", "test", null));
-        forced.SetNativeVideoHost((nint)123);
-        Assert.Equal(LocalPlaybackEngine.Mpv, forced.LocalPlaybackEngine);
+        Assert.Equal(expectLocalView, host.Snapshot().Capabilities.Contains("iptv.local-view"));
+        Assert.Equal(expectPublish, host.Snapshot().Capabilities.Contains("livekit.publish"));
+        Assert.Equal(expectPublish, host.Snapshot().Capabilities.Contains("media.whip"));
     }
 
     [Fact]
@@ -71,7 +80,6 @@ public sealed class MpvHostEngineTests : IDisposable
         await using var host = new HostEngine(
             _ => catalog,
             value => MediaEngine.CreateDefault(value, GStreamerRuntime.AvailableForTests()),
-            new LocalPlayerOptions(LocalPlayerMode.Mpv),
             new MpvRuntime(true, "mpv.exe", "test", "test", null),
             (_, _) => player);
         host.SetNativeVideoHost((nint)123);

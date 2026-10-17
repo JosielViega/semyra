@@ -50,10 +50,10 @@ public sealed class HostEngineTests
     public void LocalViewAndWhipCapabilitiesRemainIndependent()
     {
         var localOnly = HostEngineSnapshot.Create(
-            HostEngineState.Ready, null, accountActive: true, mediaAvailable: true,
+            HostEngineState.Ready, null, accountActive: true,
             whipAvailable: false, localViewAvailable: true);
         var publishWithoutHls = HostEngineSnapshot.Create(
-            HostEngineState.Ready, null, accountActive: true, mediaAvailable: true,
+            HostEngineState.Ready, null, accountActive: true,
             whipAvailable: true, localViewAvailable: false);
 
         Assert.Contains("iptv.local-view", localOnly.Capabilities);
@@ -66,11 +66,11 @@ public sealed class HostEngineTests
     public void FullAccountSnapshotKeepsTheStrictElevenICapabilityOrder()
     {
         var snapshot = HostEngineSnapshot.Create(
-            HostEngineState.Ready, null, accountActive: true, mediaAvailable: true,
+            HostEngineState.Ready, null, accountActive: true,
             whipAvailable: true, localViewAvailable: true);
 
         Assert.Equal(
-            ["host.status", "host.authorize", "iptv.sources", "iptv.catalog", "iptv.play", "iptv.local-view", "media.whip", "livekit.publish"],
+            ["host.status", "host.authorize", "iptv.sources", "iptv.catalog", "iptv.local-view", "media.whip", "livekit.publish"],
             snapshot.Capabilities);
     }
 

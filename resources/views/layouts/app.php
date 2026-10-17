@@ -19,7 +19,7 @@ $pageStyles = is_array($pageStyles ?? null) ? $pageStyles : [];
     <?php foreach ($pageStyles as $pageStyle): ?>
         <link rel="stylesheet" href="<?= e((string) $pageStyle) ?>">
     <?php endforeach; ?>
-    <script src="/assets/js/desktop-bridge.js?v=11j-c-mpv-player" defer></script>
+    <script src="/assets/js/desktop-bridge.js?v=11j-d-mpv-only" defer></script>
     <script src="/assets/js/app.js?v=8b-identity" defer></script>
 </head>
 <body>

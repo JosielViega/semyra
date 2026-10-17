@@ -1,7 +1,6 @@
 using Semyra.Desktop.Iptv;
 using Semyra.Desktop.Host;
 using Semyra.Desktop.Desktop;
-using System.IO;
 
 namespace Semyra.Desktop.Media;
 
@@ -25,7 +24,6 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
     private Task? _sessionTask;
     private long? _activeChannelId;
     private string _activeMode = "local";
-    private LocalPlaybackSession? _localPlayback;
     private MediaSnapshot _snapshot = MediaSnapshot.Idle;
     private bool _disposed;
 
@@ -67,62 +65,20 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         }
     }
 
-    public async Task<MediaSnapshot> StartAsync(long channelId, CancellationToken cancellationToken = default)
-    {
-        return (await StartCoreAsync(channelId, "local", null, cancellationToken)).Snapshot;
-    }
-
     public async Task<MediaSnapshot> StartPublishAsync(long channelId, Func<HostAuthorization?> authorizationProvider, CancellationToken cancellationToken = default)
     {
         if (!Runtime.IsWhipAvailable || _publishClient is null)
         {
             throw new MediaEngineException("whip_runtime_unavailable");
         }
-        return (await StartCoreAsync(channelId, "publish", authorizationProvider, cancellationToken)).Snapshot;
+        return await StartCoreAsync(channelId, "publish", authorizationProvider, cancellationToken);
     }
 
-    public async Task<LocalPlaybackStartResult> StartLocalViewAsync(long channelId, CancellationToken cancellationToken = default)
-    {
-        if (!Runtime.IsLocalViewAvailable)
-        {
-            throw new MediaEngineException("local_view_runtime_unavailable");
-        }
-
-        LocalPlaybackSession? created = null;
-        try
-        {
-            created = LocalPlaybackSession.Create();
-            var start = await StartCoreAsync(channelId, "view", null, cancellationToken, created);
-            var snapshot = start.Snapshot;
-            if (snapshot.State != "streaming")
-            {
-                await StopAsync();
-                throw new MediaEngineException(snapshot.LastErrorCode ?? "local_view_unavailable");
-            }
-            var playback = start.Playback
-                ?? throw new MediaEngineException("local_view_unavailable");
-            return new LocalPlaybackStartResult(snapshot, playback.PlaybackUrl);
-        }
-        catch
-        {
-            if (created is not null && ReferenceEquals(created, _localPlayback))
-            {
-                await StopAsync();
-            }
-            else
-            {
-                created?.Dispose();
-            }
-            throw;
-        }
-    }
-
-    private async Task<(MediaSnapshot Snapshot, LocalPlaybackSession? Playback)> StartCoreAsync(
+    private async Task<MediaSnapshot> StartCoreAsync(
         long channelId,
         string mode,
         Func<HostAuthorization?>? authorizationProvider,
-        CancellationToken cancellationToken,
-        LocalPlaybackSession? localPlayback = null)
+        CancellationToken cancellationToken)
     {
         TaskCompletionSource<MediaSnapshot>? ready = null;
         await _gate.WaitAsync(cancellationToken);
@@ -135,8 +91,7 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
             }
             if (_activeChannelId == channelId && _activeMode == mode && _sessionTask is { IsCompleted: false })
             {
-                localPlayback?.Dispose();
-                return (Snapshot(), _localPlayback);
+                return Snapshot();
             }
 
             await StopSessionLockedAsync();
@@ -153,11 +108,10 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
 
             _activeChannelId = channelId;
             _activeMode = mode;
-            _localPlayback = localPlayback;
             _sessionCancellation = new CancellationTokenSource();
             ready = new TaskCompletionSource<MediaSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
             Update(MediaState.Preparing, channel.Id, channel.Name, 1, null);
-            _sessionTask = RunSessionAsync(channel, mode, authorizationProvider, localPlayback, _sessionCancellation.Token, ready);
+            _sessionTask = RunSessionAsync(channel, mode, authorizationProvider, _sessionCancellation.Token, ready);
         }
         finally
         {
@@ -165,7 +119,7 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         }
 
         var snapshot = await ready.Task.WaitAsync(cancellationToken);
-        return (snapshot, localPlayback);
+        return snapshot;
     }
 
     public async Task<MediaSnapshot> StopAsync()
@@ -188,7 +142,6 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         IptvPlaybackChannel channel,
         string mode,
         Func<HostAuthorization?>? authorizationProvider,
-        LocalPlaybackSession? localPlayback,
         CancellationToken cancellationToken,
         TaskCompletionSource<MediaSnapshot> ready)
     {
@@ -213,29 +166,11 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
                     }
                     await using var providerStream = await _provider.OpenAsync(channel.StreamUri, attemptToken);
                     var initialBuffer = await MpegTsValidator.ReadAndValidateAsync(providerStream, attemptToken);
-                    if (mode == "view")
-                    {
-                        localPlayback!.PrepareAttempt();
-                    }
-                    await using var pipeline = mode switch
-                    {
-                        "publish" => _pipelines.CreatePublish(publishLease!.WhipEndpoint),
-                        "view" => _pipelines.CreateLocalView(localPlayback!.DirectoryPath),
-                        _ => _pipelines.Create(),
-                    };
+                    await using var pipeline = _pipelines.CreatePublish(publishLease!.WhipEndpoint);
                     await pipeline.StartAsync(initialBuffer, attemptToken);
-                    Task pump = Task.CompletedTask;
-                    if (mode == "view")
-                    {
-                        pump = pipeline.PumpAsync(providerStream, attemptToken);
-                        await WaitForPlaylistAsync(localPlayback!.DirectoryPath, pump, attemptToken);
-                    }
                     var streaming = Update(MediaState.Streaming, channel.Id, channel.Name, attempt, null);
                     ready.TrySetResult(streaming);
-                    if (mode != "view")
-                    {
-                        pump = pipeline.PumpAsync(providerStream, attemptToken);
-                    }
+                    var pump = pipeline.PumpAsync(providerStream, attemptToken);
                     if (mode == "publish")
                     {
                         while (!pump.IsCompleted)
@@ -296,26 +231,6 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         }
     }
 
-    private async Task WaitForPlaylistAsync(string directory, Task pump, CancellationToken cancellationToken)
-    {
-        var playlist = Path.Combine(directory, "index.m3u8");
-        for (var check = 0; check < 80; check++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (File.Exists(playlist) && new FileInfo(playlist).Length > 0)
-            {
-                return;
-            }
-            if (pump.IsCompleted)
-            {
-                await pump;
-                throw new MediaEngineException("pipeline_exited");
-            }
-            await _delay(TimeSpan.FromMilliseconds(100), cancellationToken);
-        }
-        throw new MediaEngineException("local_view_playlist_unavailable");
-    }
-
     private async Task StopSessionLockedAsync()
     {
         var cancellation = _sessionCancellation;
@@ -324,9 +239,6 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         _sessionTask = null;
         _activeChannelId = null;
         _activeMode = "local";
-        var localPlayback = _localPlayback;
-        _localPlayback = null;
-        localPlayback?.Dispose();
         if (cancellation is not null)
         {
             cancellation.Cancel();
@@ -346,7 +258,6 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
 
     internal void InvalidatePlaybackAndCancel()
     {
-        Interlocked.Exchange(ref _localPlayback, null)?.Dispose();
         try
         {
             Volatile.Read(ref _sessionCancellation)?.Cancel();
@@ -355,31 +266,6 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         {
             // Outra rotina de cleanup já concluiu a sessão.
         }
-    }
-
-    public bool TryReadLocalPlayback(Uri requestUri, string method, out LocalPlaybackResource? resource)
-    {
-        resource = null;
-        var playback = _localPlayback;
-        return playback is not null && playback.TryRead(requestUri, method, out resource);
-    }
-
-    public Task<LocalPlaybackResource?> ReadLocalPlaybackAsync(Uri requestUri, string method, CancellationToken cancellationToken = default)
-    {
-        var playback = _localPlayback;
-        return playback is null
-            ? Task.FromResult<LocalPlaybackResource?>(null)
-            : playback.ReadAsync(requestUri, method, cancellationToken);
-    }
-
-    internal LocalPlaybackRequestKind ClassifyLocalPlaybackRequest(Uri requestUri, string method)
-    {
-        var playback = _localPlayback;
-        return playback is null
-            ? LocalPlaybackSession.IsReservedNamespace(requestUri)
-                ? LocalPlaybackRequestKind.PlaybackInvalid
-                : LocalPlaybackRequestKind.NotPlayback
-            : playback.ClassifyRequest(requestUri, method);
     }
 
     private MediaSnapshot Update(MediaState state, long? channelId, string? channelName, int attempt, string? errorCode)

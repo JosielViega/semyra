@@ -217,18 +217,13 @@ public static class DesktopBridge
             }
             var snapshot = request.Type switch
             {
-                DesktopMessage.IptvMediaStartType => await hostEngine.StartIptvMediaAsync(
-                    request.Media!.ChannelId!.Value,
-                    cancellationToken),
                 DesktopMessage.IptvPublishStartType => await hostEngine.StartIptvPublishAsync(
                     request.Media!.ChannelId!.Value,
                     cancellationToken),
                 DesktopMessage.IptvViewStopType => await hostEngine.StopIptvMediaAsync(),
                 DesktopMessage.IptvViewStatusType => hostEngine.IptvMediaSnapshot(),
-                DesktopMessage.IptvMediaStopType => await hostEngine.StopIptvMediaAsync(),
                 DesktopMessage.IptvPublishStopType => await hostEngine.StopIptvMediaAsync(),
                 DesktopMessage.IptvPublishStatusType => hostEngine.IptvMediaSnapshot(),
-                DesktopMessage.IptvMediaStatusType => hostEngine.IptvMediaSnapshot(),
                 _ => throw new MediaEngineException("media_runtime_unavailable"),
             };
             return (true, MediaResult(ResultType(request.Type), request.RequestId, snapshot));
@@ -466,7 +461,7 @@ public static class DesktopBridge
         }, JsonOptions);
     }
 
-    private static string LocalViewResult(string type, string requestId, LocalPlaybackStartResult result)
+    private static string LocalViewResult(string type, string requestId, MpvPlaybackStartResult result)
     {
         var snapshot = result.Snapshot;
         return JsonSerializer.Serialize(new
@@ -481,7 +476,6 @@ public static class DesktopBridge
             attempt = snapshot.Attempt,
             errorCode = snapshot.LastErrorCode,
             mode = snapshot.Mode,
-            playbackUrl = result.PlaybackUrl,
             playbackKind = result.PlaybackKind,
             sessionId = result.SessionId,
         }, JsonOptions);
@@ -501,9 +495,6 @@ public static class DesktopBridge
         DesktopMessage.IptvRecentsListType => DesktopMessage.IptvRecentsListResultType,
         DesktopMessage.IptvRecentRemoveType => DesktopMessage.IptvRecentRemoveResultType,
         DesktopMessage.IptvRecentsClearType => DesktopMessage.IptvRecentsClearResultType,
-        DesktopMessage.IptvMediaStartType => DesktopMessage.IptvMediaStartResultType,
-        DesktopMessage.IptvMediaStopType => DesktopMessage.IptvMediaStopResultType,
-        DesktopMessage.IptvMediaStatusType => DesktopMessage.IptvMediaStatusResultType,
         DesktopMessage.IptvViewStartType => DesktopMessage.IptvViewStartResultType,
         DesktopMessage.IptvViewStopType => DesktopMessage.IptvViewStopResultType,
         DesktopMessage.IptvViewStatusType => DesktopMessage.IptvViewStatusResultType,

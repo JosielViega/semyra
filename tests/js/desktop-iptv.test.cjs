@@ -16,12 +16,8 @@ assert.equal(iptv.channelMonogram('Band'), 'BA');
 assert.equal(iptv.channelMonogram(''), 'TV');
 assert.equal(iptv.shouldRenderRemoteLogo('https://provider.example/logo.png?token=secret'), false);
 
-const playbackUrl = '/__desktop/playback/' + 'a'.repeat(64) + '/index.m3u8';
-assert.equal(iptv.validPlaybackUrl(playbackUrl), true);
-assert.equal(iptv.validPlaybackUrl(playbackUrl + '?token=bad'), false);
-assert.equal(iptv.validPlaybackUrl('/__desktop/playback/../index.m3u8'), false);
-assert.equal(iptv.localViewAvailable({capabilities: ['iptv.play']}), false);
-assert.equal(iptv.localViewAvailable({capabilities: ['iptv.play', 'iptv.local-view']}), true);
+assert.equal(iptv.localViewAvailable({capabilities: []}), false);
+assert.equal(iptv.localViewAvailable({capabilities: ['iptv.local-view']}), true);
 assert.equal(iptv.formatMediaTime(65), '1:05');
 assert.equal(iptv.formatMediaTime(3661), '1:01:01');
 const rangeStyle = new Map();
@@ -32,49 +28,6 @@ assert.equal(controlledRange.dataset.rangeProgress, '35');
 assert.equal(rangeStyle.get('--iptv-range-progress'), '35%');
 assert.equal(iptv.syncRangeVisual(controlledRange, 140), 100);
 assert.equal(controlledRange.value, '100');
-
-const calls = [];
-class FakeHls {
-    static Events = {ERROR: 'error', MANIFEST_PARSED: 'manifest'};
-    static isSupported() { return true; }
-    constructor() { FakeHls.last = this; }
-    on(name, callback) { this[name] = callback; }
-    loadSource(url) { calls.push(['load', url]); }
-    attachMedia(video) { calls.push(['attach', video]); }
-    destroy() { calls.push(['destroy']); }
-}
-const video = {
-    volume: 1, muted: false,
-    pause: () => calls.push(['pause']),
-    removeAttribute: (name) => calls.push(['remove', name]),
-    load: () => calls.push(['reset']),
-    play: () => Promise.resolve(),
-    canPlayType: () => '',
-    addEventListener() {},
-};
-const autoplayStates = [];
-const player = iptv.createHlsPlaybackController({Hls: FakeHls}, video, () => calls.push(['fatal']), (blocked) => autoplayStates.push(blocked));
-assert.equal(player.attach(playbackUrl), true);
-assert.deepEqual(calls.slice(-2), [['load', playbackUrl], ['attach', video]]);
-FakeHls.last.manifest();
-assert.deepEqual(player.setVolume(.35), {volume: .35, muted: false});
-assert.deepEqual(player.toggleMuted(), {volume: .35, muted: true});
-assert.deepEqual(player.toggleMuted(), {volume: .35, muted: false});
-assert.equal(player.attach(playbackUrl.replace('a'.repeat(64), 'b'.repeat(64))), true);
-assert.equal(calls.filter((call) => call[0] === 'destroy').length, 1);
-FakeHls.last.error(null, {fatal: true});
-assert.equal(calls.filter((call) => call[0] === 'fatal').length, 1);
-player.destroy();
-assert.equal(calls.filter((call) => call[0] === 'destroy').length, 2);
-
-let blocked = false;
-const blockedVideo = {
-    volume: 1, muted: false,
-    pause() {}, removeAttribute() {}, load() {}, addEventListener() {}, canPlayType: () => 'maybe',
-    play: () => Promise.reject(new Error('gesture required')),
-};
-const blockedPlayer = iptv.createHlsPlaybackController({}, blockedVideo, () => assert.fail('autoplay is not stream failure'), (value) => { blocked = value; });
-assert.equal(blockedPlayer.attach(playbackUrl), true);
 
 class FakeClassList {
     constructor(owner) { this.owner = owner; }
@@ -123,7 +76,7 @@ class FakeElement {
     setAttribute(name, value) { this.attributes.set(name, value); }
     removeAttribute(name) { this.attributes.delete(name); }
     closest(selector) {
-        if (selector === '[data-iptv-media-start]' && this.dataset.iptvMediaStart) return this;
+        if (selector === '[data-iptv-view-start]' && this.dataset.iptvViewStart) return this;
         if (selector === '[data-iptv-favorite]' && this.dataset.iptvFavorite) return this;
         if (selector === '[data-iptv-recent-remove]' && this.dataset.iptvRecentRemove) return this;
         if (selector === '[data-iptv-view]' && this.dataset.iptvView) return this;
@@ -189,7 +142,7 @@ root.querySelectorAll = (selector) => {
     const matches = [];
     function walk(item) {
         item?.children?.forEach((child) => {
-            if (selector === '[data-iptv-media-start]' && child.dataset.iptvMediaStart) matches.push(child);
+            if (selector === '[data-iptv-view-start]' && child.dataset.iptvViewStart) matches.push(child);
             if (selector === '[data-iptv-favorite]' && child.dataset.iptvFavorite) matches.push(child);
             if (selector === '[data-iptv-recent-remove]' && child.dataset.iptvRecentRemove) matches.push(child);
             if (selector === '[data-iptv-view]' && child.dataset.iptvView) matches.push(child);
@@ -212,7 +165,6 @@ const urlForm = register('[data-iptv-url-form]', new FakeElement('form'));
 urlForm.elements = {name: {value: 'Lista'}, location: {value: 'https://private.invalid/list'}};
 const addUrlButton = new FakeElement('button'); addUrlButton.type = 'submit'; addUrlButton.textContent = 'Adicionar URL'; urlForm.appendChild(addUrlButton);
 const stage = register('[data-iptv-player-stage]');
-stage.requestFullscreen = () => { fakeDocument.fullscreenElement = stage; return Promise.resolve(); };
 stage.getBoundingClientRect = () => ({left: 20, top: 40, width: 960, height: 540});
 const settings = register('[data-iptv-settings]', new FakeElement('dialog'));
 const settingsContent = register('[data-iptv-settings-content]', new FakeElement('div'));
@@ -230,25 +182,14 @@ register('[data-iptv-pagination]', new FakeElement('div'));
 register('[data-iptv-settings-loader-title]', new FakeElement('strong'));
 register('[data-iptv-settings-loader-copy]', new FakeElement('p'));
 const channels = register('[data-iptv-channel-list]');
-const lifecycleCalls = [];
-const lifecycleVideo = register('[data-iptv-video]', Object.assign(new FakeElement('video'), {
-    volume: 1, muted: false, src: '',
-    pause: () => lifecycleCalls.push('pause'),
-    removeAttribute: () => lifecycleCalls.push('remove-src'),
-    load: () => lifecycleCalls.push('load'),
-    play: () => Promise.resolve(),
-    canPlayType: () => '',
-}));
 for (const selector of [
     '[data-iptv-browser-notice]', '[data-iptv-desktop-panel]', '[data-iptv-source-loading]', '[data-iptv-onboarding]', '[data-iptv-library]',
     '[data-iptv-source-switcher]', '[data-iptv-current-source]', '[data-iptv-source-select-wrap]', '[data-iptv-source-select]',
     '[data-iptv-settings-open]', '[data-iptv-onboarding-open]', '[data-iptv-settings-close]', '[data-iptv-pick-file]',
     '[data-iptv-source-list]', '[data-iptv-feedback]', '[data-iptv-player-empty]', '[data-iptv-player-state]',
-    '[data-iptv-player-state-label]', '[data-iptv-player-error]', '[data-iptv-autoplay]', '[data-iptv-live-badge]',
-    '[data-iptv-current-channel]', '[data-iptv-media-status]', '[data-iptv-media-stop]', '[data-iptv-retry]',
+    '[data-iptv-player-state-label]', '[data-iptv-player-error]', '[data-iptv-retry]',
     '[data-iptv-error-title]', '[data-iptv-error-copy]',
-    '[data-iptv-choose-channel]', '[data-iptv-mute]', '[data-iptv-volume]', '[data-iptv-volume-icon]',
-    '[data-iptv-muted-icon]', '[data-iptv-fullscreen]', '[data-iptv-fullscreen-icon]', '[data-iptv-compress-icon]',
+    '[data-iptv-choose-channel]',
     '[data-iptv-previous]', '[data-iptv-next]', '[data-iptv-page-label]', '[data-iptv-result-count]',
     '[data-iptv-native-controls]', '[data-iptv-native-playback]', '[data-iptv-native-seek="-30"]',
     '[data-iptv-native-seek="30"]', '[data-iptv-native-mute]', '[data-iptv-native-volume]', '[data-iptv-native-stop]',
@@ -265,7 +206,6 @@ settingsContent.appendChild(registry.get('[data-iptv-source-list]'));
 
 const logoutForm = new FakeElement('form');
 const fakeDocument = {
-    fullscreenElement: null,
     activeElement: null,
     documentElement: new FakeElement('html'),
     body: new FakeElement('body'),
@@ -274,10 +214,8 @@ const fakeDocument = {
     createDocumentFragment: () => Object.assign(new FakeElement('fragment'), {isFragment: true}),
     querySelector: (selector) => selector === '[data-iptv-catalog]' ? root : selector === 'form.account-logout[action="/logout"]' ? logoutForm : null,
     addEventListener: (type, listener) => documentListeners.set(type, listener),
-    exitFullscreen: () => { fakeDocument.fullscreenElement = null; return Promise.resolve(); },
 };
 const lifecycleTarget = {
-    Hls: class extends FakeHls { destroy() { lifecycleCalls.push('hls-destroy'); } },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
     dispatchEvent: (event) => requests.push(event.detail),
     addEventListener: (type, listener) => rootListeners.set(type, listener),
@@ -500,7 +438,7 @@ rootListeners.get('semyra:iptv-result')({detail: {action: 'favorites', ok: true,
 let favoriteCard = channels.children[0];
 assert.equal(favoriteCard.tagName, 'ARTICLE');
 assert.equal(favoriteCard.querySelectorAll('button').length, 2, 'play and favorite must be sibling buttons');
-const favoritePlay = find(favoriteCard, (item) => item.dataset.iptvMediaStart);
+const favoritePlay = find(favoriteCard, (item) => item.dataset.iptvViewStart);
 channels.emit('click', {target: favoritePlay});
 assert.equal(requests.at(-1).action, 'view-start', 'a Favorite card must start local playback');
 rootListeners.get('semyra:iptv-result')({detail: {action: 'view-start', ok: false, error: 'provider_connect_failed'}});
@@ -566,7 +504,7 @@ const failedRecentRemoveToken = requests.at(-1).clientRequestId;
 rootListeners.get('semyra:iptv-result')({detail: {action: 'recent-remove', ok: false, clientRequestId: failedRecentRemoveToken, error: 'recent_write_failed'}});
 assert.equal(recentRemove.disabled, false, 'a failed removal must restore the card action');
 assert.match(registry.get('[data-iptv-recents-feedback]').textContent, /remover este item/);
-const recentPlay = find(channels.children[0], (item) => item.dataset.iptvMediaStart);
+const recentPlay = find(channels.children[0], (item) => item.dataset.iptvViewStart);
 channels.emit('click', {target: recentPlay});
 assert.equal(requests.at(-1).action, 'view-start', 'a Recent card must start local playback');
 rootListeners.get('semyra:iptv-result')({detail: {action: 'view-start', ok: false, error: 'provider_connect_failed'}});
@@ -591,7 +529,7 @@ assert.equal(favoriteButton.disabled, false, 'favorite error must clear pending 
 assert.match(registry.get('[data-iptv-feedback]').textContent, /atualizar os favoritos/);
 
 let card = playableCard;
-let playButton = find(card, (item) => item.dataset.iptvMediaStart);
+let playButton = find(card, (item) => item.dataset.iptvViewStart);
 assert.equal(card.tagName, 'ARTICLE');
 assert.equal(playButton.tagName, 'BUTTON');
 assert.equal(card.querySelectorAll?.('img')?.length || 0, 0);
@@ -601,10 +539,9 @@ assert.equal(requests.at(-1).channelId, 7);
 assert.equal(stage.dataset.state, 'preparing');
 
 rootListeners.get('semyra:iptv-result')({detail: {
-    action: 'view-start', ok: true, playbackUrl, state: 'streaming', channelId: 7, channelName: 'Globo News', errorCode: null,
+    action: 'view-start', ok: true, playbackKind: 'native-mpv', sessionId: 'b'.repeat(32), state: 'streaming', channelId: 7, channelName: 'Globo News', errorCode: null,
 }});
 assert.equal(stage.dataset.state, 'streaming');
-assert.equal(registry.get('[data-iptv-live-badge]').hidden, false);
 assert.equal(registry.get('[data-iptv-player-empty]').hidden, true, 'idle content must not leak into streaming');
 assert.equal(registry.get('[data-iptv-player-state]').hidden, true, 'preparing overlay must not leak into streaming');
 viewTabs.emit('click', {target: favoritesTab});
@@ -675,7 +612,7 @@ rootListeners.get('semyra:iptv-result')({detail: {action: 'search', ok: true, cl
     {id: 7, name: 'Globo News', groupName: 'Notícias', isFavorite: true},
 ]}});
 card = channels.children[0];
-playButton = find(card, (item) => item.dataset.iptvMediaStart);
+playButton = find(card, (item) => item.dataset.iptvViewStart);
 assert.match(card.className, /is-active/, 'active playback must remain highlighted in Ao vivo');
 const startsBefore = requests.filter((item) => item.action === 'view-start').length;
 channels.emit('click', {target: playButton});
@@ -688,24 +625,13 @@ assert.equal(registry.get('[data-iptv-player-error]').hidden, false);
 registry.get('[data-iptv-retry]').emit('click');
 assert.equal(requests.at(-1).action, 'view-start');
 
-registry.get('[data-iptv-volume]').value = '25';
-registry.get('[data-iptv-volume]').emit('input');
-assert.equal(lifecycleVideo.volume, .25);
-registry.get('[data-iptv-volume]').emit('change');
-registry.get('[data-iptv-mute]').emit('click');
-assert.equal(lifecycleVideo.muted, true);
-registry.get('[data-iptv-mute]').emit('click');
-assert.equal(lifecycleVideo.muted, false);
-registry.get('[data-iptv-fullscreen]').emit('click');
-assert.equal(fakeDocument.fullscreenElement, stage);
-registry.get('[data-iptv-media-stop]').emit('click');
-assert.equal(requests.at(-1).action, 'view-stop');
+registry.get('[data-iptv-native-stop]').emit('click');
+assert.equal(requests.at(-1).action, 'player-control');
 assert.equal(stage.dataset.state, 'idle');
 assert.equal(playButton.disabled, false);
 const restartsBefore = requests.filter((item) => item.action === 'view-start').length;
 channels.emit('click', {target: playButton});
 assert.equal(requests.filter((item) => item.action === 'view-start').length, restartsBefore + 1, 'same channel must restart after idle');
-const nativeHlsLoadsBefore = calls.filter((call) => call[0] === 'load').length;
 rootListeners.get('semyra:iptv-result')({detail: {
     action: 'view-start', ok: true, playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7, channelName: 'Globo News', errorCode: null, mediaKind: 'vod', position: 65, duration: 3600, paused: false, muted: false, volume: 35,
 }});
@@ -719,7 +645,6 @@ assert.equal(registry.get('[data-iptv-native-volume]').dataset.rangeProgress, '3
 assert.equal(registry.get('[data-iptv-native-volume]').styleValues.get('--iptv-range-progress'), '35%');
 assertNativeControlIcon('[data-iptv-native-mute]', 'volume');
 assert.equal(registry.get('[data-iptv-native-mute]').attributes.get('aria-label'), 'Silenciar');
-assert.equal(calls.filter((call) => call[0] === 'load').length, nativeHlsLoadsBefore, 'native result must not initialize hls.js');
 lifecycleTarget.pendingTimers.splice(0).forEach((callback) => callback());
 assert.deepEqual(requests.findLast((item) => item.action === 'player-geometry'), {
     action: 'player-geometry', sessionId: 'c'.repeat(32), x: 20, y: 40, width: 960, height: 540,
@@ -905,7 +830,6 @@ rootListeners.get('semyra:iptv-result')({detail: {
 assert.equal(registry.get('[data-iptv-native-playback]').attributes.get('aria-label'), 'Pausar', 'new media clears the previous paused state');
 assertNativeControlIcon('[data-iptv-native-playback]', 'pause');
 assert.equal(registry.get('[data-iptv-native-volume]').value, '35', 'new media preserves the confirmed volume');
-const pagehideDestroyCount = lifecycleCalls.filter((item) => item === 'hls-destroy').length;
 rootListeners.get('pagehide')();
 assert.equal(requests.at(-1).action, 'player-control');
 assert.equal(requests.at(-1).command, 'stop');
@@ -913,7 +837,6 @@ assert.equal(requests.at(-1).sessionId, 'd'.repeat(32));
 assert.equal(stage.dataset.state, 'idle');
 assert.equal(registry.get('[data-iptv-player-empty]').hidden, false);
 assert.equal(playButton.disabled, false);
-assert.equal(lifecycleCalls.filter((item) => item === 'hls-destroy').length, pagehideDestroyCount, 'native pagehide must not touch hls.js');
 assert.equal(registry.get('[data-iptv-native-controls]').hidden, true);
 rootListeners.get('semyra:iptv-result')({detail: {action: 'view-status', ok: true, state: 'idle'}});
 channels.emit('click', {target: playButton});
@@ -1000,13 +923,8 @@ assert.equal(settings.dataset.settingsState, 'idle');
 let logoutPrevented = 0;
 logoutForm.emit('submit', {preventDefault: () => { logoutPrevented += 1; }});
 assert.equal(logoutPrevented, 0);
-assert.ok(lifecycleCalls.includes('hls-destroy'));
-assert.deepEqual(lifecycleCalls.slice(-3), ['pause', 'remove-src', 'load']);
 
 const browserOnly = iptv.createIptvCatalog({document: {querySelector: () => null}, addEventListener: () => {}});
 assert.equal(browserOnly.start(), false);
 
-setImmediate(() => {
-    assert.equal(blocked, true);
-    console.log('desktop-iptv tests passed');
-});
+console.log('desktop-iptv tests passed');

@@ -5,15 +5,6 @@ namespace Semyra.Desktop.Tests;
 public sealed class MpvRuntimeTests
 {
     [Fact]
-    public void LocalPlayerDefaultsToAutoAndAllowsExplicitOverride()
-    {
-        Assert.Equal(LocalPlayerMode.Auto, LocalPlayerOptions.FromEnvironment(_ => null).Mode);
-        Assert.Equal(LocalPlayerMode.Auto, LocalPlayerOptions.FromEnvironment(_ => "other").Mode);
-        Assert.Equal(LocalPlayerMode.Mpv, LocalPlayerOptions.FromEnvironment(name => name == "SEMYRA_LOCAL_PLAYER" ? "mpv" : null).Mode);
-        Assert.Equal(LocalPlayerMode.Legacy, LocalPlayerOptions.FromEnvironment(name => name == "SEMYRA_LOCAL_PLAYER" ? "legacy" : null).Mode);
-    }
-
-    [Fact]
     public void DiscoveryPrefersApplicationRuntimeAndRecordsSafeVersion()
     {
         var root = Path.Combine(Path.GetTempPath(), "semyra-mpv-runtime-" + Guid.NewGuid().ToString("N"));

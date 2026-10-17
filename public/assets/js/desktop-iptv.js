@@ -31,14 +31,8 @@
         if (state === 'preparing') return 'Preparando canal…';
         if (state === 'streaming') return 'Reproduzindo agora';
         if (state === 'reconnecting') return 'Reconectando…';
-        if (['media_runtime_unavailable', 'local_view_runtime_unavailable'].includes(errorCode)) return 'Player local indisponível neste dispositivo.';
-        if (errorCode === 'local_view_playlist_unavailable') return 'Este conteúdo não forneceu mídia compatível.';
+        if (['media_runtime_unavailable', 'mpv_runtime_unavailable'].includes(errorCode)) return 'Player local indisponível neste dispositivo.';
         return 'Não foi possível reproduzir este conteúdo.';
-    }
-
-    function validPlaybackUrl(value) {
-        return typeof value === 'string'
-            && /^\/__desktop\/playback\/[a-f0-9]{64}\/index\.m3u8$/.test(value);
     }
 
     function localViewAvailable(snapshot) {
@@ -78,106 +72,6 @@
         return false;
     }
 
-    function createHlsPlaybackController(target, video, onFatal, onAutoplayBlocked) {
-        let hls = null;
-        let active = false;
-        let lastVolume = .8;
-        const autoplayBlocked = typeof onAutoplayBlocked === 'function' ? onAutoplayBlocked : function () {};
-        if (typeof video.addEventListener === 'function') {
-            video.addEventListener('error', fail);
-        }
-
-        function resetMedia() {
-            if (hls) {
-                hls.destroy();
-                hls = null;
-            }
-            video.pause();
-            video.removeAttribute('src');
-            video.load();
-            autoplayBlocked(false);
-        }
-
-        function destroy() {
-            active = false;
-            resetMedia();
-        }
-
-        function fail() {
-            if (!active) return;
-            active = false;
-            resetMedia();
-            onFatal();
-        }
-
-        function play() {
-            if (!active) return Promise.resolve(false);
-            let result;
-            try {
-                result = video.play();
-            } catch (_) {
-                autoplayBlocked(true);
-                return Promise.resolve(false);
-            }
-            return Promise.resolve(result).then(function () {
-                autoplayBlocked(false);
-                return true;
-            }).catch(function () {
-                autoplayBlocked(true);
-                return false;
-            });
-        }
-
-        function attach(playbackUrl) {
-            if (!validPlaybackUrl(playbackUrl)) return false;
-            destroy();
-            active = true;
-            if (target.Hls && typeof target.Hls.isSupported === 'function' && target.Hls.isSupported()) {
-                hls = new target.Hls({liveDurationInfinity: true, enableWorker: true});
-                hls.on(target.Hls.Events.ERROR, function (_, data) {
-                    if (data && data.fatal) fail();
-                });
-                hls.on(target.Hls.Events.MANIFEST_PARSED, play);
-                hls.loadSource(playbackUrl);
-                hls.attachMedia(video);
-                return true;
-            }
-            if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = playbackUrl;
-                play();
-                return true;
-            }
-            fail();
-            return false;
-        }
-
-        function setVolume(value) {
-            const volume = Math.min(1, Math.max(0, Number(value)));
-            video.volume = Number.isFinite(volume) ? volume : .8;
-            if (video.volume > 0) {
-                lastVolume = video.volume;
-                video.muted = false;
-            } else {
-                video.muted = true;
-            }
-            return {volume: video.volume, muted: video.muted};
-        }
-
-        function toggleMuted() {
-            if (video.muted || video.volume === 0) {
-                video.volume = lastVolume || .8;
-                video.muted = false;
-            } else {
-                if (video.volume > 0) lastVolume = video.volume;
-                video.muted = true;
-            }
-            return {volume: video.volume, muted: video.muted};
-        }
-
-        video.volume = .8;
-        return Object.freeze({attach, destroy, play, setVolume, toggleMuted});
-    }
-
     function createIptvCatalog(target) {
         const document = target && target.document;
         const root = document && document.querySelector('[data-iptv-catalog]');
@@ -185,7 +79,6 @@
         let selectedSourceId = null;
         let offset = 0;
         let mediaAvailable = false;
-        let player = null;
         let currentChannelId = null;
         let currentChannelName = '';
         let mediaState = 'idle';
@@ -204,7 +97,6 @@
         const favoriteRequests = new Map();
         let settingsOperation = null;
         let navigationStopRequested = false;
-        let playbackKind = 'legacy-hls';
         let nativeSessionId = null;
         let nativePaused = false;
         let nativeMuted = false;
@@ -553,8 +445,8 @@
 
         function updateActiveCards() {
             if (!root || typeof root.querySelectorAll !== 'function') return;
-            root.querySelectorAll('[data-iptv-media-start]').forEach(function (card) {
-                const active = Number(card.dataset.iptvMediaStart) === currentChannelId && ACTIVE_STATES.includes(mediaState);
+            root.querySelectorAll('[data-iptv-view-start]').forEach(function (card) {
+                const active = Number(card.dataset.iptvViewStart) === currentChannelId && ACTIVE_STATES.includes(mediaState);
                 const shell = card.closest('.iptv-channel-card') || card;
                 shell.classList.toggle('is-active', active);
                 card.setAttribute('aria-pressed', active ? 'true' : 'false');
@@ -587,7 +479,7 @@
                     card.dataset.iptvChannelCard = String(channel.id);
                     const play = node('button', 'iptv-channel-play');
                     play.type = 'button';
-                    play.dataset.iptvMediaStart = String(channel.id);
+                    play.dataset.iptvViewStart = String(channel.id);
                     play.disabled = !mediaAvailable || (channel.id === currentChannelId && ACTIVE_STATES.includes(mediaState));
                     play.setAttribute('aria-label', 'Assistir ' + channel.name);
                     play.setAttribute('aria-pressed', 'false');
@@ -745,26 +637,9 @@
             return 'Não foi possível carregar esta fonte.';
         }
 
-        function showAutoplayFallback(show) {
-            const button = element('[data-iptv-autoplay]');
-            if (button) button.hidden = !show;
-        }
-
-        function ensurePlayer() {
-            const video = element('[data-iptv-video]');
-            if (!video || player) return player;
-            player = createHlsPlaybackController(target, video, function () {
-                renderMediaState({state: 'failed', errorCode: 'local_view_playback_failed'});
-                request('view-stop');
-            }, showAutoplayFallback);
-            return player;
-        }
-
         function destroyPlayer() {
             if (nativeSessionId || nativeFullscreen || !controlsVisible) reportControlsVisibility(false);
-            if (player) player.destroy();
             hideNativePlayerSurface();
-            showAutoplayFallback(false);
             clearHideTimer();
             const stage = element('[data-iptv-player-stage]');
             if (stage) {
@@ -775,7 +650,6 @@
             nativeFullscreen = false;
             nativeScrubbing = false;
             nativeRecentSession = null;
-            playbackKind = 'legacy-hls';
             clearTimeout(geometryTimer);
             geometryTimer = null;
             if (geometryObserver) geometryObserver.disconnect();
@@ -874,7 +748,6 @@
 
         function attachNativePlayer(sessionId) {
             if (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId)) return false;
-            playbackKind = 'native-mpv';
             nativeSessionId = sessionId;
             nativePaused = false;
             const stage = element('[data-iptv-player-stage]');
@@ -896,11 +769,6 @@
             return true;
         }
 
-        function attachPlayer(playbackUrl) {
-            const controller = ensurePlayer();
-            if (controller && validPlaybackUrl(playbackUrl)) controller.attach(playbackUrl);
-        }
-
         function renderMediaState(detail) {
             if (detail.playbackKind === 'native-mpv' && detail.sessionId && nativeSessionId !== detail.sessionId) {
                 attachNativePlayer(detail.sessionId);
@@ -913,12 +781,10 @@
                 currentChannelId = null;
                 currentChannelName = '';
             } else if (mediaState === 'failed') {
-                if (playbackKind === 'native-mpv') {
+                if (nativeSessionId) {
                     hideNativePlayerSurface();
                     const nativeControls = element('[data-iptv-native-controls]');
                     if (nativeControls) nativeControls.hidden = true;
-                } else {
-                    destroyPlayer();
                 }
             }
             const stage = element('[data-iptv-player-stage]');
@@ -926,10 +792,6 @@
             const state = element('[data-iptv-player-state]');
             const stateLabel = element('[data-iptv-player-state-label]');
             const error = element('[data-iptv-player-error]');
-            const live = element('[data-iptv-live-badge]');
-            const status = element('[data-iptv-media-status]');
-            const title = element('[data-iptv-current-channel]');
-            const stop = element('[data-iptv-media-stop]');
             if (stage) stage.dataset.state = mediaState;
             if (empty) empty.hidden = mediaState !== 'idle';
             if (state) state.hidden = !['preparing', 'loading', 'buffering', 'reconnecting'].includes(mediaState);
@@ -940,20 +802,13 @@
             const errorTitle = element('[data-iptv-error-title]');
             const errorCopy = element('[data-iptv-error-copy]');
             const retry = element('[data-iptv-retry]');
-            const runtimeUnavailable = ['media_runtime_unavailable', 'local_view_runtime_unavailable'].includes(detail.errorCode);
+            const runtimeUnavailable = ['media_runtime_unavailable', 'mpv_runtime_unavailable'].includes(detail.errorCode);
             if (errorTitle) errorTitle.textContent = runtimeUnavailable ? 'Player local indisponível.' : 'Não foi possível reproduzir este conteúdo.';
             if (errorCopy) errorCopy.textContent = runtimeUnavailable
                 ? 'Este dispositivo não possui os componentes necessários para a reprodução local.'
                 : 'Tente novamente ou escolha outro conteúdo do catálogo.';
             if (retry) retry.hidden = runtimeUnavailable || !currentChannelId;
-            if (live) live.hidden = detail.mediaKind === 'vod' || !['streaming', 'playing', 'paused', 'buffering'].includes(mediaState);
-            if (status) {
-                status.textContent = mediaStatusLabel(mediaState, detail.errorCode);
-                status.dataset.state = mediaState;
-            }
-            if (title) title.textContent = currentChannelName || 'Minha IPTV';
-            if (stop) stop.disabled = !ACTIVE_STATES.includes(mediaState);
-            if (playbackKind === 'native-mpv') {
+            if (nativeSessionId) {
                 const wasPaused = nativePaused;
                 if (typeof detail.paused === 'boolean') nativePaused = detail.paused;
                 else if (mediaState === 'paused') nativePaused = true;
@@ -1007,17 +862,9 @@
             element('[data-iptv-player-stage]')?.scrollIntoView?.({behavior: 'smooth', block: 'center'});
         }
 
-        function exitFullscreen() {
-            const stage = element('[data-iptv-player-stage]');
-            if (document.fullscreenElement === stage && typeof document.exitFullscreen === 'function') {
-                Promise.resolve(document.exitFullscreen()).catch(function () {});
-            }
-        }
-
         function stopPlayback() {
             const sessionId = nativeSessionId;
             destroyPlayer();
-            exitFullscreen();
             renderMediaState({state: 'idle'});
             if (sessionId) request('player-control', {sessionId, command: 'stop'});
             else request('view-stop');
@@ -1045,30 +892,8 @@
             }
         }
 
-        function updateAudioUi(state) {
-            const volume = element('[data-iptv-volume]');
-            const button = element('[data-iptv-mute]');
-            const volumeIcon = element('[data-iptv-volume-icon]');
-            const mutedIcon = element('[data-iptv-muted-icon]');
-            const muted = state.muted || state.volume === 0;
-            syncRangeVisual(volume, state.volume * 100);
-            if (button) {
-                button.setAttribute('aria-label', muted ? 'Ativar som' : 'Silenciar');
-                button.title = muted ? 'Ativar som' : 'Silenciar';
-            }
-            if (volumeIcon) volumeIcon.hidden = muted;
-            if (mutedIcon) mutedIcon.hidden = !muted;
-        }
-
         function toggleFullscreen() {
-            const stage = element('[data-iptv-player-stage]');
-            if (!stage) return;
-            if (nativeSessionId) {
-                request('player-fullscreen', {sessionId: nativeSessionId, fullscreen: !nativeFullscreen});
-                return;
-            }
-            if (document.fullscreenElement === stage) exitFullscreen();
-            else if (typeof stage.requestFullscreen === 'function') Promise.resolve(stage.requestFullscreen()).catch(function () {});
+            if (nativeSessionId) request('player-fullscreen', {sessionId: nativeSessionId, fullscreen: !nativeFullscreen});
         }
 
         function applyNativeFullscreenUi(fullscreen) {
@@ -1111,19 +936,6 @@
                 fullscreenScrollPosition = null;
                 target.scrollTo?.(position.x, position.y);
             }
-        }
-
-        function updateFullscreenUi() {
-            const active = document.fullscreenElement === element('[data-iptv-player-stage]');
-            const button = element('[data-iptv-fullscreen]');
-            if (button) {
-                button.setAttribute('aria-label', active ? 'Sair da tela cheia' : 'Entrar em tela cheia');
-                button.title = active ? 'Sair da tela cheia' : 'Entrar em tela cheia';
-            }
-            const expand = element('[data-iptv-fullscreen-icon]');
-            const compress = element('[data-iptv-compress-icon]');
-            if (expand) expand.hidden = active;
-            if (compress) compress.hidden = !active;
         }
 
         function clearHideTimer() {
@@ -1397,7 +1209,6 @@
                 recentsFeedback('', false);
             } else if (['view-start', 'view-stop', 'view-status'].includes(detail.action)) {
                 if (['view-start', 'view-status'].includes(detail.action) && detail.playbackKind === 'native-mpv') attachNativePlayer(detail.sessionId);
-                else if (detail.action === 'view-start' && detail.playbackUrl) attachPlayer(detail.playbackUrl);
                 if (detail.action === 'view-stop') destroyPlayer();
                 renderMediaState(detail);
             } else if (detail.action === 'player-control') {
@@ -1528,15 +1339,14 @@
                     request('favorite-set', {channelId, favorite: !previous}, token);
                     return;
                 }
-                const card = event.target.closest('[data-iptv-media-start]');
+                const card = event.target.closest('[data-iptv-view-start]');
                 if (!card) return;
                 const name = card.querySelector('.iptv-channel-copy strong');
-                startChannel(Number(card.dataset.iptvMediaStart), name ? name.textContent : '');
+                startChannel(Number(card.dataset.iptvViewStart), name ? name.textContent : '');
             });
             bind('[data-iptv-recents-clear]', 'click', requestRecentsClear);
             bind('[data-iptv-recents-cancel]', 'click', cancelRecentsClear);
             bind('[data-iptv-recents-confirm-clear]', 'click', confirmRecentsClear);
-            bind('[data-iptv-media-stop]', 'click', stopPlayback);
             bind('[data-iptv-native-stop]', 'click', stopPlayback);
             bind('[data-iptv-native-playback]', 'click', function (event) { sendNativeControl(event.currentTarget.dataset.command); });
             bind('[data-iptv-native-seek="-30"]', 'click', function () { sendNativeControl('seek-relative', -30); });
@@ -1565,11 +1375,6 @@
             bind('[data-iptv-native-fullscreen]', 'click', toggleFullscreen);
             bind('[data-iptv-retry]', 'click', function () { if (currentChannelId) startChannel(currentChannelId, currentChannelName); });
             bind('[data-iptv-choose-channel]', 'click', chooseOtherContent);
-            bind('[data-iptv-autoplay]', 'click', function () { if (player) player.play(); });
-            bind('[data-iptv-mute]', 'click', function () { updateAudioUi(ensurePlayer().toggleMuted()); userActivity(); });
-            bind('[data-iptv-volume]', 'input', function (event) { volumeAdjusting = true; updateAudioUi(ensurePlayer().setVolume(Number(event.currentTarget.value) / 100)); userActivity(); });
-            bind('[data-iptv-volume]', 'change', function () { volumeAdjusting = false; userActivity(); });
-            bind('[data-iptv-fullscreen]', 'click', toggleFullscreen);
             bind('[data-iptv-search-form]', 'submit', function (event) { event.preventDefault(); offset = 0; search('Buscando canais…'); });
             bind('[data-iptv-search-form] select[name="group"]', 'change', function () { offset = 0; search('Aplicando filtro…'); });
             bind('[data-iptv-previous]', 'click', function () { offset = Math.max(0, offset - limit); loadCurrentView('Carregando página anterior…'); });
@@ -1579,7 +1384,6 @@
             ['pointermove', 'pointerdown', 'keydown'].forEach(function (type) { stage?.addEventListener(type, userActivity); });
             ['pointermove', 'pointerdown', 'keydown'].forEach(function (type) { root?.addEventListener?.(type, userActivity); });
             target.addEventListener?.('semyra:player-user-activity', userActivity);
-            document.addEventListener?.('fullscreenchange', updateFullscreenUi);
             document.addEventListener?.('keydown', function (event) {
                 const tag = document.activeElement?.tagName?.toLowerCase();
                 if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
@@ -1604,7 +1408,6 @@
                 if (panel) panel.hidden = true;
             }, 1200);
 
-            updateAudioUi({volume: .8, muted: false});
             renderActiveView();
             const snapshot = target.SemyraDesktopBridge && target.SemyraDesktopBridge.getHostSnapshot();
             if (snapshot && snapshot.capabilities.includes('iptv.sources')) activate();
@@ -1617,12 +1420,10 @@
     return Object.freeze({
         createIptvCatalog,
         mediaStatusLabel,
-        validPlaybackUrl,
         localViewAvailable,
         formatMediaTime,
         channelMonogram,
         shouldRenderRemoteLogo,
-        createHlsPlaybackController,
         syncRangeVisual,
     });
 }));

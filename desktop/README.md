@@ -4,7 +4,7 @@
 
 Quando o runtime oficial do GStreamer também oferece `whipsink`, o Desktop anuncia `media.whip` e `livekit.publish`. O canal continua resolvido exclusivamente no catálogo SQLite local; a aplicação web envia somente o identificador opaco do canal. O Desktop provisiona um endpoint WHIP efêmero com sua Host Session, publica áudio/vídeo no LiveKit e remove o ingress ao parar ou trocar a autorização. URLs e credenciais da fonte IPTV nunca atravessam o JavaScript ou o backend PHP.
 
-A infraestrutura de diagnóstico (`iptv.play`) e o player integrado (`iptv.local-view`) permanecem independentes de `whipsink`. Assistir localmente é gratuito, exige somente uma conta ativa no Desktop e não cria sala, Host Session, WHIP ou conexão LiveKit.
+O player integrado (`iptv.local-view`) permanece independente de `whipsink`. Assistir localmente é gratuito, exige somente uma conta ativa no Desktop e não cria sala, Host Session, WHIP ou conexão LiveKit.
 
 Fundação Windows do Semyra: uma janela WPF hospeda o aplicativo web existente em Microsoft Edge WebView2. Login, cadastro e sessão continuam sendo os fluxos web normais; o perfil persistente do WebView fica em `%LOCALAPPDATA%\Semyra\WebView2`. Na página de login, o handshake Desktop pré-marca “Manter conectado” sem impedir que o usuário desmarque. A persistência usa somente o cookie HttpOnly emitido pelo servidor; o aplicativo nativo não lê nem armazena tokens de autenticação.
 
@@ -13,8 +13,8 @@ Fundação Windows do Semyra: uma janela WPF hospeda o aplicativo web existente 
 - Windows x64;
 - .NET 10 SDK para compilar;
 - Microsoft Edge WebView2 Runtime para executar;
-- MPV x64 em `runtime/mpv/mpv.exe` ao lado do aplicativo para o player local preferencial;
-- GStreamer nativo Windows MSVC x64 com os plugins exigidos para habilitar `iptv.play`;
+- MPV x64 em `runtime/mpv/mpv.exe` ao lado do aplicativo para o player local;
+- GStreamer nativo Windows MSVC x64 com `whipsink` e os plugins exigidos para publicação WHIP/LiveKit;
 - uma instância acessível do Semyra web.
 
 O projeto usa `net10.0-windows`, WPF, `Microsoft.Web.WebView2` 1.0.4258.31 e `Microsoft.Data.Sqlite` 10.0.12. Não é self-contained e não produz instalador nesta etapa.
@@ -52,25 +52,25 @@ Favoritos e Recentes também permanecem somente nesse SQLite local, separados po
 
 Um item recente pode ser removido diretamente, e a limpeza apaga o histórico inteiro somente da fonte atual, sempre cercada pela conta e fonte ativas. Como uma playlist M3U não fornece classificação estrutural confiável, o catálogo mantém a aba **Todos** ao lado de Favoritos e Recentes; categorias reais de TV, Filmes e Séries ficam reservadas a uma integração futura com Xtream.
 
-## Media Engine local
+## Media Engine de publicação
 
-O teste de canal envia somente o `channelId` para o native. O Host Engine resolve e descriptografa a URL internamente, conecta ao provider com `HttpClient`, valida os sync bytes MPEG-TS e alimenta o stdin do GStreamer. A URL privada nunca entra em argv, ambiente, snapshot, evento ou resposta para a WebView.
+O início de publicação envia somente o `channelId` para o native. O Host Engine resolve e descriptografa a URL internamente, conecta ao provider com `HttpClient`, valida os sync bytes MPEG-TS e alimenta o stdin do GStreamer. A URL privada nunca entra em argv, ambiente, snapshot, evento ou resposta para a WebView.
 
-A pipeline preserva H.264 (`h264parse` → `rtph264pay`) e converte AAC para Opus 48 kHz estéreo a 96 kbps antes dos RTP payloaders. O teste local termina em `fakesink`; a publicação da sala conecta os mesmos ramos ao `whipsink`. Interrupções inesperadas usam até três reconexões com backoff de 1, 2 e 5 segundos, reprovisionando o ingress; stop manual e troca de canal cancelam a sessão anterior e removem processo e ingress.
+A pipeline de publicação preserva H.264 (`h264parse` → `rtph264pay`) e converte AAC para Opus 48 kHz estéreo a 96 kbps antes de conectar os ramos ao `whipsink`. Interrupções inesperadas usam até três reconexões com backoff de 1, 2 e 5 segundos, reprovisionando o ingress; stop manual e troca de canal cancelam a sessão anterior e removem processo e ingress.
 
 O Media Engine atual valida somente entrada MPEG-TS contínua. VODs MP4, HLS, MKV e HEVC não são suportados nesta etapa e devem ser tratados por uma evolução separada do produto.
 
 ### Player integrado
 
-Em **Minha IPTV**, o fluxo local preferencial é direto: `provider → MPV`. O Host Engine resolve o `channelId`, descriptografa a URL somente em memória e a envia ao IPC privado do sidecar por `loadfile`; ela não entra em argv, JavaScript, snapshot, evento ou log. O MPV detecta container e codecs, e seu estado real determina se a mídia é Live ou VOD. Nenhum probe por extensão, nome ou grupo antecede o início.
+Em **Minha IPTV**, o fluxo local é direto: `provider → MPV`. O Host Engine resolve o `channelId`, descriptografa a URL somente em memória e a envia ao IPC privado do sidecar por `loadfile`; ela não entra em argv, JavaScript, snapshot, evento ou log. O MPV detecta container e codecs, e seu estado real determina se a mídia é Live ou VOD. Nenhum probe por extensão, nome ou grupo antecede o início.
 
 O processo MPV permanece aquecido enquanto a conta está ativa. Trocas usam `loadfile replace`; stop interrompe a mídia e esconde o HWND sem matar o sidecar. Logout, troca de conta e fechamento invalidam a sessão, escondem o host e encerram o processo com timeout curto e kill-tree de contingência. O HWND é dimensionado pelo retângulo de interseção entre o stage e a viewport e fica oculto quando a interseção é vazia, impedindo que cubra catálogo, busca ou configurações.
 
 Cada nova carga também limpa o estado transitório, força `pause=false` antes de `loadfile replace` e cerca os eventos pelo `playlist_entry_id`. O HWND só aparece depois de `playback-restart` e da confirmação de uma faixa de vídeo; falha, fim, stop ou troca o escondem imediatamente. `pause` observado no MPV é a autoridade do botão, enquanto `paused-for-cache` representa buffering sem inverter a intenção do usuário. Assim, uma falha intermediária não contamina a próxima tentativa no mesmo processo aquecido.
 
-O fullscreen pertence à janela WPF, não à Fullscreen API do DOM. A barra HTML ocupa uma faixa fora do HWND e desaparece após inatividade; Live oferece somente volume, mute, fullscreen e stop, enquanto VOD acrescenta play/pause, ±30 s, posição, duração e seek absoluto. O player legado GStreamer/HLS permanece temporariamente como fallback apenas quando o MPV não está disponível.
+O fullscreen pertence à janela WPF, não à Fullscreen API do DOM. A barra HTML ocupa uma faixa fora do HWND e desaparece após inatividade; Live oferece somente volume, mute, fullscreen e stop, enquanto VOD acrescenta play/pause, ±30 s, posição, duração e seek absoluto. Sem um runtime MPV válido e o host de vídeo nativo pronto, `iptv.local-view` não é anunciado.
 
-O aplicativo procura primeiro `runtime/mpv/mpv.exe`. Em Debug, `SEMYRA_MPV_HOME` ou o `PATH` podem fornecer o executável; `SEMYRA_LOCAL_PLAYER=legacy` força o fallback para diagnóstico. Separadamente, GStreamer continua sendo a engine permanente de publicação WHIP/LiveKit e de `iptv.play`: `SEMYRA_GSTREAMER_HOME` e `runtime/gstreamer/bin` permanecem válidos. A presença do MPV nunca habilita capacidades de publicação.
+O aplicativo procura primeiro `runtime/mpv/mpv.exe`. Em Debug, `SEMYRA_MPV_HOME` ou o `PATH` podem fornecer o executável. Separadamente, GStreamer continua sendo a engine exclusiva de publicação WHIP/LiveKit: `SEMYRA_GSTREAMER_HOME` e `runtime/gstreamer/bin` permanecem válidos. A presença do MPV nunca habilita capacidades de publicação, e a presença do GStreamer nunca habilita reprodução visual local.
 
 O MPV não é distribuído neste commit. O empacotamento e a conformidade de licenças do runtime serão definidos antes de qualquer distribuição binária do Desktop; esta implementação é independente e não incorpora código de players de terceiros.
 

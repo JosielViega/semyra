@@ -3,32 +3,10 @@ using System.IO;
 
 namespace Semyra.Desktop.Media;
 
-internal enum LocalPlayerMode
-{
-    Auto,
-    Legacy,
-    Mpv,
-}
-
 internal enum LocalPlaybackEngine
 {
     Unavailable,
-    Legacy,
     Mpv,
-}
-
-internal sealed record LocalPlayerOptions(LocalPlayerMode Mode)
-{
-    internal static LocalPlayerOptions FromEnvironment(Func<string, string?>? environment = null)
-    {
-        environment ??= Environment.GetEnvironmentVariable;
-        return environment("SEMYRA_LOCAL_PLAYER")?.Trim().ToLowerInvariant() switch
-        {
-            "legacy" => new LocalPlayerOptions(LocalPlayerMode.Legacy),
-            "mpv" => new LocalPlayerOptions(LocalPlayerMode.Mpv),
-            _ => new LocalPlayerOptions(LocalPlayerMode.Auto),
-        };
-    }
 }
 
 internal sealed record MpvRuntime(bool Available, string? ExecutablePath, string? Version, string? Origin, string? ErrorCode)

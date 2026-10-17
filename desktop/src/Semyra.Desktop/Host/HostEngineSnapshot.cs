@@ -20,7 +20,6 @@ public sealed record HostEngineSnapshot(
         HostEngineState state,
         HostAuthorization? authorization,
         bool accountActive = false,
-        bool mediaAvailable = false,
         bool whipAvailable = false,
         bool localViewAvailable = false)
     {
@@ -32,7 +31,6 @@ public sealed record HostEngineSnapshot(
         else
         {
             var available = new List<string>(SupportedCapabilities);
-            if (mediaAvailable) available.Add("iptv.play");
             if (localViewAvailable) available.Add("iptv.local-view");
             if (whipAvailable)
             {

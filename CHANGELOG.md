@@ -13,11 +13,9 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
-- Reprodução IPTV local preferencial por sidecar MPV aquecido e IPC privado, com controles Live/VOD, fullscreen nativo, auto-hide e remoção/limpeza de Recentes isolada por conta e fonte; o fallback local GStreamer/HLS permanece temporariamente disponível.
+- Reprodução IPTV local exclusivamente por sidecar MPV aquecido e IPC privado, com controles Live/VOD, fullscreen nativo, auto-hide e remoção/limpeza de Recentes isolada por conta e fonte; GStreamer permanece exclusivo da publicação WHIP/LiveKit.
 - Favoritos e Recentes da Minha IPTV, gratuitos e persistidos somente no SQLite local por conta e fonte, com identidade lógica resiliente a mudanças de URL da playlist.
 - Experiência cinematográfica da Minha IPTV, com player ao vivo integrado, controles próprios, catálogo em grid e configurações secundárias acessíveis.
-- Reprodução IPTV local integrada ao Semyra Desktop por HLS efêmero e hls.js local, sem WHIP, LiveKit ou exposição da URL do provider.
-
 - Publicação IPTV do Semyra Desktop por WHIP para o LiveKit, autorizada por Host Session e cercada por instância/revisão da transmissão.
 - Worker externo capaz de transportar uma fonte MPEG-TS privada para WHIP, com H.264 passthrough, áudio AAC convertido para Opus e supervisão fail-closed por lease; a seleção IPTV ainda não está disponível ao usuário final.
 - Fundação do lifecycle externo do bridge IPTV por control plane pull, jobs persistentes, leases com fencing por `instance_id` e gerenciamento de WHIP Ingress, inicialmente validada em dry-run antes do transporte de mídia.

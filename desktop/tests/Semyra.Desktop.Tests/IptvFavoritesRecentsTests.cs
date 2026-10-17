@@ -286,31 +286,6 @@ public sealed class IptvFavoritesRecentsTests : IDisposable
         Assert.Equal(1L, ScalarLong(connection, "SELECT COUNT(*) FROM iptv_sources"));
     }
 
-    [Fact]
-    public async Task OnlyCurrentLocalViewStreamingRecordsARecentChannel()
-    {
-        var store = Store();
-        var catalog = new IptvCatalogService(store, _protector, new M3uParser(), new HttpClient());
-        var source = store.AddSource("Fonte", IptvSourceType.M3uUrl, "https://provider.example/list.m3u");
-        await Import(store, source.Id,
-            Channel("Assistido", "https://provider.example/view", "view"),
-            Channel("Falhou", "https://provider.example/failed", "failed"),
-            Channel("Publicado", "https://provider.example/publish", "publish"));
-        var channels = store.SearchChannels(source.Id, "", null, 0, 50).Channels.ToDictionary(channel => channel.Name);
-        var media = new MediaEngine(_ => throw new InvalidOperationException(), GStreamerRuntime.AvailableForTests(), new UnusedProvider(), new UnusedPipelines());
-        await using var engine = new HostEngine(catalog, media);
-        engine.Start();
-        await engine.ActivateAccountAsync(new string('a', 64));
-
-        engine.OnMediaStateChanged(media, new MediaSnapshot("failed", channels["Falhou"].Id, "Falhou", 1, "provider_connect_failed", "view"));
-        engine.OnMediaStateChanged(media, new MediaSnapshot("streaming", channels["Publicado"].Id, "Publicado", 1, null, "publish"));
-        engine.OnMediaStateChanged(new object(), new MediaSnapshot("streaming", channels["Falhou"].Id, "Falhou", 1, null, "view"));
-        engine.OnMediaStateChanged(media, new MediaSnapshot("streaming", channels["Assistido"].Id, "Assistido", 1, null, "view"));
-
-        var recent = Assert.Single(store.ListRecents(source.Id));
-        Assert.Equal("Assistido", recent.Name);
-    }
-
     private IptvStore Store()
     {
         var store = new IptvStore(DatabasePath(), _protector);
@@ -391,16 +366,4 @@ public sealed class IptvFavoritesRecentsTests : IDisposable
         public string Unprotect(byte[] value) => Encoding.UTF8.GetString(Convert.FromBase64String(Encoding.UTF8.GetString(value)));
     }
 
-    private sealed class UnusedProvider : IProviderStreamClient
-    {
-        public Task<Stream> OpenAsync(Uri streamUri, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public void Dispose() { }
-    }
-
-    private sealed class UnusedPipelines : IMediaPipelineFactory
-    {
-        public IMediaPipeline Create() => throw new NotSupportedException();
-        public IMediaPipeline CreatePublish(Uri whipEndpoint) => throw new NotSupportedException();
-        public IMediaPipeline CreateLocalView(string outputDirectory) => throw new NotSupportedException();
-    }
 }

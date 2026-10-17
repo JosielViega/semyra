@@ -20,7 +20,6 @@ public sealed class MpvPlayerTests
 
         Assert.Equal(1, created);
         Assert.Equal("native-mpv", first.PlaybackKind);
-        Assert.Null(first.PlaybackUrl);
         Assert.NotEqual(firstSession, second.SessionId);
         Assert.Equal(2, process.Commands.Count(call => call.Command == "loadfile"));
         Assert.Equal(2, process.Commands.Count(call => call.Command == "set_property" && Equals(call.Arguments[0], "pause") && Equals(call.Arguments[1], false)));

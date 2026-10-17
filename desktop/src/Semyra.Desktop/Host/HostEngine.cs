@@ -13,7 +13,6 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private string? _accountContextId;
     private readonly Func<string, IptvCatalogService> _catalogFactory;
     private readonly Func<IptvCatalogService, MediaEngine> _mediaFactory;
-    private readonly LocalPlayerOptions _localPlayerOptions;
     private readonly MpvRuntime _mpvRuntime;
     private readonly Func<MpvRuntime, nint, MpvPlayer> _mpvFactory;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
@@ -25,7 +24,6 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         : this(
             IptvCatalogService.CreateDefault,
             catalog => MediaEngine.CreateDefault(catalog, GStreamerRuntime.DiscoverDefault()),
-            LocalPlayerOptions.FromEnvironment(),
             MpvRuntime.DiscoverDefault())
     {
     }
@@ -33,13 +31,11 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     internal HostEngine(
         Func<string, IptvCatalogService> catalogFactory,
         Func<IptvCatalogService, MediaEngine> mediaFactory,
-        LocalPlayerOptions? localPlayerOptions = null,
         MpvRuntime? mpvRuntime = null,
         Func<MpvRuntime, nint, MpvPlayer>? mpvFactory = null)
     {
         _catalogFactory = catalogFactory;
         _mediaFactory = mediaFactory;
-        _localPlayerOptions = localPlayerOptions ?? new LocalPlayerOptions(LocalPlayerMode.Auto);
         _mpvRuntime = mpvRuntime ?? MpvRuntime.Unavailable();
         _mpvFactory = mpvFactory ?? ((runtime, handle) => new MpvPlayer(runtime, handle));
     }
@@ -64,15 +60,10 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     internal event EventHandler<bool>? NativeVideoFullscreenChanged;
     internal string? CurrentAccountContextId => _accountContextId;
     internal MpvRuntime MpvRuntime => _mpvRuntime;
-    internal LocalPlaybackEngine LocalPlaybackEngine => _localPlayerOptions.Mode switch
-    {
-        LocalPlayerMode.Mpv => MpvReady ? LocalPlaybackEngine.Mpv : LocalPlaybackEngine.Unavailable,
-        LocalPlayerMode.Legacy => LocalPlaybackEngine.Legacy,
-        _ => MpvReady ? LocalPlaybackEngine.Mpv : LocalPlaybackEngine.Legacy,
-    };
+    internal LocalPlaybackEngine LocalPlaybackEngine => MpvReady
+        ? LocalPlaybackEngine.Mpv
+        : LocalPlaybackEngine.Unavailable;
     private bool MpvReady => _mpvRuntime.Available && _nativeVideoHost != 0;
-    private bool CanUseMpv => LocalPlaybackEngine == LocalPlaybackEngine.Mpv;
-    private bool CanUseLegacy => _localPlayerOptions.Mode != LocalPlayerMode.Mpv;
 
     internal void SetNativeVideoHost(nint handle)
     {
@@ -225,9 +216,8 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         State,
         _authorization,
         _accountContextId is not null,
-        _media?.IsAvailable == true,
         _media?.Runtime.IsWhipAvailable == true,
-        CanUseMpv || CanUseLegacy && _media?.Runtime.IsLocalViewAvailable == true);
+        MpvReady);
 
     public IReadOnlyList<IptvSourceSummary> ListIptvSources() => Catalog().ListSources();
     public IptvSourceSummary AddIptvUrl(string name, string location) => Catalog().AddUrlSource(name, location);
@@ -241,20 +231,14 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     public bool RemoveIptvRecent(long sourceId, long recentId) => Catalog().RemoveRecent(sourceId, recentId);
     public int ClearIptvRecents(long sourceId) => Catalog().ClearRecents(sourceId);
     public bool SetIptvFavorite(long channelId, bool favorite) => Catalog().SetFavorite(channelId, favorite);
-    public Task<MediaSnapshot> StartIptvMediaAsync(long channelId, CancellationToken cancellationToken) => Media().StartAsync(channelId, cancellationToken);
-    public async Task<LocalPlaybackStartResult> StartIptvLocalViewAsync(long channelId, CancellationToken cancellationToken)
+    public async Task<MpvPlaybackStartResult> StartIptvLocalViewAsync(long channelId, CancellationToken cancellationToken)
     {
-        if (CanUseMpv)
-        {
-            var channel = Catalog().ResolveChannelForPlayback(channelId);
-            var player = EnsureMpvPlayer();
-            return await player.StartAsync(channel, cancellationToken);
-        }
-        if (!CanUseLegacy)
+        if (!MpvReady)
         {
             throw new MediaEngineException("mpv_runtime_unavailable");
         }
-        return await Media().StartLocalViewAsync(channelId, cancellationToken);
+        var channel = Catalog().ResolveChannelForPlayback(channelId);
+        return await EnsureMpvPlayer().StartAsync(channel, cancellationToken);
     }
 
     public Task<MediaSnapshot> StartIptvPublishAsync(long channelId, CancellationToken cancellationToken)
@@ -303,42 +287,12 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         NativeVideoFullscreenChanged?.Invoke(this, fullscreen);
         return snapshot;
     }
-    public bool TryReadLocalPlayback(Uri requestUri, string method, out LocalPlaybackResource? resource)
-    {
-        resource = null;
-        return State == HostEngineState.Ready
-            && _accountContextId is not null
-            && _media is not null
-            && _media.TryReadLocalPlayback(requestUri, method, out resource);
-    }
-    public Task<LocalPlaybackResource?> ReadLocalPlaybackAsync(Uri requestUri, string method, CancellationToken cancellationToken = default) =>
-        State == HostEngineState.Ready && _accountContextId is not null && _media is not null
-            ? _media.ReadLocalPlaybackAsync(requestUri, method, cancellationToken)
-            : Task.FromResult<LocalPlaybackResource?>(null);
-    internal LocalPlaybackRequestKind ClassifyLocalPlaybackRequest(Uri requestUri, string method) =>
-        State == HostEngineState.Ready && _accountContextId is not null && _media is not null
-            ? _media.ClassifyLocalPlaybackRequest(requestUri, method)
-            : LocalPlaybackSession.IsReservedNamespace(requestUri)
-                ? LocalPlaybackRequestKind.PlaybackInvalid
-                : LocalPlaybackRequestKind.NotPlayback;
-
     private IptvCatalogService Catalog() => State == HostEngineState.Ready && _iptv is not null
         ? _iptv : throw new IptvValidationException("O catálogo IPTV local não está disponível.");
     private MediaEngine Media() => State == HostEngineState.Ready && _media is not null
         ? _media : throw new MediaEngineException("media_runtime_unavailable");
     internal void OnMediaStateChanged(object? sender, MediaSnapshot snapshot)
     {
-        if (ReferenceEquals(sender, _media) && snapshot.State == "streaming" && snapshot.Mode == "view" && snapshot.ChannelId is long channelId)
-        {
-            try
-            {
-                _iptv?.RecordRecent(channelId);
-            }
-            catch (Exception)
-            {
-                // A sessão de mídia continua independente da persistência auxiliar de recentes.
-            }
-        }
         MediaStateChanged?.Invoke(this, snapshot);
     }
 

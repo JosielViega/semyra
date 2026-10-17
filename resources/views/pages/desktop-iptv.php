@@ -51,7 +51,6 @@
         <div class="iptv-library" data-iptv-library hidden>
             <div class="iptv-player-shell" data-iptv-player-shell>
             <section class="iptv-player-stage" data-iptv-player-stage data-state="idle" aria-label="Player IPTV local">
-                <video data-iptv-video playsinline preload="none" aria-label="Canal IPTV em reprodução"></video>
                 <div class="iptv-player-ambient" aria-hidden="true"></div>
                 <div class="iptv-player-empty" data-iptv-player-empty>
                     <svg aria-hidden="true"><use href="#iptv-icon-tv"></use></svg>
@@ -62,20 +61,6 @@
                     <svg aria-hidden="true"><use href="#iptv-icon-tv"></use></svg>
                     <h2 data-iptv-error-title>Não foi possível reproduzir este conteúdo.</h2><p data-iptv-error-copy>Tente novamente ou escolha outro conteúdo do catálogo.</p>
                     <div><button type="button" data-iptv-retry>Tentar novamente</button><button type="button" class="iptv-button-quiet" data-iptv-choose-channel>Escolher outro</button></div>
-                </div>
-                <button type="button" class="iptv-autoplay-action" data-iptv-autoplay hidden>Clique para reproduzir</button>
-                <div class="iptv-player-chrome" data-iptv-player-chrome>
-                    <div class="iptv-player-now">
-                        <span class="iptv-live-badge" data-iptv-live-badge hidden><i aria-hidden="true"></i>Ao vivo</span>
-                        <strong data-iptv-current-channel>Minha IPTV</strong>
-                        <span class="iptv-player-status" data-iptv-media-status role="status" aria-live="polite">Escolha um canal</span>
-                    </div>
-                    <div class="iptv-player-controls" data-iptv-player-controls>
-                        <button type="button" class="iptv-icon-button" data-iptv-mute aria-label="Silenciar" title="Silenciar"><svg data-iptv-volume-icon aria-hidden="true"><use href="#iptv-icon-volume"></use></svg><svg data-iptv-muted-icon aria-hidden="true" hidden><use href="#iptv-icon-muted"></use></svg></button>
-                        <label class="iptv-volume-control"><span class="sr-only">Volume</span><input type="range" min="0" max="100" value="80" data-range-progress="80" style="--iptv-range-progress:80%" data-iptv-volume aria-label="Volume"></label>
-                        <button type="button" class="iptv-icon-button" data-iptv-fullscreen aria-label="Entrar em tela cheia" title="Entrar em tela cheia"><svg data-iptv-fullscreen-icon aria-hidden="true"><use href="#iptv-icon-fullscreen"></use></svg><svg data-iptv-compress-icon aria-hidden="true" hidden><use href="#iptv-icon-compress"></use></svg></button>
-                        <button type="button" class="iptv-stop-button" data-iptv-media-stop disabled><svg aria-hidden="true"><use href="#iptv-icon-stop"></use></svg>Parar</button>
-                    </div>
                 </div>
             </section>
 
@@ -145,5 +130,4 @@
         </div>
     </dialog>
 </section>
-<script src="/assets/vendor/hls/hls.min.js?v=1.7.3" defer></script>
-<script src="/assets/js/desktop-iptv.js?v=11j-c-mpv-player" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11j-d-mpv-only" defer></script>

@@ -17,32 +17,32 @@ public sealed class GStreamerRuntimeTests : IDisposable
         Assert.True(runtime.IsAvailable);
         Assert.True(runtime.IsWhipAvailable);
         Assert.Equal("GStreamer 1.26.11", runtime.Snapshot.Version);
-        Assert.True(runtime.IsLocalViewAvailable);
-        Assert.Equal([.. GStreamerRuntime.RequiredElements, "whipsink", .. GStreamerRuntime.LocalViewElements], runner.Inspected);
+        Assert.Equal([.. GStreamerRuntime.RequiredElements, "whipsink"], runner.Inspected);
         Assert.StartsWith(binaryDirectory, runtime.LaunchPath, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void MissingWhipSinkPreservesLocalPlaybackCapability()
+    public void MissingWhipSinkPreservesBaseRuntimeOnly()
     {
         CreateExecutables();
         var runtime = GStreamerRuntime.Discover(_directory, new RecordingRunner("whipsink"));
 
         Assert.True(runtime.IsAvailable);
         Assert.False(runtime.IsWhipAvailable);
-        Assert.True(runtime.IsLocalViewAvailable);
         Assert.Null(runtime.Snapshot.ErrorCode);
     }
 
     [Fact]
-    public void MissingHlsElementPreservesBaseAndWhipCapabilities()
+    public void PublishRuntimeDoesNotRequireLegacyHlsElements()
     {
         CreateExecutables();
         var runtime = GStreamerRuntime.Discover(_directory, new RecordingRunner("hlssink"));
 
         Assert.True(runtime.IsAvailable);
         Assert.True(runtime.IsWhipAvailable);
-        Assert.False(runtime.IsLocalViewAvailable);
+        Assert.DoesNotContain("hlssink", GStreamerRuntime.RequiredElements);
+        Assert.DoesNotContain("mpegtsmux", GStreamerRuntime.RequiredElements);
+        Assert.DoesNotContain("fakesink", GStreamerRuntime.RequiredElements);
     }
 
     [Fact]

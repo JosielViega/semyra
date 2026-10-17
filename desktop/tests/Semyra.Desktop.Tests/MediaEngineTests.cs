@@ -20,28 +20,6 @@ public sealed class MediaEngineTests
     }
 
     [Fact]
-    public void PipelineUsesArgumentListWithoutProviderUrlOrShell()
-    {
-        const string providerUrl = "https://provider.example/user/password/live.ts";
-        var process = new GStreamerProcess("gst-launch-1.0.exe", MediaPipeline.Arguments);
-        var startInfo = process.CreateStartInfo();
-        var arguments = startInfo.ArgumentList.ToArray();
-
-        Assert.False(startInfo.UseShellExecute);
-        Assert.True(startInfo.RedirectStandardInput);
-        Assert.True(startInfo.RedirectStandardError);
-        Assert.True(startInfo.CreateNoWindow);
-        Assert.DoesNotContain(arguments, value => value.Contains(providerUrl, StringComparison.Ordinal));
-        Assert.DoesNotContain(startInfo.Environment, pair => pair.Value?.Contains(providerUrl, StringComparison.Ordinal) == true);
-        Assert.Contains("h264parse", arguments);
-        Assert.Contains("rtph264pay", arguments);
-        Assert.Contains("aacparse", arguments);
-        Assert.Contains("avdec_aac", arguments);
-        Assert.Contains("opusenc", arguments);
-        Assert.Equal(2, arguments.Count(value => value == "fakesink"));
-    }
-
-    [Fact]
     public void PublishPipelineUsesWhipEndpointOnlyInArgumentList()
     {
         var endpoint = new Uri("https://whip.example/ephemeral");
@@ -55,150 +33,6 @@ public sealed class MediaEngineTests
         Assert.Contains("whip-endpoint=" + endpoint.AbsoluteUri, arguments);
         Assert.DoesNotContain(arguments, value => value.Contains("provider.example", StringComparison.Ordinal));
         Assert.DoesNotContain(startInfo.Environment, pair => pair.Value?.Contains(endpoint.AbsoluteUri, StringComparison.Ordinal) == true);
-    }
-
-    [Fact]
-    public void LocalViewPipelineWritesOnlyEphemeralHlsFilesInItsWorkingDirectory()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), "semyra-hls-test");
-        var process = new GStreamerProcess("gst-launch-1.0.exe", MediaPipeline.LocalViewArguments, directory);
-        var startInfo = process.CreateStartInfo();
-        var arguments = startInfo.ArgumentList.ToArray();
-
-        Assert.Equal(directory, startInfo.WorkingDirectory);
-        Assert.Contains("mpegtsmux", arguments);
-        Assert.Contains("hlssink", arguments);
-        Assert.Contains("playlist-location=index.m3u8", arguments);
-        Assert.Contains("location=segment%05d.ts", arguments);
-        Assert.DoesNotContain(arguments, value => value.Contains("provider.example", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task LocalViewReturnsOpaquePlaybackUrlAndStopInvalidatesIt()
-    {
-        var pipelines = new FakePipelineFactory(writePlaylist: true);
-        using var engine = Engine(new FakeProvider(), pipelines);
-
-        var started = await engine.StartLocalViewAsync(10);
-        var duplicate = await engine.StartLocalViewAsync(10);
-        var uri = new Uri(new Uri("https://semyra.example/"), started.PlaybackUrl);
-
-        Assert.Equal("view", started.Snapshot.Mode);
-        Assert.Matches("^/__desktop/playback/[a-f0-9]{64}/index\\.m3u8$", started.PlaybackUrl);
-        Assert.Equal(started.PlaybackUrl, duplicate.PlaybackUrl);
-        Assert.Equal(1, pipelines.CreateCount);
-        Assert.True(engine.TryReadLocalPlayback(uri, "GET", out var resource));
-        Assert.Equal("application/vnd.apple.mpegurl", resource!.ContentType);
-
-        await engine.StopAsync();
-        Assert.False(engine.TryReadLocalPlayback(uri, "GET", out _));
-    }
-
-    [Fact]
-    public async Task StopInvalidatesLocalPlaybackBeforePendingPipelineCleanupCompletes()
-    {
-        var stopGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var pipelines = new FakePipelineFactory(writePlaylist: true, stopGate: stopGate);
-        await using var engine = Engine(new FakeProvider(), pipelines);
-        var started = await engine.StartLocalViewAsync(10);
-        var uri = new Uri(new Uri("https://semyra.example/"), started.PlaybackUrl);
-
-        var stop = engine.StopAsync();
-
-        Assert.False(stop.IsCompleted);
-        Assert.False(engine.TryReadLocalPlayback(uri, "GET", out _));
-        await pipelines.Pipelines[0].StopStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        stopGate.SetResult(true);
-        await stop;
-        Assert.True(pipelines.Pipelines[0].Stopped);
-    }
-
-    [Fact]
-    public async Task LocalPlaybackHandlerRequiresConfiguredOriginAndActiveAccount()
-    {
-        var media = Engine(new FakeProvider(), new FakePipelineFactory(writePlaylist: true));
-        using var host = new HostEngine(media);
-        host.Start();
-        var started = await host.StartIptvLocalViewAsync(10, default);
-        var handler = new LocalPlaybackRequestHandler(new Uri("https://semyra.example/"), host);
-        var segmentUrl = started.PlaybackUrl.Replace("index.m3u8", "segment00001.ts", StringComparison.Ordinal);
-
-        Assert.True(handler.TryRead("https://semyra.example" + started.PlaybackUrl, "GET", out _));
-        Assert.False(handler.TryRead("https://evil.example" + started.PlaybackUrl, "GET", out _));
-        Assert.Equal(LocalPlaybackRequestKind.PlaybackManifest, handler.Classify("https://semyra.example" + started.PlaybackUrl, "GET"));
-        Assert.Equal(LocalPlaybackRequestKind.PlaybackManifest, handler.Classify("https://semyra.example" + started.PlaybackUrl, "HEAD"));
-        Assert.Equal(LocalPlaybackRequestKind.PlaybackSegment, handler.Classify("https://semyra.example" + segmentUrl, "GET"));
-        Assert.Equal(LocalPlaybackRequestKind.PlaybackInvalid, handler.Classify("https://semyra.example" + started.PlaybackUrl, "POST"));
-        Assert.Equal(LocalPlaybackRequestKind.PlaybackInvalid, handler.Classify(
-            "https://semyra.example/__desktop/playback/" + new string('b', 64) + "/index.m3u8", "GET"));
-        Assert.Equal(LocalPlaybackRequestKind.PlaybackInvalid, handler.Classify(
-            "https://semyra.example" + started.PlaybackUrl.Replace("index.m3u8", "%2e%2e%2fsecret", StringComparison.Ordinal), "GET"));
-
-        foreach (var path in new[]
-        {
-            "/logout", "/", "/rooms", "/desktop/iptv", "/login",
-            "/desktop/account-context", "/assets/css/app.css", "/assets/js/app.js", "/assets/images/logo.png",
-        })
-        {
-            var method = path == "/logout" ? "POST" : "GET";
-            Assert.Equal(LocalPlaybackRequestKind.NotPlayback, handler.Classify("https://semyra.example" + path, method));
-        }
-
-        await host.StopAsync();
-        Assert.False(handler.TryRead("https://semyra.example" + started.PlaybackUrl, "GET", out _));
-        Assert.Equal(LocalPlaybackRequestKind.PlaybackInvalid, handler.Classify("https://semyra.example" + started.PlaybackUrl, "GET"));
-        Assert.Equal(LocalPlaybackRequestKind.NotPlayback, handler.Classify("https://semyra.example/logout", "POST"));
-    }
-
-    [Fact]
-    public async Task LocalViewAndPublishReplaceEachOtherWithoutConcurrentPipelines()
-    {
-        var pipelines = new FakePipelineFactory(writePlaylist: true);
-        var publish = new FakePublishClient();
-        using var engine = new MediaEngine(
-            Resolve, GStreamerRuntime.AvailableForTests(), new FakeProvider(), pipelines,
-            publishClient: publish);
-
-        var view = await engine.StartLocalViewAsync(10);
-        var oldUrl = new Uri(new Uri("https://semyra.example/"), view.PlaybackUrl);
-        var publishing = await engine.StartPublishAsync(10, () => Authorization("a"));
-
-        Assert.Equal("publish", publishing.Mode);
-        Assert.True(pipelines.Pipelines[0].Stopped);
-        Assert.False(engine.TryReadLocalPlayback(oldUrl, "GET", out _));
-        Assert.Equal(2, pipelines.CreateCount);
-
-        var nextView = await engine.StartLocalViewAsync(20);
-
-        Assert.Equal("view", nextView.Snapshot.Mode);
-        Assert.True(pipelines.Pipelines[1].Stopped);
-        Assert.Single(publish.Stops);
-        Assert.Equal(3, pipelines.CreateCount);
-    }
-
-    [Fact]
-    public async Task LocalViewReconnectKeepsTokenAndResetsOldFragments()
-    {
-        var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var delays = new List<TimeSpan>();
-        var pipelines = new FakePipelineFactory(writePlaylist: true, pumpFailureGate: failure);
-        using var engine = Engine(new FakeProvider(), pipelines, (delay, token) =>
-        {
-            delays.Add(delay);
-            return delay < TimeSpan.FromSeconds(1) ? Task.Delay(1, token) : Task.CompletedTask;
-        });
-        var started = await engine.StartLocalViewAsync(10);
-        var url = new Uri(new Uri("https://semyra.example/"), started.PlaybackUrl);
-
-        failure.SetResult(true);
-        for (var index = 0; index < 100 && engine.Snapshot().Attempt < 2; index++) await Task.Delay(5);
-
-        Assert.Equal("streaming", engine.Snapshot().State);
-        Assert.Equal(2, engine.Snapshot().Attempt);
-        Assert.True(engine.TryReadLocalPlayback(url, "GET", out _));
-        Assert.Contains(TimeSpan.FromSeconds(1), delays);
-        Assert.Equal(2, pipelines.CreateCount);
-        Assert.True(pipelines.Pipelines[0].Stopped);
     }
 
     [Fact]
@@ -274,8 +108,8 @@ public sealed class MediaEngineTests
         var events = new List<MediaSnapshot>();
         engine.StateChanged += (_, snapshot) => events.Add(snapshot);
 
-        var first = await engine.StartAsync(10);
-        var duplicate = await engine.StartAsync(10);
+        var first = await engine.StartPublishAsync(10, () => Authorization("a"));
+        var duplicate = await engine.StartPublishAsync(10, () => Authorization("a"));
         var stopped = await engine.StopAsync();
         var stoppedAgain = await engine.StopAsync();
 
@@ -296,7 +130,7 @@ public sealed class MediaEngineTests
         var pipelines = new FakePipelineFactory(startGate: startGate);
         using var engine = Engine(new FakeProvider(), pipelines);
 
-        var start = engine.StartAsync(10);
+        var start = engine.StartPublishAsync(10, () => Authorization("a"));
         await Task.Delay(30);
         Assert.Equal("preparing", engine.Snapshot().State);
         Assert.False(start.IsCompleted);
@@ -312,8 +146,8 @@ public sealed class MediaEngineTests
         var pipelines = new FakePipelineFactory();
         using var engine = Engine(provider, pipelines);
 
-        await engine.StartAsync(10);
-        var replacement = await engine.StartAsync(20);
+        await engine.StartPublishAsync(10, () => Authorization("a"));
+        var replacement = await engine.StartPublishAsync(20, () => Authorization("a"));
 
         Assert.Equal(20, replacement.ChannelId);
         Assert.Equal(2, provider.OpenCount);
@@ -333,7 +167,7 @@ public sealed class MediaEngineTests
         var states = new List<string>();
         engine.StateChanged += (_, snapshot) => states.Add(snapshot.State);
 
-        var result = await engine.StartAsync(10);
+        var result = await engine.StartPublishAsync(10, () => Authorization("a"));
 
         Assert.Equal("failed", result.State);
         Assert.Equal("pipeline_start_failed", result.LastErrorCode);
@@ -353,7 +187,7 @@ public sealed class MediaEngineTests
         var states = new List<string>();
         engine.StateChanged += (_, snapshot) => states.Add(snapshot.State);
 
-        Assert.Equal("streaming", (await engine.StartAsync(10)).State);
+        Assert.Equal("streaming", (await engine.StartPublishAsync(10, () => Authorization("a"))).State);
         for (var index = 0; index < 50 && engine.Snapshot().State != "failed"; index++)
         {
             await Task.Delay(10);
@@ -373,7 +207,8 @@ public sealed class MediaEngineTests
         var media = Engine(provider, pipelines);
         using var host = new HostEngine(media: media);
         host.Start();
-        await host.StartIptvMediaAsync(10, default);
+        Assert.True(host.Authorize(Authorization("a")));
+        await host.StartIptvPublishAsync(10, default);
 
         await host.StopAsync();
         await Task.Delay(20);
@@ -382,29 +217,6 @@ public sealed class MediaEngineTests
         Assert.Equal("idle", host.IptvMediaSnapshot().State);
         Assert.Equal(1, pipelines.CreateCount);
         Assert.True(pipelines.Pipelines[0].Stopped);
-    }
-
-    [Fact]
-    public async Task RuntimeUnavailableFailsSafelyAndCapabilityIsConditional()
-    {
-        var unavailable = GStreamerRuntime.Discover(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")), new FakeCommandRunner());
-        var media = new MediaEngine(
-            Resolve,
-            unavailable,
-            new FakeProvider(),
-            new FakePipelineFactory());
-        using var host = new HostEngine(media: media);
-        host.Start();
-
-        var exception = await Assert.ThrowsAsync<MediaEngineException>(() => host.StartIptvMediaAsync(10, default));
-
-        Assert.Equal("media_runtime_unavailable", exception.Code);
-        Assert.DoesNotContain("iptv.play", host.Snapshot().Capabilities);
-
-        var availableMedia = Engine(new FakeProvider(), new FakePipelineFactory());
-        using var availableHost = new HostEngine(media: availableMedia);
-        availableHost.Start();
-        Assert.Contains("iptv.play", availableHost.Snapshot().Capabilities);
     }
 
     [Fact]
@@ -421,7 +233,13 @@ public sealed class MediaEngineTests
         FakePipelineFactory pipelines,
         Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
-        return new MediaEngine(Resolve, GStreamerRuntime.AvailableForTests(), provider, pipelines, delay);
+        return new MediaEngine(
+            Resolve,
+            GStreamerRuntime.AvailableForTests(),
+            provider,
+            pipelines,
+            delay,
+            new FakePublishClient());
     }
 
     private static IptvPlaybackChannel Resolve(long channelId)
@@ -467,13 +285,12 @@ public sealed class MediaEngineTests
         int failedStarts = 0,
         int failedPumps = 0,
         TaskCompletionSource<bool>? startGate = null,
-        bool writePlaylist = false,
         TaskCompletionSource<bool>? pumpFailureGate = null,
         TaskCompletionSource<bool>? stopGate = null) : IMediaPipelineFactory
     {
         public List<FakePipeline> Pipelines { get; } = [];
         public int CreateCount => Pipelines.Count;
-        public IMediaPipeline Create()
+        public IMediaPipeline CreatePublish(Uri whipEndpoint)
         {
             var pipeline = new FakePipeline(
                 Pipelines.Count < failedStarts,
@@ -483,16 +300,6 @@ public sealed class MediaEngineTests
                 stopGate);
             Pipelines.Add(pipeline);
             return pipeline;
-        }
-        public IMediaPipeline CreatePublish(Uri whipEndpoint) => Create();
-        public IMediaPipeline CreateLocalView(string outputDirectory)
-        {
-            if (writePlaylist)
-            {
-                File.WriteAllText(Path.Combine(outputDirectory, "index.m3u8"), "#EXTM3U\nsegment00001.ts\n");
-                File.WriteAllBytes(Path.Combine(outputDirectory, "segment00001.ts"), [0x47, 0x00]);
-            }
-            return Create();
         }
     }
 

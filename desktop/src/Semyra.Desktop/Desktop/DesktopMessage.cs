@@ -43,12 +43,6 @@ public static partial class DesktopMessage
     public const string IptvRecentRemoveResultType = "semyra.desktop.iptv.recent.remove-result";
     public const string IptvRecentsClearType = "semyra.desktop.iptv.recents.clear";
     public const string IptvRecentsClearResultType = "semyra.desktop.iptv.recents.clear-result";
-    public const string IptvMediaStartType = "semyra.desktop.iptv.media.start";
-    public const string IptvMediaStartResultType = "semyra.desktop.iptv.media.start-result";
-    public const string IptvMediaStopType = "semyra.desktop.iptv.media.stop";
-    public const string IptvMediaStopResultType = "semyra.desktop.iptv.media.stop-result";
-    public const string IptvMediaStatusType = "semyra.desktop.iptv.media.status";
-    public const string IptvMediaStatusResultType = "semyra.desktop.iptv.media.status-result";
     public const string IptvMediaStateType = "semyra.desktop.iptv.media.state";
     public const string IptvViewStartType = "semyra.desktop.iptv.view.start";
     public const string IptvViewStartResultType = "semyra.desktop.iptv.view.start-result";
@@ -167,7 +161,7 @@ public static partial class DesktopMessage
                 return true;
             }
 
-            if (type is IptvMediaStopType or IptvMediaStatusType or IptvPublishStopType or IptvPublishStatusType
+            if (type is IptvPublishStopType or IptvPublishStatusType
                 or IptvViewStopType or IptvViewStatusType)
             {
                 if (properties.Count != 3 || !TryAccountContext(properties, out var contextId))
@@ -178,7 +172,7 @@ public static partial class DesktopMessage
                 return true;
             }
 
-            if (type is IptvMediaStartType or IptvPublishStartType or IptvViewStartType)
+            if (type is IptvPublishStartType or IptvViewStartType)
             {
                 if (properties.Count != 4 || !TryPositiveInt64(properties, "channelId", out var channelId) || !TryAccountContext(properties, out var contextId))
                 {

@@ -73,7 +73,7 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     }
 
     [Fact]
-    public async Task MediaStatusAndRuntimeErrorsExposeOnlySafeCodes()
+    public async Task RemovedGenericMediaProtocolIsRejected()
     {
         var engine = await EngineAsync();
         engine.Start();
@@ -86,12 +86,8 @@ public sealed class IptvDesktopBridgeTests : IDisposable
             engine,
             () => null);
 
-        Assert.True(status.Handled);
-        Assert.Contains("\"state\":\"idle\"", status.Response);
-        Assert.True(unavailable.Handled);
-        Assert.Contains("media_runtime_unavailable", unavailable.Response);
-        Assert.DoesNotContain("http", unavailable.Response, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("location", unavailable.Response, StringComparison.OrdinalIgnoreCase);
+        Assert.False(status.Handled);
+        Assert.False(unavailable.Handled);
     }
 
     [Fact]

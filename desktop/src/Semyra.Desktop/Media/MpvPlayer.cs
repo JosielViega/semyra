@@ -59,7 +59,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
         lock (_snapshotLock) return _snapshot;
     }
 
-    internal async Task<LocalPlaybackStartResult> StartAsync(IptvPlaybackChannel channel, CancellationToken cancellationToken)
+    internal async Task<MpvPlaybackStartResult> StartAsync(IptvPlaybackChannel channel, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -103,7 +103,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
             // The provider URL exists only in native memory and this IPC write. It is never logged or returned.
             await _process!.CommandAsync("loadfile", [channel.StreamUri.AbsoluteUri, "replace"], cancellationToken);
             var snapshot = Update("loading", channel.Id, channel.Name, null, sessionId);
-            return new LocalPlaybackStartResult(snapshot, null, "native-mpv", sessionId);
+            return new MpvPlaybackStartResult(snapshot, "native-mpv", sessionId);
         }
         catch
         {
