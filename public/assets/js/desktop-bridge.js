@@ -30,6 +30,7 @@
     const IPTV_COMMANDS = Object.freeze({
         list: ['semyra.desktop.iptv.sources.list', 'semyra.desktop.iptv.sources.list-result'],
         'add-url': ['semyra.desktop.iptv.sources.add', 'semyra.desktop.iptv.sources.add-result'],
+        'add-xtream': ['semyra.desktop.iptv.sources.add-xtream', 'semyra.desktop.iptv.sources.add-xtream-result'],
         remove: ['semyra.desktop.iptv.sources.remove', 'semyra.desktop.iptv.sources.remove-result'],
         refresh: ['semyra.desktop.iptv.sources.refresh', 'semyra.desktop.iptv.sources.refresh-result'],
         'pick-file': ['semyra.desktop.iptv.sources.pick-file', 'semyra.desktop.iptv.sources.pick-file-result'],
@@ -446,6 +447,17 @@
                 request.name = detail.name;
                 request.location = detail.location;
                 request.sourceType = 'm3u_url';
+            } else if (action === 'add-xtream') {
+                if (typeof detail.name !== 'string' || detail.name.length < 1 || detail.name.length > 100
+                    || typeof detail.baseUrl !== 'string' || detail.baseUrl.length < 1 || detail.baseUrl.length > 2048
+                    || typeof detail.username !== 'string' || detail.username.length < 1 || detail.username.length > 512
+                    || typeof detail.password !== 'string' || detail.password.length < 1 || detail.password.length > 512) {
+                    return;
+                }
+                request.name = detail.name;
+                request.baseUrl = detail.baseUrl;
+                request.username = detail.username;
+                request.password = detail.password;
             } else if (action === 'remove' || action === 'refresh' || action === 'groups') {
                 request.sourceId = positiveId(detail.sourceId);
                 if (request.sourceId === null) {
@@ -538,7 +550,7 @@
 
         function safeSource(source) {
             if (!source || !positiveId(source.id) || typeof source.name !== 'string'
-                || !['m3u_url', 'm3u_file'].includes(source.type)
+                || !['m3u_url', 'm3u_file', 'xtream'].includes(source.type)
                 || typeof source.enabled !== 'boolean' || typeof source.lastRefreshStatus !== 'string'
                 || !Number.isSafeInteger(source.channelCount) || source.channelCount < 0) {
                 return null;
@@ -572,7 +584,7 @@
             if (pending.clientRequestId !== null) detail.clientRequestId = pending.clientRequestId;
             if (pending.action === 'list' && Array.isArray(message.sources)) {
                 detail.sources = message.sources.map(safeSource).filter(Boolean);
-            } else if (['add-url', 'pick-file', 'refresh'].includes(pending.action)) {
+            } else if (['add-url', 'add-xtream', 'pick-file', 'refresh'].includes(pending.action)) {
                 detail.cancelled = message.cancelled === true;
                 detail.source = safeSource(message.source);
             } else if (pending.action === 'remove') {

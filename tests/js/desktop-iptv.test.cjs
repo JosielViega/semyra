@@ -164,6 +164,14 @@ registry.set('[data-iptv-search-form] select[name="group"]', group);
 const urlForm = register('[data-iptv-url-form]', new FakeElement('form'));
 urlForm.elements = {name: {value: 'Lista'}, location: {value: 'https://private.invalid/list'}};
 const addUrlButton = new FakeElement('button'); addUrlButton.type = 'submit'; addUrlButton.textContent = 'Adicionar URL'; urlForm.appendChild(addUrlButton);
+const xtreamForm = register('[data-iptv-xtream-form]', new FakeElement('form'));
+xtreamForm.elements = {
+    name: {value: 'Minha Xtream'},
+    baseUrl: {value: 'https://provider.example:8443/'},
+    username: {value: 'private-user'},
+    password: {value: 'private-pass'},
+};
+const addXtreamButton = new FakeElement('button'); addXtreamButton.type = 'submit'; addXtreamButton.textContent = 'Adicionar Xtream'; xtreamForm.appendChild(addXtreamButton);
 const stage = register('[data-iptv-player-stage]');
 stage.getBoundingClientRect = () => ({left: 20, top: 40, width: 960, height: 540});
 const settings = register('[data-iptv-settings]', new FakeElement('dialog'));
@@ -201,6 +209,7 @@ for (const selector of [
 ]) if (!registry.has(selector)) register(selector);
 registry.get('[data-iptv-pick-file]').tagName = 'BUTTON';
 settingsContent.appendChild(urlForm);
+settingsContent.appendChild(xtreamForm);
 settingsContent.appendChild(registry.get('[data-iptv-pick-file]'));
 settingsContent.appendChild(registry.get('[data-iptv-source-list]'));
 
@@ -342,6 +351,18 @@ assert.equal(registry.get('[data-iptv-settings-loader-title]').textContent, 'Car
 rootListeners.get('semyra:iptv-result')({detail: {action: 'add-url', ok: false, clientRequestId: failedAddToken, error: 'private_native_error'}});
 assert.equal(settings.dataset.settingsState, 'idle', 'busy must clear after an error');
 assert.equal(registry.get('[data-iptv-feedback]').textContent, 'Não foi possível carregar esta fonte.');
+
+xtreamForm.emit('submit');
+const failedXtreamToken = requests.at(-1).clientRequestId;
+assert.equal(settings.dataset.settingsState, 'adding-xtream');
+assert.deepEqual(requests.at(-1), {
+    action: 'add-xtream', clientRequestId: failedXtreamToken,
+    name: 'Minha Xtream', baseUrl: 'https://provider.example:8443/',
+    username: 'private-user', password: 'private-pass',
+});
+assert.equal(xtreamForm.elements.password.value, '', 'password must be cleared after dispatch');
+rootListeners.get('semyra:iptv-result')({detail: {action: 'add-xtream', ok: false, clientRequestId: failedXtreamToken, error: 'xtream_auth_failed'}});
+assert.equal(settings.dataset.settingsState, 'idle');
 
 registry.get('[data-iptv-pick-file]').emit('click');
 const cancelledPickToken = requests.at(-1).clientRequestId;

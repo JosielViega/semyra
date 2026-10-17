@@ -120,6 +120,15 @@
             <section class="iptv-settings-add" aria-labelledby="iptv-add-source-title">
                 <div class="iptv-settings-section-heading"><h3 id="iptv-add-source-title">Adicionar fonte</h3><button type="button" class="iptv-button-quiet" data-iptv-pick-file><svg aria-hidden="true"><use href="#iptv-icon-plus"></use></svg>Adicionar arquivo M3U</button></div>
                 <form class="iptv-url-form" data-iptv-url-form><label>Nome <input name="name" maxlength="100" required autocomplete="off" placeholder="Minha lista"></label><label>URL M3U <input name="location" type="url" maxlength="4096" required autocomplete="off" placeholder="https://…"></label><button type="submit" data-iptv-add-url>Adicionar URL</button></form>
+                <div class="iptv-add-divider"><span>ou</span></div>
+                <form class="iptv-xtream-form" data-iptv-xtream-form>
+                    <h4>Adicionar Xtream</h4>
+                    <label>Nome <input name="name" maxlength="100" required autocomplete="off" placeholder="Minha Xtream"></label>
+                    <label>Servidor <input name="baseUrl" type="url" maxlength="2048" required autocomplete="off" placeholder="http://servidor:porta"></label>
+                    <label>Usuário <input name="username" maxlength="512" required autocomplete="username" spellcheck="false"></label>
+                    <label>Senha <input name="password" type="password" maxlength="512" required autocomplete="current-password"></label>
+                    <button type="submit" data-iptv-add-xtream>Adicionar Xtream</button>
+                </form>
             </section>
             <section class="iptv-settings-sources" aria-labelledby="iptv-sources-title"><div class="iptv-settings-section-heading"><h3 id="iptv-sources-title">Fontes cadastradas</h3></div><p class="iptv-feedback" data-iptv-feedback role="status" aria-live="polite"></p><div class="iptv-source-list" data-iptv-source-list></div></section>
         </div>
@@ -130,4 +139,4 @@
         </div>
     </dialog>
 </section>
-<script src="/assets/js/desktop-iptv.js?v=11j-d-mpv-only" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11k-a-xtream-live" defer></script>

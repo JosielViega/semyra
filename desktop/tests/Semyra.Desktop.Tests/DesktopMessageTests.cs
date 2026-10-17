@@ -7,6 +7,26 @@ namespace Semyra.Desktop.Tests;
 public sealed class DesktopMessageTests
 {
     [Fact]
+    public void XtreamAddProtocolAcceptsOnlyTheStrictCredentialBoundary()
+    {
+        var context = new string('e', 32);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.sources.add-xtream","requestId":"xtream-1","accountContextId":"{{context}}","name":"Provider","baseUrl":"https://provider.example:8443","username":"user","password":"pass"}""",
+            out var request));
+        Assert.Equal("Provider", request.Iptv!.Name);
+        Assert.Equal("https://provider.example:8443", request.Iptv.BaseUrl);
+        Assert.Equal("user", request.Iptv.Username);
+        Assert.Equal("pass", request.Iptv.Password);
+
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.sources.add-xtream","requestId":"xtream-2","accountContextId":"{{context}}","name":"Provider","baseUrl":"https://provider.example","username":"user","password":"pass","extra":true}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.iptv.sources.add-xtream","requestId":"xtream-3","accountContextId":"{{context}}","name":"Provider","baseUrl":"https://provider.example","username":"user"}""",
+            out _));
+    }
+
+    [Fact]
     public void ValidPingProducesProtocolPong()
     {
         var hostEngine = new HostEngine();

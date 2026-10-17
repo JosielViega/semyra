@@ -89,6 +89,18 @@ public static class DesktopBridge
                     DesktopMessage.IptvSourcesAddResultType,
                     request.RequestId,
                     new { source = hostEngine.AddIptvUrl(request.Iptv.Name!, request.Iptv.Location!) }),
+                DesktopMessage.IptvSourcesAddXtreamType => Success(
+                    DesktopMessage.IptvSourcesAddXtreamResultType,
+                    request.RequestId,
+                    new
+                    {
+                        source = await hostEngine.AddIptvXtreamAsync(
+                            request.Iptv.Name!,
+                            request.Iptv.BaseUrl!,
+                            request.Iptv.Username!,
+                            request.Iptv.Password!,
+                            cancellationToken),
+                    }),
                 DesktopMessage.IptvSourcesRemoveType => Success(
                     DesktopMessage.IptvSourcesRemoveResultType,
                     request.RequestId,
@@ -156,7 +168,7 @@ public static class DesktopBridge
         {
             return (true, Error(ResultType(request.Type), request.RequestId, "Operação cancelada."));
         }
-        catch (Exception exception) when (exception is IptvValidationException or IptvRefreshException)
+        catch (Exception exception) when (exception is IptvValidationException or IptvRefreshException or XtreamException)
         {
             return (true, Error(ResultType(request.Type), request.RequestId, exception.Message));
         }
@@ -485,6 +497,7 @@ public static class DesktopBridge
     {
         DesktopMessage.IptvSourcesListType => DesktopMessage.IptvSourcesListResultType,
         DesktopMessage.IptvSourcesAddType => DesktopMessage.IptvSourcesAddResultType,
+        DesktopMessage.IptvSourcesAddXtreamType => DesktopMessage.IptvSourcesAddXtreamResultType,
         DesktopMessage.IptvSourcesRemoveType => DesktopMessage.IptvSourcesRemoveResultType,
         DesktopMessage.IptvSourcesRefreshType => DesktopMessage.IptvSourcesRefreshResultType,
         DesktopMessage.IptvSourcesPickFileType => DesktopMessage.IptvSourcesPickFileResultType,

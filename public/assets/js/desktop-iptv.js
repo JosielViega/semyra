@@ -14,6 +14,7 @@
     const ACTIVE_STATES = ['preparing', 'loading', 'streaming', 'playing', 'paused', 'buffering', 'reconnecting'];
     const CONTROLS_AUTO_HIDE_MS = 3000;
     const SETTINGS_STATES = Object.freeze({
+        'adding-xtream': ['Conectando ao Xtreamâ€¦', 'Autenticando e importando os canais ao vivo.'],
         'adding-file': ['Importando sua IPTV…', 'Lendo o arquivo e carregando os canais.'],
         'adding-url': ['Carregando sua IPTV…', 'Conectando à fonte e importando os canais.'],
         'selecting-source': ['Carregando canais…', 'Preparando esta fonte para você.'],
@@ -312,7 +313,7 @@
                 card.dataset.sourceId = String(source.id);
                 const copy = node('div', '');
                 copy.appendChild(node('h4', '', source.name));
-                const type = source.type === 'm3u_file' ? 'Arquivo local' : 'Lista por URL';
+                const type = source.type === 'xtream' ? 'Xtream' : (source.type === 'm3u_file' ? 'Arquivo local' : 'Lista por URL');
                 copy.appendChild(node('p', 'iptv-source-meta', type + ' · ' + source.channelCount.toLocaleString('pt-BR') + ' canais · ' + sourceStatusLabel(source.lastRefreshStatus)));
                 if (source.lastRefreshError) copy.appendChild(node('p', 'iptv-source-error', source.lastRefreshError));
                 card.appendChild(copy);
@@ -1137,6 +1138,12 @@
                 renderSources();
                 settingsOperation.sourceId = detail.source.id;
                 operationRequest('refresh', {sourceId: detail.source.id});
+            } else if (detail.action === 'add-xtream') {
+                if (!ownedBySettings || !detail.source || !Number.isSafeInteger(detail.source.id)) return;
+                upsertSource(detail.source);
+                renderSources();
+                settingsOperation.sourceId = detail.source.id;
+                loadSourceForOperation(detail.source.id, true, '');
             } else if (detail.action === 'remove') {
                 if (!ownedBySettings) return;
                 if (!detail.removed) {
@@ -1279,6 +1286,24 @@
                 if (!beginSettingsOperation('adding-url', button)) return;
                 operationRequest('add-url', {name, location});
                 form.elements.location.value = '';
+            });
+            bind('[data-iptv-xtream-form]', 'submit', function (event) {
+                event.preventDefault();
+                const form = event.currentTarget;
+                const button = form.querySelector ? form.querySelector('button[type="submit"]') : null;
+                const detail = {
+                    name: form.elements.name.value.trim(),
+                    baseUrl: form.elements.baseUrl.value.trim(),
+                    username: form.elements.username.value.trim(),
+                    password: form.elements.password.value,
+                };
+                if (!detail.name || !detail.baseUrl || !detail.username || !detail.password) {
+                    feedback('Informe nome, servidor, usuÃ¡rio e senha do Xtream.', true);
+                    return;
+                }
+                if (!beginSettingsOperation('adding-xtream', button)) return;
+                operationRequest('add-xtream', detail);
+                form.elements.password.value = '';
             });
             bind('[data-iptv-pick-file]', 'click', function (event) {
                 if (!beginSettingsOperation('adding-file', event.currentTarget)) return;

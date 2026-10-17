@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Semyra.Desktop.Desktop;
@@ -9,6 +10,40 @@ namespace Semyra.Desktop.Tests;
 public sealed class IptvDesktopBridgeTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "semyra-bridge-tests", Guid.NewGuid().ToString("N"));
+
+    [Fact]
+    public async Task XtreamAddReturnsOnlySafeReadySourceSummary()
+    {
+        Directory.CreateDirectory(_directory);
+        var protector = new TestProtector();
+        var catalog = new IptvCatalogService(
+            new IptvStore(Path.Combine(_directory, "xtream.db"), protector),
+            protector,
+            new M3uParser(),
+            new HttpClient(),
+            new HttpClient(new XtreamHandler()));
+        await using var engine = new HostEngine(catalog);
+        engine.Start();
+        await engine.ActivateAccountAsync(new string('a', 64));
+
+        const string server = "https://provider.example:8443";
+        const string username = "private-user";
+        const string password = "private-pass";
+        var result = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.sources.add-xtream","requestId":"xtream-add","accountContextId":"{{engine.CurrentAccountContextId}}","name":"Xtream","baseUrl":"{{server}}","username":"{{username}}","password":"{{password}}"}""",
+            engine,
+            () => null);
+
+        Assert.True(result.Handled);
+        Assert.DoesNotContain(server, result.Response, StringComparison.Ordinal);
+        Assert.DoesNotContain(username, result.Response, StringComparison.Ordinal);
+        Assert.DoesNotContain(password, result.Response, StringComparison.Ordinal);
+        using var json = JsonDocument.Parse(result.Response);
+        Assert.True(json.RootElement.GetProperty("ok").GetBoolean());
+        var source = json.RootElement.GetProperty("source");
+        Assert.Equal("xtream", source.GetProperty("type").GetString());
+        Assert.Equal("ready", source.GetProperty("lastRefreshStatus").GetString());
+    }
 
     [Fact]
     public async Task UrlAddReturnsSafeDtoWithoutEchoingLocation()
@@ -257,5 +292,22 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     {
         public byte[] Protect(string value) => Encoding.UTF8.GetBytes(Convert.ToBase64String(Encoding.UTF8.GetBytes(value)));
         public string Unprotect(byte[] value) => Encoding.UTF8.GetString(Convert.FromBase64String(Encoding.UTF8.GetString(value)));
+    }
+
+    private sealed class XtreamHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var query = request.RequestUri!.Query;
+            var body = query.Contains("action=get_live_categories", StringComparison.Ordinal)
+                ? "[{\"category_id\":\"1\",\"category_name\":\"Live\"}]"
+                : query.Contains("action=get_live_streams", StringComparison.Ordinal)
+                    ? "[{\"stream_id\":\"10\",\"name\":\"Channel\",\"category_id\":\"1\"}]"
+                    : "{\"user_info\":{\"auth\":1}}";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        }
     }
 }

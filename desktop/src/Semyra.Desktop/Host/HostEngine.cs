@@ -221,6 +221,13 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     public IReadOnlyList<IptvSourceSummary> ListIptvSources() => Catalog().ListSources();
     public IptvSourceSummary AddIptvUrl(string name, string location) => Catalog().AddUrlSource(name, location);
+    public Task<IptvSourceSummary> AddIptvXtreamAsync(
+        string name,
+        string baseUrl,
+        string username,
+        string password,
+        CancellationToken cancellationToken) =>
+        Catalog().AddXtreamSourceAsync(name, baseUrl, username, password, cancellationToken);
     public IptvSourceSummary AddIptvFile(string path) => Catalog().AddFileSource(path);
     public bool RemoveIptvSource(long sourceId) => Catalog().RemoveSource(sourceId);
     public Task<IptvSourceSummary> RefreshIptvSourceAsync(long sourceId, CancellationToken cancellationToken) => Catalog().RefreshAsync(sourceId, cancellationToken);

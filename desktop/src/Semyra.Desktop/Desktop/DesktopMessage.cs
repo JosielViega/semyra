@@ -23,6 +23,8 @@ public static partial class DesktopMessage
     public const string IptvSourcesListResultType = "semyra.desktop.iptv.sources.list-result";
     public const string IptvSourcesAddType = "semyra.desktop.iptv.sources.add";
     public const string IptvSourcesAddResultType = "semyra.desktop.iptv.sources.add-result";
+    public const string IptvSourcesAddXtreamType = "semyra.desktop.iptv.sources.add-xtream";
+    public const string IptvSourcesAddXtreamResultType = "semyra.desktop.iptv.sources.add-xtream-result";
     public const string IptvSourcesRemoveType = "semyra.desktop.iptv.sources.remove";
     public const string IptvSourcesRemoveResultType = "semyra.desktop.iptv.sources.remove-result";
     public const string IptvSourcesRefreshType = "semyra.desktop.iptv.sources.refresh";
@@ -255,6 +257,26 @@ public static partial class DesktopMessage
                     return false;
                 }
                 request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(Name: name, Location: location, AccountContextId: contextId));
+                return true;
+            }
+
+            if (type == IptvSourcesAddXtreamType)
+            {
+                if (properties.Count != 7
+                    || !TryAccountContext(properties, out var contextId)
+                    || !TryString(properties, "name", out var name) || name.Length > 100
+                    || !TryString(properties, "baseUrl", out var baseUrl) || baseUrl.Length > 2048
+                    || !TryString(properties, "username", out var username) || username.Length > 512
+                    || !TryString(properties, "password", out var password) || password.Length > 512)
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(
+                    Name: name,
+                    AccountContextId: contextId,
+                    BaseUrl: baseUrl,
+                    Username: username,
+                    Password: password));
                 return true;
             }
 

@@ -40,7 +40,7 @@ public sealed class IptvFavoritesRecentsTests : IDisposable
         Assert.Equal("https://provider.example/private.m3u", _protector.Unprotect(store.FindSource(1)!.ProtectedLocation));
         Assert.Single(store.SearchChannels(1, "", null, 0, 50).Channels);
         using var connection = Open(path);
-        Assert.Equal(2L, ScalarLong(connection, "PRAGMA user_version"));
+        Assert.Equal(3L, ScalarLong(connection, "PRAGMA user_version"));
         Assert.Equal(1L, ScalarLong(connection, "SELECT COUNT(*) FROM iptv_channels WHERE logical_key IS NOT NULL AND logical_key <> ''"));
         Assert.Equal(1L, ScalarLong(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='iptv_favorites'"));
         Assert.Equal(1L, ScalarLong(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='iptv_recents'"));
@@ -84,7 +84,7 @@ public sealed class IptvFavoritesRecentsTests : IDisposable
         Assert.Single(store.ListSources());
         Assert.Single(store.SearchChannels(1, "", null, 0, 50).Channels);
         using var verified = Open(path);
-        Assert.Equal(2L, ScalarLong(verified, "PRAGMA user_version"));
+        Assert.Equal(3L, ScalarLong(verified, "PRAGMA user_version"));
         Assert.Equal(1L, ScalarLong(verified, "SELECT COUNT(*) FROM iptv_channels WHERE logical_key IS NOT NULL AND logical_key <> ''"));
         Assert.Equal(1L, ScalarLong(verified, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='iptv_favorites'"));
         Assert.Equal(1L, ScalarLong(verified, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='iptv_recents'"));

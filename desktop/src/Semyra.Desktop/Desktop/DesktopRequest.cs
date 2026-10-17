@@ -24,7 +24,10 @@ public sealed record IptvRequest(
     long? ChannelId = null,
     long? RecentId = null,
     bool? Favorite = null,
-    string? AccountContextId = null);
+    string? AccountContextId = null,
+    string? BaseUrl = null,
+    string? Username = null,
+    string? Password = null);
 
 public sealed record MediaRequest(long? ChannelId = null, string? AccountContextId = null);
 

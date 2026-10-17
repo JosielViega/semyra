@@ -58,4 +58,19 @@ public sealed record ParsedM3uChannel(
     string StreamUrl,
     string? TvgId,
     string? LogoUrl,
-    string? Group);
+    string? Group,
+    string? ExternalId = null,
+    string? StableIdentity = null);
+
+internal sealed record XtreamSourceConfiguration(
+    int Version,
+    string BaseUrl,
+    string Username,
+    string Password);
+
+internal sealed record XtreamCategory(string Id, string Name);
+
+internal sealed record XtreamImportResult(
+    IReadOnlyList<ParsedM3uChannel> Channels,
+    int Received,
+    int Skipped);

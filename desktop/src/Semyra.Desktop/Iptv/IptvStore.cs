@@ -35,28 +35,33 @@ public sealed class IptvStore
         var version = Convert.ToInt32(versionCommand.ExecuteScalar(), CultureInfo.InvariantCulture);
         if (version == 0)
         {
-            CreateVersionTwo(connection);
+            CreateVersionThree(connection);
             return;
         }
         if (version == 1)
         {
             MigrateVersionOneToTwo(connection);
+            version = 2;
+        }
+        if (version == 2)
+        {
+            MigrateVersionTwoToThree(connection);
             return;
         }
-        if (version != 2)
+        if (version != 3)
         {
             throw new InvalidDataException("Versão do catálogo IPTV local não suportada.");
         }
     }
 
-    private static void CreateVersionTwo(SqliteConnection connection)
+    private static void CreateVersionThree(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS iptv_sources (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                type TEXT NOT NULL CHECK (type IN ('m3u_url', 'm3u_file')),
+                type TEXT NOT NULL CHECK (type IN ('m3u_url', 'm3u_file', 'xtream')),
                 protected_location BLOB NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
                 refresh_status TEXT NOT NULL DEFAULT 'never',
@@ -111,7 +116,7 @@ public sealed class IptvStore
                 ON iptv_recents(source_id, last_watched_at DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_iptv_recents_source_logical
                 ON iptv_recents(source_id, logical_key);
-            PRAGMA user_version = 2;
+            PRAGMA user_version = 3;
             """;
         command.ExecuteNonQuery();
     }
@@ -192,6 +197,58 @@ public sealed class IptvStore
         transaction.Commit();
     }
 
+    private static void MigrateVersionTwoToThree(SqliteConnection connection)
+    {
+        using (var disableForeignKeys = connection.CreateCommand())
+        {
+            disableForeignKeys.CommandText = "PRAGMA foreign_keys = OFF;";
+            disableForeignKeys.ExecuteNonQuery();
+        }
+        try
+        {
+            using var transaction = connection.BeginTransaction();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                CREATE TABLE iptv_sources_v3 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL CHECK (type IN ('m3u_url', 'm3u_file', 'xtream')),
+                    protected_location BLOB NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+                    refresh_status TEXT NOT NULL DEFAULT 'never',
+                    refresh_error TEXT NULL,
+                    last_refresh_at TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                INSERT INTO iptv_sources_v3
+                    (id, name, type, protected_location, enabled, refresh_status, refresh_error, last_refresh_at, created_at, updated_at)
+                SELECT id, name, type, protected_location, enabled, refresh_status, refresh_error, last_refresh_at, created_at, updated_at
+                FROM iptv_sources;
+                DROP TABLE iptv_sources;
+                ALTER TABLE iptv_sources_v3 RENAME TO iptv_sources;
+                PRAGMA user_version = 3;
+                """;
+            command.ExecuteNonQuery();
+            transaction.Commit();
+        }
+        finally
+        {
+            using var enableForeignKeys = connection.CreateCommand();
+            enableForeignKeys.CommandText = "PRAGMA foreign_keys = ON;";
+            enableForeignKeys.ExecuteNonQuery();
+        }
+
+        using var check = connection.CreateCommand();
+        check.CommandText = "PRAGMA foreign_key_check;";
+        using var reader = check.ExecuteReader();
+        if (reader.Read())
+        {
+            throw new InvalidDataException("Falha ao migrar o catálogo IPTV local.");
+        }
+    }
+
     private static bool ColumnExists(SqliteConnection connection, SqliteTransaction transaction, string table, string column)
     {
         using var command = connection.CreateCommand();
@@ -203,7 +260,7 @@ public sealed class IptvStore
 
     public IptvSourceSummary AddSource(string name, IptvSourceType type, string location)
     {
-        if (type is not (IptvSourceType.M3uUrl or IptvSourceType.M3uFile))
+        if (type is not (IptvSourceType.M3uUrl or IptvSourceType.M3uFile or IptvSourceType.Xtream))
         {
             throw new ArgumentException("Tipo de fonte não suportado.", nameof(type));
         }
@@ -600,7 +657,7 @@ public sealed class IptvStore
             {
                 key.Value = StableKey(channel);
                 logical.Value = LogicalChannelIdentity.Create(channel.TvgId, channel.Name, channel.Group);
-                external.Value = (object?)channel.TvgId ?? DBNull.Value;
+                external.Value = (object?)channel.ExternalId ?? (object?)channel.TvgId ?? DBNull.Value;
                 name.Value = channel.Name;
                 group.Value = (object?)channel.Group ?? DBNull.Value;
                 logo.Value = (object?)channel.LogoUrl ?? DBNull.Value;
@@ -777,6 +834,7 @@ public sealed class IptvStore
     {
         IptvSourceType.M3uUrl => "m3u_url",
         IptvSourceType.M3uFile => "m3u_file",
+        IptvSourceType.Xtream => "xtream",
         _ => throw new ArgumentOutOfRangeException(nameof(type)),
     };
 
@@ -784,12 +842,13 @@ public sealed class IptvStore
     {
         "m3u_url" => IptvSourceType.M3uUrl,
         "m3u_file" => IptvSourceType.M3uFile,
+        "xtream" => IptvSourceType.Xtream,
         _ => throw new InvalidDataException("Tipo de fonte inválido."),
     };
 
     private static string StableKey(ParsedM3uChannel channel)
     {
-        var value = $"{channel.TvgId}\n{channel.Name}\n{channel.Group}\n{channel.StreamUrl}";
+        var value = channel.StableIdentity ?? $"{channel.TvgId}\n{channel.Name}\n{channel.Group}\n{channel.StreamUrl}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
     }
 

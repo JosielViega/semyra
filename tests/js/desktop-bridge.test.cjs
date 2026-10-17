@@ -410,6 +410,24 @@ assert.deepEqual(posted.at(-1), {
     name: 'Fonte', location: 'https://private.example/list.m3u',
 });
 
+webviewWindow.crypto.randomUUID = () => 'iptv-add-xtream';
+windowListeners.get('semyra:iptv-request')({detail: {
+    action: 'add-xtream', name: 'Xtream', baseUrl: 'https://provider.example:8443',
+    username: 'private-user', password: 'private-pass',
+}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.sources.add-xtream', requestId: 'iptv-add-xtream',
+    accountContextId: 'b'.repeat(32), name: 'Xtream', baseUrl: 'https://provider.example:8443',
+    username: 'private-user', password: 'private-pass',
+});
+messageListener({data: {
+    type: 'semyra.desktop.iptv.sources.add-xtream-result', requestId: 'iptv-add-xtream', protocolVersion: 1, ok: true,
+    source: {id: 8, name: 'Xtream', type: 'xtream', enabled: true, lastRefreshStatus: 'ready', lastRefreshError: null, lastRefreshAt: null, channelCount: 2,
+        username: 'must-not-cross', password: 'must-not-cross', location: 'must-not-cross'},
+}});
+assert.equal(dispatched.at(-1).detail.source.type, 'xtream');
+assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+
 for (const [action, type] of [
     ['refresh', 'semyra.desktop.iptv.sources.refresh'],
     ['remove', 'semyra.desktop.iptv.sources.remove'],

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace Semyra.Desktop.Iptv;
 
@@ -12,13 +13,17 @@ public sealed class IptvCatalogService : IDisposable
     private readonly ISecretProtector _protector;
     private readonly M3uParser _parser;
     private readonly HttpClient _httpClient;
+    private readonly HttpClient _xtreamHttpClient;
+    private readonly XtreamClient _xtreamClient;
     private readonly bool _ownsHttpClient;
+    private readonly bool _ownsXtreamHttpClient;
 
     public IptvCatalogService(
         IptvStore store,
         ISecretProtector protector,
         M3uParser parser,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        HttpClient? xtreamHttpClient = null)
     {
         _store = store;
         _protector = protector;
@@ -30,6 +35,13 @@ public sealed class IptvCatalogService : IDisposable
             AllowAutoRedirect = true,
         }) { Timeout = TimeSpan.FromSeconds(45) };
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SemyraDesktop", "1.0"));
+        _ownsXtreamHttpClient = xtreamHttpClient is null;
+        _xtreamHttpClient = xtreamHttpClient ?? new HttpClient(new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = false,
+        }) { Timeout = Timeout.InfiniteTimeSpan };
+        _xtreamClient = new XtreamClient(_xtreamHttpClient);
     }
 
     public static IptvCatalogService CreateDefault(string profileId)
@@ -70,6 +82,33 @@ public sealed class IptvCatalogService : IDisposable
         }
         var name = ValidateName(Path.GetFileNameWithoutExtension(path));
         return _store.AddSource(name, IptvSourceType.M3uFile, Path.GetFullPath(path));
+    }
+
+    public async Task<IptvSourceSummary> AddXtreamSourceAsync(
+        string name,
+        string baseUrl,
+        string username,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        var configuration = ValidateXtreamConfiguration(baseUrl, username, password);
+        var safeName = ValidateName(name);
+        var channels = await FetchXtreamChannelsAsync(configuration, cancellationToken).ConfigureAwait(false);
+        var serialized = JsonSerializer.Serialize(configuration, JsonOptions);
+        var source = _store.AddSource(safeName, IptvSourceType.Xtream, serialized);
+        _store.MarkRefreshing(source.Id);
+        try
+        {
+            return await _store.ReplaceChannelsAsync(
+                source.Id,
+                ToAsync(channels.Channels),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _store.MarkRefreshError(source.Id, "xtream_invalid_response");
+            throw;
+        }
     }
 
     public bool RemoveSource(long sourceId) => _store.RemoveSource(sourceId);
@@ -133,6 +172,15 @@ public sealed class IptvCatalogService : IDisposable
         try
         {
             var location = _protector.Unprotect(source.ProtectedLocation);
+            if (source.Type == IptvSourceType.Xtream)
+            {
+                var configuration = DeserializeXtreamConfiguration(location);
+                var result = await FetchXtreamChannelsAsync(configuration, cancellationToken).ConfigureAwait(false);
+                return await _store.ReplaceChannelsAsync(
+                    sourceId,
+                    ToAsync(result.Channels),
+                    cancellationToken).ConfigureAwait(false);
+            }
             await using var stream = source.Type switch
             {
                 IptvSourceType.M3uUrl => await OpenUrlAsync(location, cancellationToken).ConfigureAwait(false),
@@ -148,6 +196,11 @@ public sealed class IptvCatalogService : IDisposable
         {
             _store.MarkRefreshError(sourceId, "Atualização cancelada.");
             throw;
+        }
+        catch (XtreamException exception)
+        {
+            _store.MarkRefreshError(sourceId, exception.Code);
+            throw new IptvRefreshException(exception.Code, exception);
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException or InvalidDataException or CryptographicException)
         {
@@ -167,6 +220,10 @@ public sealed class IptvCatalogService : IDisposable
         if (_ownsHttpClient)
         {
             _httpClient.Dispose();
+        }
+        if (_ownsXtreamHttpClient)
+        {
+            _xtreamHttpClient.Dispose();
         }
     }
 
@@ -200,6 +257,71 @@ public sealed class IptvCatalogService : IDisposable
             throw new IptvValidationException("O nome da fonte deve ter entre 1 e 100 caracteres.");
         }
         return value;
+    }
+
+    private async Task<XtreamImportResult> FetchXtreamChannelsAsync(
+        XtreamSourceConfiguration configuration,
+        CancellationToken cancellationToken)
+    {
+        await _xtreamClient.AuthenticateAsync(configuration, cancellationToken).ConfigureAwait(false);
+        var categories = await _xtreamClient.GetLiveCategoriesAsync(configuration, cancellationToken).ConfigureAwait(false);
+        var categoryMap = categories.ToDictionary(category => category.Id, category => category.Name, StringComparer.Ordinal);
+        var result = await _xtreamClient.GetLiveStreamsAsync(configuration, categoryMap, cancellationToken).ConfigureAwait(false);
+        if (result.Channels.Count == 0)
+        {
+            throw new XtreamException("xtream_invalid_response");
+        }
+        return result;
+    }
+
+    private static XtreamSourceConfiguration ValidateXtreamConfiguration(
+        string baseUrl,
+        string username,
+        string password)
+    {
+        var rawBase = (baseUrl ?? string.Empty).Trim();
+        var safeUsername = (username ?? string.Empty).Trim();
+        if (safeUsername.Length is < 1 or > 512 || string.IsNullOrEmpty(password) || password.Length > 512)
+        {
+            throw new IptvValidationException("Informe usuário e senha Xtream válidos.");
+        }
+        if (!Uri.TryCreate(rawBase, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("http" or "https")
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment)
+            || (uri.AbsolutePath != "/" && uri.AbsolutePath.Length > 0))
+        {
+            throw new IptvValidationException("Informe somente o servidor HTTP ou HTTPS do Xtream.");
+        }
+        var canonical = uri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        return new XtreamSourceConfiguration(1, canonical, safeUsername, password);
+    }
+
+    private static XtreamSourceConfiguration DeserializeXtreamConfiguration(string json)
+    {
+        try
+        {
+            var configuration = JsonSerializer.Deserialize<XtreamSourceConfiguration>(json, JsonOptions);
+            if (configuration is null || configuration.Version != 1)
+            {
+                throw new JsonException();
+            }
+            return ValidateXtreamConfiguration(configuration.BaseUrl, configuration.Username, configuration.Password);
+        }
+        catch (JsonException exception)
+        {
+            throw new XtreamException("xtream_invalid_response", exception);
+        }
+    }
+
+    private static async IAsyncEnumerable<ParsedM3uChannel> ToAsync(IEnumerable<ParsedM3uChannel> channels)
+    {
+        foreach (var channel in channels)
+        {
+            yield return channel;
+        }
+        await Task.CompletedTask;
     }
 
     private static long PositiveId(long sourceId)
@@ -237,6 +359,8 @@ public sealed class IptvCatalogService : IDisposable
             GC.SuppressFinalize(this);
         }
     }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 }
 
 public sealed class IptvValidationException(string message) : Exception(message);
