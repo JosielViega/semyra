@@ -35,6 +35,16 @@ public static partial class DesktopMessage
     public const string IptvCatalogGroupsResultType = "semyra.desktop.iptv.groups.list-result";
     public const string IptvCatalogSearchType = "semyra.desktop.iptv.channels.search";
     public const string IptvCatalogSearchResultType = "semyra.desktop.iptv.channels.search-result";
+    public const string IptvVodRefreshType = "semyra.desktop.iptv.vod.refresh";
+    public const string IptvVodRefreshResultType = "semyra.desktop.iptv.vod.refresh-result";
+    public const string IptvVodCategoriesType = "semyra.desktop.iptv.vod.categories";
+    public const string IptvVodCategoriesResultType = "semyra.desktop.iptv.vod.categories-result";
+    public const string IptvVodMoviesSearchType = "semyra.desktop.iptv.vod.movies.search";
+    public const string IptvVodMoviesSearchResultType = "semyra.desktop.iptv.vod.movies.search-result";
+    public const string IptvVodSeriesSearchType = "semyra.desktop.iptv.vod.series.search";
+    public const string IptvVodSeriesSearchResultType = "semyra.desktop.iptv.vod.series.search-result";
+    public const string IptvVodSeriesDetailsType = "semyra.desktop.iptv.vod.series.details";
+    public const string IptvVodSeriesDetailsResultType = "semyra.desktop.iptv.vod.series.details-result";
     public const string IptvFavoritesListType = "semyra.desktop.iptv.favorites.list";
     public const string IptvFavoritesListResultType = "semyra.desktop.iptv.favorites.list-result";
     public const string IptvFavoriteSetType = "semyra.desktop.iptv.favorite.set";
@@ -280,7 +290,7 @@ public static partial class DesktopMessage
                 return true;
             }
 
-            if (type is IptvSourcesRemoveType or IptvSourcesRefreshType or IptvCatalogGroupsType)
+            if (type is IptvSourcesRemoveType or IptvSourcesRefreshType or IptvCatalogGroupsType or IptvVodRefreshType)
             {
                 if (properties.Count != 4 || !TryPositiveInt64(properties, "sourceId", out var sourceId) || !TryAccountContext(properties, out var contextId))
                 {
@@ -288,6 +298,24 @@ public static partial class DesktopMessage
                 }
                 request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, AccountContextId: contextId));
                 return true;
+            }
+
+            if (type == IptvVodCategoriesType)
+            {
+                if (properties.Count != 5 || !TryPositiveInt64(properties, "sourceId", out var sourceId) || !TryAccountContext(properties, out var contextId) || !TryString(properties, "mediaType", out var mediaType) || mediaType is not ("movie" or "series")) return false;
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, AccountContextId: contextId, MediaType: mediaType)); return true;
+            }
+
+            if (type is IptvVodMoviesSearchType or IptvVodSeriesSearchType)
+            {
+                if (properties.Count != 8 || !TryPositiveInt64(properties, "sourceId", out var sourceId) || !TryAccountContext(properties, out var contextId) || !TryNullableString(properties, "query", 120, out var query) || !TryNullableString(properties, "category", 128, out var category) || !TryInt32(properties, "offset", out var offset) || offset < 0 || !TryInt32(properties, "limit", out var limit) || limit is < 1 or > 100) return false;
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, AccountContextId: contextId, Query: query, Category: category, Offset: offset, Limit: limit)); return true;
+            }
+
+            if (type == IptvVodSeriesDetailsType)
+            {
+                if (properties.Count != 5 || !TryPositiveInt64(properties, "seriesId", out var seriesId) || !TryAccountContext(properties, out var contextId) || !TryBoolean(properties, "refresh", out var refresh)) return false;
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SeriesId: seriesId, AccountContextId: contextId, Refresh: refresh)); return true;
             }
 
             if (type == IptvRecentsListType)

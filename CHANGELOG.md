@@ -13,6 +13,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Catálogo Xtream VOD local estruturado, com filmes, séries e episódios sob demanda, sincronização global atômica, cache lazy por série e URLs resolvidas somente no native.
+
 - Fonte Xtream nativa no Semyra Desktop, com autenticação e sincronização de categorias/canais Live TV, credenciais protegidas por DPAPI e reprodução pelo MPV existente.
 - Reprodução IPTV local exclusivamente por sidecar MPV aquecido e IPC privado, com controles Live/VOD, fullscreen nativo, auto-hide e remoção/limpeza de Recentes isolada por conta e fonte; GStreamer permanece exclusivo da publicação WHIP/LiveKit.
 - Favoritos e Recentes da Minha IPTV, gratuitos e persistidos somente no SQLite local por conta e fonte, com identidade lógica resiliente a mudanças de URL da playlist.

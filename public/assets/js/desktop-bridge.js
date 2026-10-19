@@ -33,6 +33,11 @@
         'add-xtream': ['semyra.desktop.iptv.sources.add-xtream', 'semyra.desktop.iptv.sources.add-xtream-result'],
         remove: ['semyra.desktop.iptv.sources.remove', 'semyra.desktop.iptv.sources.remove-result'],
         refresh: ['semyra.desktop.iptv.sources.refresh', 'semyra.desktop.iptv.sources.refresh-result'],
+        'vod-refresh': ['semyra.desktop.iptv.vod.refresh', 'semyra.desktop.iptv.vod.refresh-result'],
+        'vod-categories': ['semyra.desktop.iptv.vod.categories', 'semyra.desktop.iptv.vod.categories-result'],
+        'vod-movies-search': ['semyra.desktop.iptv.vod.movies.search', 'semyra.desktop.iptv.vod.movies.search-result'],
+        'vod-series-search': ['semyra.desktop.iptv.vod.series.search', 'semyra.desktop.iptv.vod.series.search-result'],
+        'vod-series-details': ['semyra.desktop.iptv.vod.series.details', 'semyra.desktop.iptv.vod.series.details-result'],
         'pick-file': ['semyra.desktop.iptv.sources.pick-file', 'semyra.desktop.iptv.sources.pick-file-result'],
         groups: ['semyra.desktop.iptv.groups.list', 'semyra.desktop.iptv.groups.list-result'],
         search: ['semyra.desktop.iptv.channels.search', 'semyra.desktop.iptv.channels.search-result'],
@@ -458,24 +463,36 @@
                 request.baseUrl = detail.baseUrl;
                 request.username = detail.username;
                 request.password = detail.password;
-            } else if (action === 'remove' || action === 'refresh' || action === 'groups') {
+            } else if (action === 'remove' || action === 'refresh' || action === 'vod-refresh' || action === 'groups') {
                 request.sourceId = positiveId(detail.sourceId);
                 if (request.sourceId === null) {
                     return;
                 }
-            } else if (action === 'search' || action === 'favorites') {
+            } else if (action === 'search' || action === 'favorites' || action === 'vod-movies-search' || action === 'vod-series-search') {
                 request.sourceId = positiveId(detail.sourceId);
                 request.offset = Number.isSafeInteger(detail.offset) && detail.offset >= 0 ? detail.offset : 0;
-                const maximum = action === 'search' ? 100 : 50;
+                const maximum = action === 'favorites' ? 50 : 100;
                 request.limit = Number.isSafeInteger(detail.limit) && detail.limit >= 1 && detail.limit <= maximum ? detail.limit : 50;
                 if (action === 'search') {
                     request.query = typeof detail.query === 'string' && detail.query.length <= 120 ? detail.query : '';
                     request.group = typeof detail.group === 'string' && detail.group.length <= 240 && detail.group.length > 0
                         ? detail.group : null;
                 }
+                if (action === 'vod-movies-search' || action === 'vod-series-search') {
+                    request.query = typeof detail.query === 'string' && detail.query.length <= 120 ? detail.query : '';
+                    request.category = typeof detail.category === 'string' && detail.category.length <= 128 && detail.category.length > 0 ? detail.category : null;
+                }
                 if (request.sourceId === null) {
                     return;
                 }
+            } else if (action === 'vod-categories') {
+                request.sourceId = positiveId(detail.sourceId);
+                request.mediaType = ['movie', 'series'].includes(detail.mediaType) ? detail.mediaType : null;
+                if (request.sourceId === null || request.mediaType === null) return;
+            } else if (action === 'vod-series-details') {
+                request.seriesId = positiveId(detail.seriesId);
+                request.refresh = detail.refresh === true;
+                if (request.seriesId === null) return;
             } else if (action === 'recents') {
                 request.sourceId = positiveId(detail.sourceId);
                 if (request.sourceId === null) return;
@@ -552,7 +569,10 @@
             if (!source || !positiveId(source.id) || typeof source.name !== 'string'
                 || !['m3u_url', 'm3u_file', 'xtream'].includes(source.type)
                 || typeof source.enabled !== 'boolean' || typeof source.lastRefreshStatus !== 'string'
-                || !Number.isSafeInteger(source.channelCount) || source.channelCount < 0) {
+                || !Number.isSafeInteger(source.channelCount) || source.channelCount < 0
+                || (source.movieCount !== undefined && (!Number.isSafeInteger(source.movieCount) || source.movieCount < 0))
+                || (source.seriesCount !== undefined && (!Number.isSafeInteger(source.seriesCount) || source.seriesCount < 0))
+                || (source.vodSyncState !== undefined && !['idle','syncing','ready','error'].includes(source.vodSyncState))) {
                 return null;
             }
             return Object.freeze({
@@ -564,6 +584,11 @@
                 lastRefreshError: typeof source.lastRefreshError === 'string' ? source.lastRefreshError.slice(0, 240) : null,
                 lastRefreshAt: typeof source.lastRefreshAt === 'string' ? source.lastRefreshAt : null,
                 channelCount: source.channelCount,
+                movieCount: source.movieCount || 0,
+                seriesCount: source.seriesCount || 0,
+                vodSyncState: source.vodSyncState || 'idle',
+                vodSyncError: typeof source.vodSyncError === 'string' ? source.vodSyncError.slice(0, 240) : null,
+                vodLastSyncedAt: typeof source.vodLastSyncedAt === 'string' ? source.vodLastSyncedAt : null,
             });
         }
 
@@ -584,11 +609,17 @@
             if (pending.clientRequestId !== null) detail.clientRequestId = pending.clientRequestId;
             if (pending.action === 'list' && Array.isArray(message.sources)) {
                 detail.sources = message.sources.map(safeSource).filter(Boolean);
-            } else if (['add-url', 'add-xtream', 'pick-file', 'refresh'].includes(pending.action)) {
+            } else if (['add-url', 'add-xtream', 'pick-file', 'refresh', 'vod-refresh'].includes(pending.action)) {
                 detail.cancelled = message.cancelled === true;
                 detail.source = safeSource(message.source);
             } else if (pending.action === 'remove') {
                 detail.removed = message.removed === true;
+            } else if (pending.action === 'vod-categories' && Array.isArray(message.categories)) {
+                detail.categories = message.categories.filter(function (item) { return item && positiveId(item.id) && ['movie','series'].includes(item.mediaType) && typeof item.externalCategoryId === 'string' && typeof item.name === 'string'; }).map(function(item){return Object.freeze({id:item.id,mediaType:item.mediaType,externalCategoryId:item.externalCategoryId.slice(0,128),name:item.name.slice(0,240),displayOrder:Number.isSafeInteger(item.displayOrder)?item.displayOrder:0});});
+            } else if (pending.action === 'vod-series-details' && positiveId(message.seriesId) && Array.isArray(message.episodes)) {
+                detail.seriesId=message.seriesId; detail.lastSyncedAt=typeof message.lastSyncedAt==='string'?message.lastSyncedAt:null; detail.episodes=message.episodes.filter(function(item){return item&&positiveId(item.id)&&Number.isSafeInteger(item.seasonNumber)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,seasonNumber:item.seasonNumber,episodeNumber:Number.isSafeInteger(item.episodeNumber)?item.episodeNumber:null,name:item.name.slice(0,240),duration:typeof item.duration==='string'?item.duration.slice(0,40):null});});
+            } else if (['vod-movies-search','vod-series-search'].includes(pending.action) && Array.isArray(message.items)) {
+                detail.items=message.items.filter(function(item){return item&&positiveId(item.id)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,name:item.name.slice(0,240),categoryId:typeof item.categoryId==='string'?item.categoryId.slice(0,128):null,posterUrl:typeof item.posterUrl==='string'?item.posterUrl.slice(0,1024):null,year:typeof item.year==='string'?item.year.slice(0,16):null,rating:typeof item.rating==='string'?item.rating.slice(0,16):null,genre:typeof item.genre==='string'?item.genre.slice(0,240):null});}); detail.offset=Number.isSafeInteger(message.offset)?message.offset:0;detail.limit=Number.isSafeInteger(message.limit)?message.limit:50;detail.hasMore=message.hasMore===true;
             } else if (pending.action === 'groups' && Array.isArray(message.groups)) {
                 detail.groups = message.groups.filter(function (group) { return typeof group === 'string'; }).map(function (group) { return group.slice(0, 240); });
             } else if (['search', 'favorites', 'recents'].includes(pending.action) && Array.isArray(message.channels)) {

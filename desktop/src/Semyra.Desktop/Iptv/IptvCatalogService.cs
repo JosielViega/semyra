@@ -7,7 +7,7 @@ using System.Text.Json;
 
 namespace Semyra.Desktop.Iptv;
 
-public sealed class IptvCatalogService : IDisposable
+public sealed partial class IptvCatalogService : IDisposable
 {
     private readonly IptvStore _store;
     private readonly ISecretProtector _protector;
@@ -33,14 +33,16 @@ public sealed class IptvCatalogService : IDisposable
         {
             AutomaticDecompression = DecompressionMethods.All,
             AllowAutoRedirect = true,
-        }) { Timeout = TimeSpan.FromSeconds(45) };
+        })
+        { Timeout = TimeSpan.FromSeconds(45) };
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SemyraDesktop", "1.0"));
         _ownsXtreamHttpClient = xtreamHttpClient is null;
         _xtreamHttpClient = xtreamHttpClient ?? new HttpClient(new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.All,
             AllowAutoRedirect = false,
-        }) { Timeout = Timeout.InfiniteTimeSpan };
+        })
+        { Timeout = Timeout.InfiniteTimeSpan };
         _xtreamClient = new XtreamClient(_xtreamHttpClient);
     }
 
@@ -111,7 +113,19 @@ public sealed class IptvCatalogService : IDisposable
         }
     }
 
-    public bool RemoveSource(long sourceId) => _store.RemoveSource(sourceId);
+    public bool RemoveSource(long sourceId)
+    {
+        lock (_vodGate)
+        {
+            if (_vodOperations.TryGetValue(sourceId, out var operation)) operation.Cancel();
+            if (_sourceCancellation.Remove(sourceId, out var sourceCancellation))
+            {
+                sourceCancellation.Cancel();
+                sourceCancellation.Dispose();
+            }
+        }
+        return _store.RemoveSource(sourceId);
+    }
 
     internal IptvPlaybackChannel ResolveChannelForPlayback(long channelId)
     {
@@ -217,6 +231,16 @@ public sealed class IptvCatalogService : IDisposable
 
     public void Dispose()
     {
+        lock (_vodGate)
+        {
+            foreach (var operation in _vodOperations.Values) operation.Cancel();
+            foreach (var sourceCancellation in _sourceCancellation.Values)
+            {
+                sourceCancellation.Cancel();
+                sourceCancellation.Dispose();
+            }
+            _sourceCancellation.Clear();
+        }
         if (_ownsHttpClient)
         {
             _httpClient.Dispose();

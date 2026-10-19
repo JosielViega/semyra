@@ -312,6 +312,7 @@ assert.equal(find(firstSource, (item) => item.className === 'iptv-source-current
 assert.equal(find(firstSource, (item) => item.dataset.iptvAction === 'select'), null);
 assert.equal(find(secondSource, (item) => item.dataset.iptvAction === 'select').textContent, 'Selecionar');
 assert.equal(find(sourceList, (item) => item.textContent === 'Usar'), null);
+assert.equal(find(sourceList, (item) => item.dataset.iptvAction === 'vod-refresh'), null, 'M3U sources must not expose VOD sync');
 
 registry.get('[data-iptv-settings-open]').emit('click');
 assert.equal(settings.dataset.settingsState || 'idle', 'idle');
@@ -940,6 +941,22 @@ rootListeners.get('semyra:iptv-result')({detail: {action: 'remove', ok: true, cl
 assert.equal(registry.get('[data-iptv-onboarding]').hidden, false, 'removing the final source must return to onboarding');
 assert.equal(registry.get('[data-iptv-library]').hidden, true);
 assert.equal(settings.dataset.settingsState, 'idle');
+
+rootListeners.get('semyra:iptv-result')({detail: {action: 'list', ok: true, clientRequestId: initialListToken, sources: [
+    {id: 9, name: 'Xtream VOD', type: 'xtream', channelCount: 20, movieCount: 1200, seriesCount: 80, vodSyncState: 'ready', lastRefreshStatus: 'ready'},
+]}});
+const xtreamCard = sourceList.children.find((item) => item.dataset.sourceId === '9');
+assert.match(find(xtreamCard, (item) => item.className === 'iptv-source-meta' && item.textContent.includes('filmes')).textContent, /1\.200 filmes/);
+const vodButton = find(xtreamCard, (item) => item.dataset.iptvAction === 'vod-refresh');
+sourceList.emit('click', {target: vodButton});
+const vodToken = requests.at(-1).clientRequestId;
+assert.equal(settings.dataset.settingsState, 'syncing-vod');
+assert.equal(requests.at(-1).action, 'vod-refresh');
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-refresh', ok: true, clientRequestId: vodToken, source: {
+    id: 9, name: 'Xtream VOD', type: 'xtream', channelCount: 20, movieCount: 1300, seriesCount: 90, vodSyncState: 'ready', lastRefreshStatus: 'ready',
+}}});
+assert.equal(settings.dataset.settingsState, 'idle');
+assert.equal(registry.get('[data-iptv-feedback]').textContent, 'Filmes e séries sincronizados.');
 
 let logoutPrevented = 0;
 logoutForm.emit('submit', {preventDefault: () => { logoutPrevented += 1; }});

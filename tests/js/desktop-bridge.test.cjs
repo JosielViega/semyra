@@ -181,7 +181,16 @@ assert.equal(dispatched.at(-1).type, 'semyra:iptv-result');
 assert.deepEqual(dispatched.at(-1).detail.sources, [{
     id: 4, name: 'Local', type: 'm3u_file', enabled: true,
     lastRefreshStatus: 'ready', lastRefreshError: null, lastRefreshAt: null, channelCount: 3,
+    movieCount: 0, seriesCount: 0, vodSyncState: 'idle', vodSyncError: null, vodLastSyncedAt: null,
 }]);
+assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+
+webviewWindow.crypto.randomUUID = () => 'iptv-vod-refresh';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'vod-refresh', sourceId: 4}});
+assert.deepEqual(posted.at(-1), {type: 'semyra.desktop.iptv.vod.refresh', requestId: 'iptv-vod-refresh', accountContextId: 'b'.repeat(32), sourceId: 4});
+messageListener({data: {type: 'semyra.desktop.iptv.vod.refresh-result', requestId: 'iptv-vod-refresh', protocolVersion: 1, ok: true,
+    source: {id: 4, name: 'Xtream', type: 'xtream', enabled: true, lastRefreshStatus: 'ready', lastRefreshError: null, lastRefreshAt: null, channelCount: 3, movieCount: 50, seriesCount: 10, vodSyncState: 'ready', vodSyncError: null, vodLastSyncedAt: '2026-10-19T00:00:00Z', password: 'must-not-cross'}}});
+assert.equal(dispatched.at(-1).detail.source.movieCount, 50);
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
 
 webviewWindow.crypto.randomUUID = () => 'iptv-favorites';

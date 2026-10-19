@@ -72,7 +72,7 @@ public sealed class IptvXtreamCatalogTests : IDisposable
     }
 
     [Fact]
-    public void VersionTwoMigratesToThreeWithoutLosingM3uData()
+    public void VersionTwoMigratesToFourWithoutLosingM3uData()
     {
         var database = DatabasePath();
         using (var connection = Open(database))
@@ -106,7 +106,7 @@ public sealed class IptvXtreamCatalogTests : IDisposable
         var store = new IptvStore(database, _protector);
         store.Initialize();
 
-        Assert.Equal(3, Scalar(database, "PRAGMA user_version"));
+        Assert.Equal(4, Scalar(database, "PRAGMA user_version"));
         Assert.Equal(1, Scalar(database, "SELECT COUNT(*) FROM iptv_sources WHERE type = 'm3u_url'"));
         Assert.Equal(1, Scalar(database, "SELECT COUNT(*) FROM iptv_channels"));
         Assert.Equal(1, Scalar(database, "SELECT COUNT(*) FROM iptv_favorites"));

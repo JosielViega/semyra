@@ -231,6 +231,11 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     public IptvSourceSummary AddIptvFile(string path) => Catalog().AddFileSource(path);
     public bool RemoveIptvSource(long sourceId) => Catalog().RemoveSource(sourceId);
     public Task<IptvSourceSummary> RefreshIptvSourceAsync(long sourceId, CancellationToken cancellationToken) => Catalog().RefreshAsync(sourceId, cancellationToken);
+    public Task<IptvSourceSummary> SyncIptvVodAsync(long sourceId, CancellationToken cancellationToken) => Catalog().SyncVodAsync(sourceId, cancellationToken);
+    public IReadOnlyList<IptvVodCategorySummary> GetIptvVodCategories(long sourceId, IptvVodMediaType type) => Catalog().GetVodCategories(sourceId, type);
+    public IptvVodSearchResult<IptvMovieSummary> SearchIptvMovies(long sourceId, string? query, string? category, int offset, int limit) => Catalog().SearchMovies(sourceId, query, category, offset, limit);
+    public IptvVodSearchResult<IptvSeriesSummary> SearchIptvSeries(long sourceId, string? query, string? category, int offset, int limit) => Catalog().SearchSeries(sourceId, query, category, offset, limit);
+    public Task<IptvSeriesDetails> GetIptvSeriesDetailsAsync(long seriesId, bool refresh, CancellationToken cancellationToken) => Catalog().GetSeriesDetailsAsync(seriesId, refresh, cancellationToken);
     public IReadOnlyList<string> GetIptvGroups(long sourceId) => Catalog().GetGroups(sourceId);
     public IptvChannelSearchResult SearchIptvChannels(long sourceId, string? query, string? group, int offset, int limit) => Catalog().SearchChannels(sourceId, query, group, offset, limit);
     public IptvChannelSearchResult ListIptvFavorites(long sourceId, int offset, int limit) => Catalog().ListFavorites(sourceId, offset, limit);

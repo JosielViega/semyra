@@ -6,7 +6,7 @@ using Microsoft.Data.Sqlite;
 
 namespace Semyra.Desktop.Iptv;
 
-public sealed class IptvStore
+public sealed partial class IptvStore
 {
     private readonly string _connectionString;
     private readonly ISecretProtector _protector;
@@ -35,7 +35,7 @@ public sealed class IptvStore
         var version = Convert.ToInt32(versionCommand.ExecuteScalar(), CultureInfo.InvariantCulture);
         if (version == 0)
         {
-            CreateVersionThree(connection);
+            CreateVersionFour(connection);
             return;
         }
         if (version == 1)
@@ -46,12 +46,23 @@ public sealed class IptvStore
         if (version == 2)
         {
             MigrateVersionTwoToThree(connection);
+            version = 3;
+        }
+        if (version == 3)
+        {
+            MigrateVersionThreeToFour(connection);
             return;
         }
-        if (version != 3)
+        if (version != 4)
         {
             throw new InvalidDataException("Versão do catálogo IPTV local não suportada.");
         }
+    }
+
+    private static void CreateVersionFour(SqliteConnection connection)
+    {
+        CreateVersionThree(connection);
+        MigrateVersionThreeToFour(connection);
     }
 
     private static void CreateVersionThree(SqliteConnection connection)
@@ -799,9 +810,12 @@ public sealed class IptvStore
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT s.id, s.name, s.type, s.enabled, s.refresh_status, s.refresh_error,
-                   s.last_refresh_at, COUNT(c.id)
+                   s.last_refresh_at, COUNT(c.id),
+                   COALESCE(v.movie_count, 0), COALESCE(v.series_count, 0),
+                   COALESCE(v.state, 'idle'), v.error, v.last_synced_at
             FROM iptv_sources s
             LEFT JOIN iptv_channels c ON c.source_id = s.id
+            LEFT JOIN iptv_vod_sync v ON v.source_id = s.id
             GROUP BY s.id
             """;
         return command;
@@ -824,10 +838,17 @@ public sealed class IptvStore
         {
             refreshed = parsed;
         }
+        DateTimeOffset? vodSynced = null;
+        if (!reader.IsDBNull(12)
+            && DateTimeOffset.TryParse(reader.GetString(12), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedVod))
+        {
+            vodSynced = parsedVod;
+        }
         return new IptvSourceSummary(
             reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3) == 1,
             reader.GetString(4), reader.IsDBNull(5) ? null : reader.GetString(5), refreshed,
-            checked((int)reader.GetInt64(7)));
+            checked((int)reader.GetInt64(7)), checked((int)reader.GetInt64(8)), checked((int)reader.GetInt64(9)),
+            reader.GetString(10), reader.IsDBNull(11) ? null : reader.GetString(11), vodSynced);
     }
 
     private static string TypeValue(IptvSourceType type) => type switch

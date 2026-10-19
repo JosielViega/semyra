@@ -139,4 +139,4 @@
         </div>
     </dialog>
 </section>
-<script src="/assets/js/desktop-iptv.js?v=11k-a-xtream-live" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11k-b-xtream-vod" defer></script>

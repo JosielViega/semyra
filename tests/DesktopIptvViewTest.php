@@ -20,7 +20,7 @@ final class DesktopIptvViewTest extends TestCase
 
         self::assertStringContainsString('Abra esta página no Semyra Desktop', $html);
         self::assertStringContainsString('/assets/css/desktop-iptv.css?v=11k-a-xtream-live', $html);
-        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11k-a-xtream-live', $html);
+        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11k-b-xtream-vod', $html);
         self::assertStringContainsString('data-iptv-pick-file', $html);
         self::assertStringContainsString('data-iptv-url-form', $html);
         self::assertStringContainsString('data-iptv-settings', $html);
@@ -29,7 +29,7 @@ final class DesktopIptvViewTest extends TestCase
         self::assertStringContainsString('data-iptv-channel-list aria-live="polite" aria-busy="false"', $html);
         self::assertStringContainsString('data-iptv-source-loading aria-live="polite" aria-busy="true"', $html);
         self::assertStringContainsString('data-iptv-browser-notice role="status" hidden', $html);
-        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11k-a-xtream-live', $html);
+        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11k-b-xtream-vod', $html);
         self::assertStringContainsString('data-iptv-xtream-form', $html);
         self::assertStringContainsString('type="password"', $html);
         self::assertStringContainsString('Adicionar Xtream', $html);

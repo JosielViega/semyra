@@ -14,6 +14,7 @@
     const ACTIVE_STATES = ['preparing', 'loading', 'streaming', 'playing', 'paused', 'buffering', 'reconnecting'];
     const CONTROLS_AUTO_HIDE_MS = 3000;
     const SETTINGS_STATES = Object.freeze({
+        'syncing-vod': ['Sincronizando filmes e séries…', 'Buscando o catálogo Xtream sob demanda.'],
         'adding-xtream': ['Conectando ao Xtreamâ€¦', 'Autenticando e importando os canais ao vivo.'],
         'adding-file': ['Importando sua IPTV…', 'Lendo o arquivo e carregando os canais.'],
         'adding-url': ['Carregando sua IPTV…', 'Conectando à fonte e importando os canais.'],
@@ -315,6 +316,10 @@
                 copy.appendChild(node('h4', '', source.name));
                 const type = source.type === 'xtream' ? 'Xtream' : (source.type === 'm3u_file' ? 'Arquivo local' : 'Lista por URL');
                 copy.appendChild(node('p', 'iptv-source-meta', type + ' · ' + source.channelCount.toLocaleString('pt-BR') + ' canais · ' + sourceStatusLabel(source.lastRefreshStatus)));
+                if (source.type === 'xtream') {
+                    copy.appendChild(node('p', 'iptv-source-meta', source.movieCount.toLocaleString('pt-BR') + ' filmes · ' + source.seriesCount.toLocaleString('pt-BR') + ' séries · VOD ' + sourceStatusLabel(source.vodSyncState)));
+                    if (source.vodSyncError) copy.appendChild(node('p', 'iptv-source-error', source.vodSyncError));
+                }
                 if (source.lastRefreshError) copy.appendChild(node('p', 'iptv-source-error', source.lastRefreshError));
                 card.appendChild(copy);
                 const actions = node('div', 'iptv-source-actions');
@@ -331,6 +336,12 @@
                     if (definition[0] === 'remove') button.className = 'is-danger';
                     actions.appendChild(button);
                 });
+                if (source.type === 'xtream') {
+                    const vod = node('button', '', 'Sincronizar filmes e séries');
+                    vod.type = 'button';
+                    vod.dataset.iptvAction = 'vod-refresh';
+                    actions.appendChild(vod);
+                }
                 card.appendChild(actions);
                 fragment.appendChild(card);
             });
@@ -1168,6 +1179,11 @@
                     renderSources();
                     loadSourceForOperation(selectedSourceId, false, 'Fonte removida. Outra fonte está em uso.');
                 }
+            } else if (detail.action === 'vod-refresh') {
+                if (!ownedBySettings || !detail.source || !Number.isSafeInteger(detail.source.id)) return;
+                upsertSource(detail.source);
+                renderSources();
+                finishSettingsOperation('Filmes e séries sincronizados.', false, false);
             } else if (detail.action === 'refresh') {
                 if (!ownedBySettings || !detail.source || !Number.isSafeInteger(detail.source.id)) return;
                 const operationState = settingsOperation.state;
@@ -1337,6 +1353,10 @@
                 if (button.dataset.iptvAction === 'refresh') {
                     if (!beginSettingsOperation('refreshing-source', button, sourceId)) return;
                     operationRequest('refresh', {sourceId});
+                }
+                if (button.dataset.iptvAction === 'vod-refresh') {
+                    if (!beginSettingsOperation('syncing-vod', button, sourceId)) return;
+                    operationRequest('vod-refresh', {sourceId});
                 }
                 if (button.dataset.iptvAction === 'remove'
                     && target.confirm('Remover esta fonte IPTV deste dispositivo?\n\nO catálogo local associado também será removido.')) {
