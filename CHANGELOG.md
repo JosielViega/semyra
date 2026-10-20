@@ -13,6 +13,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Minha IPTV agora separa TV ao vivo, Filmes e Séries; catálogos Xtream VOD usam busca/categoria/paginação nativas, detalhes lazy de episódios e reprodução segura de filmes/episódios no MPV por ID local, sem expor URLs ou credenciais à WebView.
+
 - Catálogo Xtream VOD local estruturado, com filmes, séries e episódios sob demanda, sincronização global atômica, cache lazy por série e URLs resolvidas somente no native.
 
 - Fonte Xtream nativa no Semyra Desktop, com autenticação e sincronização de categorias/canais Live TV, credenciais protegidas por DPAPI e reprodução pelo MPV existente.

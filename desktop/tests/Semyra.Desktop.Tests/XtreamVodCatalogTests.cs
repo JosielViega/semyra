@@ -88,7 +88,9 @@ public sealed class XtreamVodCatalogTests : IDisposable
 
         Assert.Equal(2, (await catalog.GetSeriesDetailsAsync(series.Id, false, default)).Episodes.Count);
         Assert.Equal(3, (await catalog.GetSeriesDetailsAsync(series.Id, true, default)).Episodes.Count);
-        await Assert.ThrowsAsync<IptvRefreshException>(() => catalog.GetSeriesDetailsAsync(series.Id, true, default));
+        var stale = await catalog.GetSeriesDetailsAsync(series.Id, true, default);
+        Assert.True(stale.Stale);
+        Assert.Equal(3, stale.Episodes.Count);
         Assert.Equal(3, store.GetSeriesDetails(series.Id).Episodes.Count);
         Assert.Equal(3, handler.SeriesInfoRequests);
     }
@@ -137,6 +139,18 @@ public sealed class XtreamVodCatalogTests : IDisposable
         var watch = Stopwatch.StartNew(); var result = store.ReplaceVodCatalog(source.Id, new XtreamVodImport(new[] { new XtreamVodCategory("1", "Movies", IptvVodMediaType.Movie, 0), new XtreamVodCategory("2", "Series", IptvVodMediaType.Series, 0) }, movies, series)); watch.Stop();
         Assert.Equal(50_000, result.MovieCount); Assert.Equal(10_000, result.SeriesCount); Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), $"Bulk import took {watch.Elapsed}.");
         Assert.Equal(100, store.SearchMovies(source.Id, "Movie", null, 0, 100).Items.Count);
+        Assert.Equal(50, store.SearchMovies(source.Id, "Movie", "1", 0, 50).Items.Count);
+        Assert.True(store.SearchMovies(source.Id, "Movie", "1", 0, 50).HasMore);
+        Assert.Equal(50, store.SearchSeries(source.Id, "Series", "2", 50, 50).Items.Count);
+        Assert.Empty(store.SearchMovies(source.Id, "missing", null, 0, 50).Items);
+
+        var pagedSource = store.AddSource("Paged", IptvSourceType.Xtream, "protected");
+        store.ReplaceVodCatalog(pagedSource.Id, new XtreamVodImport(
+            [new XtreamVodCategory("1", "Movies", IptvVodMediaType.Movie, 0), new XtreamVodCategory("2", "Series", IptvVodMediaType.Series, 0)],
+            movies.Take(120).ToArray(),
+            series.Take(120).ToArray()));
+        Assert.Equal([50, 50, 20], new[] { 0, 50, 100 }.Select(offset => store.SearchMovies(pagedSource.Id, "Movie", "1", offset, 50).Items.Count));
+        Assert.Equal([50, 50, 20], new[] { 0, 50, 100 }.Select(offset => store.SearchSeries(pagedSource.Id, "Series", "2", offset, 50).Items.Count));
     }
 
     public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }

@@ -37,12 +37,13 @@ internal sealed record XtreamVodImport(
     IReadOnlyList<XtreamSeries> Series);
 
 public sealed record IptvVodCategorySummary(long Id, string MediaType, string ExternalCategoryId, string Name, int DisplayOrder);
-public sealed record IptvMovieSummary(long Id, string Name, string? CategoryId, string? PosterUrl, string? Year, string? Rating, string? Genre);
-public sealed record IptvSeriesSummary(long Id, string Name, string? CategoryId, string? PosterUrl, string? Year, string? Rating, string? Genre);
+public sealed record IptvMovieSummary(long Id, string Name, string? CategoryId, string? PosterUrl, string? Year, string? Rating, string? Genre, string? Plot = null, string? ReleaseDate = null);
+public sealed record IptvSeriesSummary(long Id, string Name, string? CategoryId, string? PosterUrl, string? Year, string? Rating, string? Genre, string? Plot = null, string? ReleaseDate = null);
 public sealed record IptvVodSearchResult<T>(IReadOnlyList<T> Items, int Offset, int Limit, bool HasMore);
-public sealed record IptvEpisodeSummary(long Id, int SeasonNumber, int? EpisodeNumber, string Name, string? Duration);
-public sealed record IptvSeriesDetails(long SeriesId, IReadOnlyList<IptvEpisodeSummary> Episodes, DateTimeOffset? LastSyncedAt);
+public sealed record IptvEpisodeSummary(long Id, int SeasonNumber, int? EpisodeNumber, string Name, string? Duration, string? Plot = null);
+public sealed record IptvSeriesDetails(long SeriesId, IReadOnlyList<IptvEpisodeSummary> Episodes, DateTimeOffset? LastSyncedAt, bool Stale = false);
 internal sealed record IptvVodPlaybackItem(long Id, long SourceId, string Name, string ExternalId, string? ContainerExtension, string Kind);
+internal sealed record IptvVodPlaybackTarget(long Id, long SourceId, string Name, Uri StreamUri);
 
 public sealed record IptvChannelSummary(
     long Id,

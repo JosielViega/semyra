@@ -17,6 +17,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private readonly Func<MpvRuntime, nint, MpvPlayer> _mpvFactory;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private MpvPlayer? _mpvPlayer;
+    private long? _recentChannelId;
     private nint _nativeVideoHost;
     private bool _disposed;
 
@@ -250,7 +251,19 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
             throw new MediaEngineException("mpv_runtime_unavailable");
         }
         var channel = Catalog().ResolveChannelForPlayback(channelId);
+        _recentChannelId = channel.Id;
         return await EnsureMpvPlayer().StartAsync(channel, cancellationToken);
+    }
+
+    public async Task<MpvPlaybackStartResult> StartIptvVodViewAsync(string kind, long mediaId, CancellationToken cancellationToken)
+    {
+        if (!MpvReady) throw new MediaEngineException("mpv_runtime_unavailable");
+        _recentChannelId = null;
+        IptvVodPlaybackTarget target;
+        try { target = Catalog().ResolveVodForPlayback(kind, mediaId); }
+        catch (IptvValidationException) { throw new MediaEngineException("vod_not_found"); }
+        var media = new IptvPlaybackChannel(target.Id, target.SourceId, target.Name, null, target.StreamUri);
+        return await EnsureMpvPlayer().StartAsync(media, cancellationToken);
     }
 
     public Task<MediaSnapshot> StartIptvPublishAsync(long channelId, CancellationToken cancellationToken)
@@ -328,6 +341,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private void OnMpvPlaybackConfirmed(object? sender, long channelId)
     {
         if (!ReferenceEquals(sender, _mpvPlayer)) return;
+        if (_recentChannelId != channelId) return;
         try { _iptv?.RecordRecent(channelId); } catch { }
     }
 

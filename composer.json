@@ -51,7 +51,9 @@
     "config": {
         "optimize-autoloader": true,
         "sort-packages": true,
-        "allow-plugins": {}
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
     },
     "minimum-stability": "stable",
     "prefer-stable": true

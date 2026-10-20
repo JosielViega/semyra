@@ -12,16 +12,19 @@ public sealed class DesktopMessageTests
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.movies.search\",\"requestId\":\"vod-movies-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":1,\"query\":\"matrix\",\"category\":null,\"offset\":0,\"limit\":100}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.series.search\",\"requestId\":\"vod-series-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":1,\"query\":\"show\",\"category\":\"2\",\"offset\":0,\"limit\":50}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.series.details\",\"requestId\":\"vod-details-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"seriesId\":4,\"refresh\":false}")]
+    [InlineData("{\"type\":\"semyra.desktop.iptv.vod.view-start\",\"requestId\":\"vod-view-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"movie\",\"mediaId\":4}")]
     public void AcceptsStrictVodContracts(string json)
     {
         Assert.True(DesktopMessage.TryReadRequest(json, out var request));
-        Assert.NotNull(request.Iptv);
+        Assert.True(request.Iptv is not null || request.Media is not null);
     }
 
     [Theory]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.refresh\",\"requestId\":\"vod-refresh-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":1,\"password\":\"leak\"}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.categories\",\"requestId\":\"vod-categories-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":1,\"mediaType\":\"live\"}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.movies.search\",\"requestId\":\"vod-movies-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":1,\"query\":\"\",\"category\":null,\"offset\":0,\"limit\":101}")]
+    [InlineData("{\"type\":\"semyra.desktop.iptv.vod.view-start\",\"requestId\":\"vod-view-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"movie\",\"mediaId\":4,\"url\":\"https://private.example/movie\"}")]
+    [InlineData("{\"type\":\"semyra.desktop.iptv.vod.view-start\",\"requestId\":\"vod-view-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"series\",\"mediaId\":4}")]
     public void RejectsInvalidOrExpandedVodContracts(string json)
     {
         Assert.False(DesktopMessage.TryReadRequest(json, out _));

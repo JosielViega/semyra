@@ -15,12 +15,12 @@ final class DesktopIptvViewTest extends TestCase
             'title' => 'Fontes IPTV — Semyra',
             'csrfField' => '',
             'currentUser' => null,
-            'pageStyles' => ['/assets/css/desktop-iptv.css?v=11k-a-xtream-live'],
+            'pageStyles' => ['/assets/css/desktop-iptv.css?v=11l-a-structured-vod'],
         ]);
 
         self::assertStringContainsString('Abra esta página no Semyra Desktop', $html);
-        self::assertStringContainsString('/assets/css/desktop-iptv.css?v=11k-a-xtream-live', $html);
-        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11k-b-xtream-vod', $html);
+        self::assertStringContainsString('/assets/css/desktop-iptv.css?v=11l-a-structured-vod', $html);
+        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11l-a-structured-vod', $html);
         self::assertStringContainsString('data-iptv-pick-file', $html);
         self::assertStringContainsString('data-iptv-url-form', $html);
         self::assertStringContainsString('data-iptv-settings', $html);
@@ -29,7 +29,7 @@ final class DesktopIptvViewTest extends TestCase
         self::assertStringContainsString('data-iptv-channel-list aria-live="polite" aria-busy="false"', $html);
         self::assertStringContainsString('data-iptv-source-loading aria-live="polite" aria-busy="true"', $html);
         self::assertStringContainsString('data-iptv-browser-notice role="status" hidden', $html);
-        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11k-b-xtream-vod', $html);
+        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11l-a-structured-vod', $html);
         self::assertStringContainsString('data-iptv-xtream-form', $html);
         self::assertStringContainsString('type="password"', $html);
         self::assertStringContainsString('Adicionar Xtream', $html);
@@ -69,5 +69,18 @@ final class DesktopIptvViewTest extends TestCase
         self::assertStringNotContainsString('streamUrl', $html);
         self::assertStringNotContainsString('stable_key', $html);
         self::assertStringNotContainsString('logical_key', $html);
+        self::assertStringContainsString('data-iptv-primary-panel="live"', $html);
+        self::assertStringContainsString('data-iptv-primary-panel="movies"', $html);
+        self::assertStringContainsString('data-iptv-primary-panel="series"', $html);
+        self::assertMatchesRegularExpression('/data-iptv-primary-panel="movies"[^>]*hidden/', $html);
+        self::assertMatchesRegularExpression('/data-iptv-primary-panel="series"[^>]*hidden/', $html);
+    }
+
+    public function testHiddenRuleWinsOverGridAndFlexContainersInsideIptvExperience(): void
+    {
+        $css = file_get_contents(dirname(__DIR__) . '/public/assets/css/desktop-iptv.css');
+
+        self::assertIsString($css);
+        self::assertStringContainsString('.iptv-experience [hidden] { display: none !important; }', $css);
     }
 }

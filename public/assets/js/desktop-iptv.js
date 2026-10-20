@@ -74,6 +74,16 @@
         return false;
     }
 
+    function groupEpisodesBySeason(episodes) {
+        const seasons = new Map();
+        (Array.isArray(episodes) ? episodes : []).forEach(function (episode) {
+            if (!episode || !Number.isSafeInteger(episode.seasonNumber)) return;
+            if (!seasons.has(episode.seasonNumber)) seasons.set(episode.seasonNumber, []);
+            seasons.get(episode.seasonNumber).push(episode);
+        });
+        return Array.from(seasons.entries()).sort(function (a, b) { return a[0] - b[0]; });
+    }
+
     function createIptvCatalog(target) {
         const document = target && target.document;
         const root = document && document.querySelector('[data-iptv-catalog]');
@@ -83,6 +93,8 @@
         let mediaAvailable = false;
         let currentChannelId = null;
         let currentChannelName = '';
+        let currentVodKind = null;
+        let currentVodMediaId = null;
         let mediaState = 'idle';
         let hideTimer = null;
         let controlsVisible = true;
@@ -95,6 +107,11 @@
         let groupsRequestToken = null;
         let searchRequestToken = null;
         let activeView = 'all';
+        let primaryView = 'live';
+        const vodState = {
+            movies: {offset: 0, categories: [], items: [], hasMore: false, requestToken: null, categoryToken: null, selected: null},
+            series: {offset: 0, categories: [], items: [], hasMore: false, requestToken: null, categoryToken: null, detailsToken: null, selected: null},
+        };
         let viewRequestAction = 'search';
         const favoriteRequests = new Map();
         let settingsOperation = null;
@@ -118,6 +135,126 @@
         let stageIntersecting = true;
         const groupsBySource = new Map();
         const limit = 50;
+
+        function currentSource() { return sources.find(function (source) { return source.id === selectedSourceId; }) || null; }
+
+        function renderPrimaryNavigation() {
+            const xtream = currentSource()?.type === 'xtream';
+            if (!xtream && primaryView !== 'live') primaryView = 'live';
+            root.querySelectorAll?.('[data-iptv-primary]').forEach(function (tab) {
+                const vod = tab.dataset.iptvPrimary !== 'live';
+                tab.hidden = vod && !xtream;
+                tab.disabled = vod && !xtream;
+                const selected = tab.dataset.iptvPrimary === primaryView;
+                tab.classList.toggle('is-active', selected);
+                tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+                tab.setAttribute('tabindex', selected ? '0' : '-1');
+            });
+            root.querySelectorAll?.('[data-iptv-primary-panel]').forEach(function (panel) {
+                panel.hidden = panel.dataset.iptvPrimaryPanel !== primaryView;
+            });
+        }
+
+        function setPrimaryView(view, focus) {
+            if (!['live', 'movies', 'series'].includes(view) || (view !== 'live' && currentSource()?.type !== 'xtream')) return;
+            primaryView = view;
+            renderPrimaryNavigation();
+            if (view !== 'live') loadVod(view, true);
+            if (focus) element('[data-iptv-primary="' + view + '"]')?.focus();
+        }
+
+        function vodAction(view) { return view === 'movies' ? 'vod-movies-search' : 'vod-series-search'; }
+        function vodMediaType(view) { return view === 'movies' ? 'movie' : 'series'; }
+
+        function renderVodCategories(view) {
+            const select = element('[data-iptv-vod-form="' + view + '"] select[name="category"]');
+            if (!select) return;
+            const selected = select.value;
+            const fragment = document.createDocumentFragment();
+            const all = node('option', '', 'Todas as categorias'); all.value = ''; fragment.appendChild(all);
+            vodState[view].categories.forEach(function (category) {
+                const option = node('option', '', category.name); option.value = category.externalCategoryId; fragment.appendChild(option);
+            });
+            select.replaceChildren(fragment); select.value = vodState[view].categories.some(function (item) { return item.externalCategoryId === selected; }) ? selected : '';
+        }
+
+        function vodEmpty(view, message) {
+            const empty = node('div', 'iptv-empty-state iptv-vod-empty');
+            empty.appendChild(node('span', 'iptv-channel-monogram', view === 'movies' ? 'FL' : 'SR'));
+            empty.appendChild(node('p', '', message));
+            if (currentSource()?.vodSyncState !== 'ready') {
+                const button = node('button', 'iptv-button-quiet', 'Abrir configurações IPTV'); button.type = 'button'; button.dataset.iptvVodSettings = 'true'; empty.appendChild(button);
+            }
+            return empty;
+        }
+
+        function safePoster(item, alt) {
+            const visual = node('span', 'iptv-vod-poster');
+            if (typeof item.posterUrl === 'string' && /^https?:\/\//i.test(item.posterUrl)) {
+                const image = node('img', ''); image.src = item.posterUrl; image.alt = alt; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer';
+                image.addEventListener('error', function () { image.remove(); visual.appendChild(node('span', 'iptv-vod-poster-fallback', channelMonogram(item.name))); });
+                visual.appendChild(image);
+            } else visual.appendChild(node('span', 'iptv-vod-poster-fallback', channelMonogram(item.name)));
+            return visual;
+        }
+
+        function renderVod(view) {
+            const state = vodState[view]; const list = element('[data-iptv-vod-list="' + view + '"]'); if (!list) return;
+            const fragment = document.createDocumentFragment();
+            if (state.items.length === 0) {
+                const source = currentSource();
+                const message = source?.vodSyncState !== 'ready' ? 'Sincronize filmes e séries nas configurações para preencher este catálogo.' : 'Nenhum conteúdo encontrado.';
+                fragment.appendChild(vodEmpty(view, message));
+            } else state.items.forEach(function (item) {
+                const card = node('article', 'iptv-vod-card');
+                const button = node('button', 'iptv-vod-card-button'); button.type = 'button'; button.dataset.iptvVodOpen = view; button.dataset.mediaId = String(item.id); button.setAttribute('aria-label', 'Ver detalhes de ' + item.name); button.title = item.name;
+                button.appendChild(safePoster(item, 'Capa de ' + item.name));
+                const copy = node('span', 'iptv-vod-card-copy'); copy.appendChild(node('strong', '', item.name)); copy.appendChild(node('span', '', [item.year, item.rating ? '★ ' + item.rating : null, item.genre].filter(Boolean).join(' · ') || (view === 'movies' ? 'Filme' : 'Série'))); button.appendChild(copy); card.appendChild(button); fragment.appendChild(card);
+            });
+            list.replaceChildren(fragment); list.setAttribute('aria-busy', 'false');
+            const count = element('[data-iptv-vod-count="' + view + '"]'); if (count) count.textContent = state.items.length ? state.items.length + (state.hasMore ? '+ nesta página' : ' nesta página') : '';
+            const page = element('[data-iptv-vod-page="' + view + '"]'); if (page) page.textContent = 'Página ' + (Math.floor(state.offset / limit) + 1);
+            const previous = element('[data-iptv-vod-previous="' + view + '"]'); if (previous) previous.disabled = state.offset === 0;
+            const next = element('[data-iptv-vod-next="' + view + '"]'); if (next) next.disabled = !state.hasMore;
+        }
+
+        function loadVod(view, includeCategories) {
+            if (!selectedSourceId || currentSource()?.type !== 'xtream') return;
+            const state = vodState[view]; const form = element('[data-iptv-vod-form="' + view + '"]');
+            const list = element('[data-iptv-vod-list="' + view + '"]'); if (list) { list.setAttribute('aria-busy', 'true'); list.replaceChildren(node('span', 'iptv-skeleton')); }
+            if (includeCategories && state.categories.length === 0) { state.categoryToken = nextRequestToken('vod-categories'); request('vod-categories', {sourceId: selectedSourceId, mediaType: vodMediaType(view)}, state.categoryToken); }
+            state.requestToken = nextRequestToken(vodAction(view));
+            request(vodAction(view), {sourceId: selectedSourceId, query: form?.elements.query.value.trim() || '', category: form?.elements.category.value || null, offset: state.offset, limit}, state.requestToken);
+        }
+
+        function showVodDetail(view, item) {
+            vodState[view].selected = item;
+            const browser = element('[data-iptv-vod-browser="' + view + '"]'); const detail = element('[data-iptv-vod-detail="' + view + '"]'); if (!detail) return;
+            if (browser) browser.hidden = true; detail.hidden = false; detail.replaceChildren();
+            const back = node('button', 'iptv-button-quiet iptv-vod-back', '← Voltar ao catálogo'); back.type = 'button'; back.dataset.iptvVodBack = view; detail.appendChild(back);
+            const layout = node('div', 'iptv-vod-detail-layout'); layout.appendChild(safePoster(item, 'Capa de ' + item.name));
+            const copy = node('div', 'iptv-vod-detail-copy'); copy.appendChild(node('p', 'eyebrow', view === 'movies' ? 'Filme' : 'Série')); copy.appendChild(node('h2', '', item.name));
+            const meta = [item.year, item.rating ? '★ ' + item.rating : null, item.genre].filter(Boolean); if (meta.length) copy.appendChild(node('p', 'iptv-vod-meta', meta.join(' · ')));
+            if (item.plot) copy.appendChild(node('p', 'iptv-vod-plot', item.plot));
+            if (view === 'movies') { const play = node('button', 'iptv-vod-play', 'Assistir'); play.type = 'button'; play.dataset.iptvVodPlay = 'movie'; play.dataset.mediaId = String(item.id); copy.appendChild(play); }
+            else { const episodes = node('div', 'iptv-series-episodes', 'Carregando episódios…'); episodes.dataset.iptvSeriesEpisodes = 'true'; copy.appendChild(episodes); const state = vodState.series; state.detailsToken = nextRequestToken('vod-series-details'); request('vod-series-details', {seriesId: item.id, refresh: true}, state.detailsToken); }
+            layout.appendChild(copy); detail.appendChild(layout); back.focus?.();
+        }
+
+        function renderSeriesEpisodes(episodes, stale) {
+            const container = element('[data-iptv-series-episodes]'); if (!container) return; container.replaceChildren();
+            if (stale) container.appendChild(node('p', 'iptv-vod-warning', 'Não foi possível atualizar agora. Exibindo os episódios salvos.'));
+            if (!episodes.length) { container.appendChild(node('p', '', 'Nenhum episódio disponível.')); return; }
+            const grouped = groupEpisodesBySeason(episodes);
+            const tabs = node('div', 'iptv-season-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Temporadas'); container.appendChild(tabs);
+            grouped.forEach(function (entry, index) {
+                const season = entry[0]; const seasonEpisodes = entry[1];
+                const label = season === 0 ? 'Especiais' : 'Temporada ' + season;
+                const tab = node('button', index === 0 ? 'is-active' : '', label); tab.type = 'button'; tab.dataset.iptvSeasonTab = String(season); tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', index === 0 ? 'true' : 'false'); tabs.appendChild(tab);
+                const section = node('section', 'iptv-season'); section.dataset.iptvSeason = String(season); section.hidden = index !== 0; section.appendChild(node('h3', '', label));
+                seasonEpisodes.forEach(function (episode) { const row = node('div', 'iptv-episode'); const copy = node('div', ''); copy.appendChild(node('strong', '', (episode.episodeNumber ? 'E' + String(episode.episodeNumber).padStart(2, '0') + ' · ' : '') + episode.name)); if (episode.duration) copy.appendChild(node('span', '', episode.duration)); if (episode.plot) copy.appendChild(node('p', '', episode.plot)); const play = node('button', '', 'Assistir'); play.type = 'button'; play.dataset.iptvVodPlay = 'episode'; play.dataset.mediaId = String(episode.id); row.appendChild(copy); row.appendChild(play); section.appendChild(row); }); container.appendChild(section);
+            });
+        }
 
         function element(selector) {
             return root && root.querySelector(selector);
@@ -458,7 +595,7 @@
         function updateActiveCards() {
             if (!root || typeof root.querySelectorAll !== 'function') return;
             root.querySelectorAll('[data-iptv-view-start]').forEach(function (card) {
-                const active = Number(card.dataset.iptvViewStart) === currentChannelId && ACTIVE_STATES.includes(mediaState);
+                const active = currentVodKind === null && Number(card.dataset.iptvViewStart) === currentChannelId && ACTIVE_STATES.includes(mediaState);
                 const shell = card.closest('.iptv-channel-card') || card;
                 shell.classList.toggle('is-active', active);
                 card.setAttribute('aria-pressed', active ? 'true' : 'false');
@@ -588,7 +725,14 @@
             selectedSourceId = sourceId;
             recentsConfirming = false;
             offset = 0;
+            primaryView = 'live';
+            Object.entries(vodState).forEach(function (entry) {
+                const view = entry[0]; const state = entry[1];
+                state.offset = 0; state.categories = []; state.items = []; state.selected = null; state.requestToken = null; state.categoryToken = null; if ('detailsToken' in state) state.detailsToken = null;
+                const browser = element('[data-iptv-vod-browser="' + view + '"]'); const detail = element('[data-iptv-vod-detail="' + view + '"]'); if (browser) browser.hidden = false; if (detail) { detail.hidden = true; detail.replaceChildren(); }
+            });
             renderSources();
+            renderPrimaryNavigation();
             const group = element('[data-iptv-search-form] select[name="group"]');
             if (group) {
                 group.value = '';
@@ -792,6 +936,8 @@
                 destroyPlayer();
                 currentChannelId = null;
                 currentChannelName = '';
+                currentVodKind = null;
+                currentVodMediaId = null;
             } else if (mediaState === 'failed') {
                 if (nativeSessionId) {
                     hideNativePlayerSurface();
@@ -867,10 +1013,24 @@
             if (!mediaAvailable || !Number.isSafeInteger(channelId) || channelId < 1) return;
             if (currentChannelId === channelId && ACTIVE_STATES.includes(mediaState)) return;
             currentChannelId = channelId;
+            currentVodKind = null;
+            currentVodMediaId = null;
             currentChannelName = channelName || 'Canal selecionado';
             nativePaused = false;
             renderMediaState({state: 'preparing', channelId, channelName: currentChannelName});
             request('view-start', {channelId});
+            element('[data-iptv-player-stage]')?.scrollIntoView?.({behavior: 'smooth', block: 'center'});
+        }
+
+        function startVod(kind, mediaId, name) {
+            if (!mediaAvailable || !['movie', 'episode'].includes(kind) || !Number.isSafeInteger(mediaId) || mediaId < 1) return;
+            currentVodKind = kind;
+            currentVodMediaId = mediaId;
+            currentChannelId = mediaId;
+            currentChannelName = name || 'Conteúdo selecionado';
+            nativePaused = false;
+            renderMediaState({state: 'preparing', channelId: mediaId, channelName: currentChannelName});
+            request('vod-view-start', {kind, mediaId});
             element('[data-iptv-player-stage]')?.scrollIntoView?.({behavior: 'smooth', block: 'center'});
         }
 
@@ -1073,6 +1233,10 @@
             if (detail.action === 'groups' && !isCurrentResult(detail, groupsRequestToken)) return;
             if (['search', 'favorites', 'recents'].includes(detail.action)
                 && (detail.action !== viewRequestAction || !isCurrentResult(detail, searchRequestToken))) return;
+            const vodView = detail.action === 'vod-movies-search' ? 'movies' : detail.action === 'vod-series-search' ? 'series' : null;
+            if (vodView && vodState[vodView].requestToken !== detail.clientRequestId) return;
+            if (detail.action === 'vod-categories' && !Object.values(vodState).some(function (state) { return state.categoryToken === detail.clientRequestId; })) return;
+            if (detail.action === 'vod-series-details' && vodState.series.detailsToken !== detail.clientRequestId) return;
             const favoritePending = detail.action === 'favorite-set' ? favoriteRequests.get(detail.clientRequestId) : null;
             if (detail.action === 'favorite-set' && !favoritePending) return;
             const recentPending = detail.action === 'recent-remove' ? recentRemoveRequests.get(detail.clientRequestId) : null;
@@ -1083,7 +1247,14 @@
             const ownedBySettings = operationOwns(detail);
             if (settingsOperation && settingsOperation.tokens.has(detail.action) && !ownedBySettings) return;
             if (!detail.ok) {
-                if (detail.action === 'view-start') renderMediaState({state: 'failed', errorCode: detail.error});
+                if (['view-start', 'vod-view-start'].includes(detail.action)) renderMediaState({state: 'failed', errorCode: detail.error});
+                else if (vodView) {
+                    const list = element('[data-iptv-vod-list="' + vodView + '"]');
+                    if (list) list.replaceChildren(vodEmpty(vodView, 'Não foi possível carregar este catálogo.'));
+                } else if (detail.action === 'vod-series-details') {
+                    const episodes = element('[data-iptv-series-episodes]');
+                    if (episodes) episodes.replaceChildren(node('p', 'iptv-vod-warning', 'Não foi possível carregar os episódios. Tente novamente.'));
+                }
                 else if (['search', 'favorites', 'recents'].includes(detail.action)) {
                     setCatalogLoading(false);
                     const list = element('[data-iptv-channel-list]');
@@ -1202,6 +1373,17 @@
                 groupsBySource.set(selectedSourceId, groups);
                 renderGroups(groups);
                 if (ownedBySettings) settleSourceLoad('groups');
+            } else if (detail.action === 'vod-categories') {
+                const view = vodState.series.categoryToken === detail.clientRequestId ? 'series' : 'movies';
+                vodState[view].categories = detail.categories || [];
+                renderVodCategories(view);
+            } else if (vodView) {
+                vodState[vodView].items = detail.items || [];
+                vodState[vodView].offset = detail.offset || 0;
+                vodState[vodView].hasMore = detail.hasMore === true;
+                renderVod(vodView);
+            } else if (detail.action === 'vod-series-details') {
+                renderSeriesEpisodes(detail.episodes || [], detail.stale === true);
             } else if (['search', 'favorites', 'recents'].includes(detail.action)) {
                 if (Number.isSafeInteger(detail.offset)) offset = detail.offset;
                 renderChannels(detail.channels || [], detail.hasMore);
@@ -1230,8 +1412,8 @@
                 if (clearPending.sourceId !== selectedSourceId || activeView !== 'recents') return;
                 renderChannels([], false);
                 recentsFeedback('', false);
-            } else if (['view-start', 'view-stop', 'view-status'].includes(detail.action)) {
-                if (['view-start', 'view-status'].includes(detail.action) && detail.playbackKind === 'native-mpv') attachNativePlayer(detail.sessionId);
+            } else if (['view-start', 'vod-view-start', 'view-stop', 'view-status'].includes(detail.action)) {
+                if (['view-start', 'vod-view-start', 'view-status'].includes(detail.action) && detail.playbackKind === 'native-mpv') attachNativePlayer(detail.sessionId);
                 if (detail.action === 'view-stop') destroyPlayer();
                 renderMediaState(detail);
             } else if (detail.action === 'player-control') {
@@ -1326,6 +1508,16 @@
                 operationRequest('pick-file', {});
             });
             bind('[data-iptv-source-select]', 'change', function (event) { selectSource(Number(event.currentTarget.value)); });
+            bind('[data-iptv-primary-tabs]', 'click', function (event) {
+                const tab = event.target.closest('[data-iptv-primary]'); if (tab) setPrimaryView(tab.dataset.iptvPrimary, false);
+            });
+            bind('[data-iptv-primary-tabs]', 'keydown', function (event) {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                const views = currentSource()?.type === 'xtream' ? ['live', 'movies', 'series'] : ['live'];
+                event.preventDefault(); let index = views.indexOf(primaryView);
+                if (event.key === 'Home') index = 0; else if (event.key === 'End') index = views.length - 1; else index = (index + (event.key === 'ArrowRight' ? 1 : -1) + views.length) % views.length;
+                setPrimaryView(views[index], true);
+            });
             bind('[data-iptv-view-tabs]', 'click', function (event) {
                 const tab = event.target.closest('[data-iptv-view]');
                 if (tab) setActiveView(tab.dataset.iptvView, false);
@@ -1389,6 +1581,26 @@
                 const name = card.querySelector('.iptv-channel-copy strong');
                 startChannel(Number(card.dataset.iptvViewStart), name ? name.textContent : '');
             });
+            root.addEventListener('click', function (event) {
+                const settings = event.target.closest('[data-iptv-vod-settings]'); if (settings) { openSettings(); return; }
+                const back = event.target.closest('[data-iptv-vod-back]');
+                if (back) { const view = back.dataset.iptvVodBack; element('[data-iptv-vod-detail="' + view + '"]').hidden = true; element('[data-iptv-vod-browser="' + view + '"]').hidden = false; element('[data-iptv-vod-open="' + view + '"]')?.focus?.(); return; }
+                const open = event.target.closest('[data-iptv-vod-open]');
+                if (open) { const view = open.dataset.iptvVodOpen; const item = vodState[view].items.find(function (candidate) { return candidate.id === Number(open.dataset.mediaId); }); if (item) showVodDetail(view, item); return; }
+                const play = event.target.closest('[data-iptv-vod-play]');
+                if (play) { const selected = play.dataset.iptvVodPlay === 'movie' ? vodState.movies.selected : vodState.series.selected; startVod(play.dataset.iptvVodPlay, Number(play.dataset.mediaId), selected?.name || 'Conteúdo selecionado'); }
+                const seasonTab = event.target.closest('[data-iptv-season-tab]');
+                if (seasonTab) {
+                    root.querySelectorAll('[data-iptv-season-tab]').forEach(function (tab) { const selected = tab === seasonTab; tab.classList.toggle('is-active', selected); tab.setAttribute('aria-selected', selected ? 'true' : 'false'); });
+                    root.querySelectorAll('[data-iptv-season]').forEach(function (section) { section.hidden = section.dataset.iptvSeason !== seasonTab.dataset.iptvSeasonTab; });
+                }
+            });
+            ['movies', 'series'].forEach(function (view) {
+                bind('[data-iptv-vod-form="' + view + '"]', 'submit', function (event) { event.preventDefault(); vodState[view].offset = 0; loadVod(view, false); });
+                bind('[data-iptv-vod-form="' + view + '"] select[name="category"]', 'change', function () { vodState[view].offset = 0; loadVod(view, false); });
+                bind('[data-iptv-vod-previous="' + view + '"]', 'click', function () { vodState[view].offset = Math.max(0, vodState[view].offset - limit); loadVod(view, false); });
+                bind('[data-iptv-vod-next="' + view + '"]', 'click', function () { vodState[view].offset += limit; loadVod(view, false); });
+            });
             bind('[data-iptv-recents-clear]', 'click', requestRecentsClear);
             bind('[data-iptv-recents-cancel]', 'click', cancelRecentsClear);
             bind('[data-iptv-recents-confirm-clear]', 'click', confirmRecentsClear);
@@ -1418,7 +1630,7 @@
                 userActivity();
             });
             bind('[data-iptv-native-fullscreen]', 'click', toggleFullscreen);
-            bind('[data-iptv-retry]', 'click', function () { if (currentChannelId) startChannel(currentChannelId, currentChannelName); });
+            bind('[data-iptv-retry]', 'click', function () { if (currentVodKind && currentVodMediaId) startVod(currentVodKind, currentVodMediaId, currentChannelName); else if (currentChannelId) startChannel(currentChannelId, currentChannelName); });
             bind('[data-iptv-choose-channel]', 'click', chooseOtherContent);
             bind('[data-iptv-search-form]', 'submit', function (event) { event.preventDefault(); offset = 0; search('Buscando canais…'); });
             bind('[data-iptv-search-form] select[name="group"]', 'change', function () { offset = 0; search('Aplicando filtro…'); });
@@ -1432,7 +1644,10 @@
             document.addEventListener?.('keydown', function (event) {
                 const tag = document.activeElement?.tagName?.toLowerCase();
                 if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-                if (nativeSessionId && (event.key === 'f' || event.key === 'F')) {
+                const openDetail = primaryView !== 'live' ? element('[data-iptv-vod-detail="' + primaryView + '"]:not([hidden])') : null;
+                if (event.key === 'Escape' && openDetail && !nativeFullscreen) {
+                    const back = openDetail.querySelector?.('[data-iptv-vod-back]'); back?.click?.();
+                } else if (nativeSessionId && (event.key === 'f' || event.key === 'F')) {
                     event.preventDefault?.();
                     toggleFullscreen();
                 } else if (nativeSessionId && nativeFullscreen && event.key === 'Escape') {
@@ -1454,6 +1669,7 @@
             }, 1200);
 
             renderActiveView();
+            renderPrimaryNavigation();
             const snapshot = target.SemyraDesktopBridge && target.SemyraDesktopBridge.getHostSnapshot();
             if (snapshot && snapshot.capabilities.includes('iptv.sources')) activate();
             return true;
@@ -1470,5 +1686,6 @@
         channelMonogram,
         shouldRenderRemoteLogo,
         syncRangeVisual,
+        groupEpisodesBySeason,
     });
 }));

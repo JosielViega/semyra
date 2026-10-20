@@ -232,6 +232,11 @@ public static class DesktopBridge
                 var result = await hostEngine.StartIptvLocalViewAsync(request.Media!.ChannelId!.Value, cancellationToken);
                 return (true, LocalViewResult(ResultType(request.Type), request.RequestId, result));
             }
+            if (request.Type == DesktopMessage.IptvVodViewStartType)
+            {
+                var result = await hostEngine.StartIptvVodViewAsync(request.Media!.Kind!, request.Media.MediaId!.Value, cancellationToken);
+                return (true, LocalViewResult(ResultType(request.Type), request.RequestId, result));
+            }
             var snapshot = request.Type switch
             {
                 DesktopMessage.IptvPublishStartType => await hostEngine.StartIptvPublishAsync(
@@ -510,6 +515,7 @@ public static class DesktopBridge
         DesktopMessage.IptvVodMoviesSearchType => DesktopMessage.IptvVodMoviesSearchResultType,
         DesktopMessage.IptvVodSeriesSearchType => DesktopMessage.IptvVodSeriesSearchResultType,
         DesktopMessage.IptvVodSeriesDetailsType => DesktopMessage.IptvVodSeriesDetailsResultType,
+        DesktopMessage.IptvVodViewStartType => DesktopMessage.IptvVodViewStartResultType,
         DesktopMessage.IptvSourcesPickFileType => DesktopMessage.IptvSourcesPickFileResultType,
         DesktopMessage.IptvCatalogGroupsType => DesktopMessage.IptvCatalogGroupsResultType,
         DesktopMessage.IptvCatalogSearchType => DesktopMessage.IptvCatalogSearchResultType,

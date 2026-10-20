@@ -15,6 +15,9 @@ assert.equal(iptv.channelMonogram('Globo News'), 'GN');
 assert.equal(iptv.channelMonogram('Band'), 'BA');
 assert.equal(iptv.channelMonogram(''), 'TV');
 assert.equal(iptv.shouldRenderRemoteLogo('https://provider.example/logo.png?token=secret'), false);
+assert.deepEqual(iptv.groupEpisodesBySeason([
+    {id: 3, seasonNumber: 2}, {id: 1, seasonNumber: 0}, {id: 2, seasonNumber: 1},
+]).map(([season, episodes]) => [season, episodes.map((episode) => episode.id)]), [[0, [1]], [1, [2]], [2, [3]]]);
 
 assert.equal(iptv.localViewAvailable({capabilities: []}), false);
 assert.equal(iptv.localViewAvailable({capabilities: ['iptv.local-view']}), true);
@@ -80,6 +83,10 @@ class FakeElement {
         if (selector === '[data-iptv-favorite]' && this.dataset.iptvFavorite) return this;
         if (selector === '[data-iptv-recent-remove]' && this.dataset.iptvRecentRemove) return this;
         if (selector === '[data-iptv-view]' && this.dataset.iptvView) return this;
+        if (selector === '[data-iptv-primary]' && this.dataset.iptvPrimary) return this;
+        if (selector === '[data-iptv-vod-open]' && this.dataset.iptvVodOpen) return this;
+        if (selector === '[data-iptv-vod-back]' && this.dataset.iptvVodBack) return this;
+        if (selector === '[data-iptv-vod-play]' && this.dataset.iptvVodPlay) return this;
         if (selector === '[data-iptv-action]' && this.dataset.iptvAction) return this;
         if (selector === '[data-source-id]' && this.dataset.sourceId) return this;
         if (selector === '.iptv-channel-card' && this.className.split(/\s+/).includes('iptv-channel-card')) return this;
@@ -136,6 +143,8 @@ root.querySelectorAll = (selector) => {
             registry.get('[data-iptv-native-seek="30"]'),
         ].filter(Boolean);
     }
+    if (selector === '[data-iptv-primary]') return registry.get('[data-iptv-primary-tabs]')?.children || [];
+    if (selector === '[data-iptv-primary-panel]') return ['live', 'movies', 'series'].map((view) => registry.get('[data-iptv-primary-panel="' + view + '"]'));
     const container = selector === '[data-iptv-view]'
         ? registry.get('[data-iptv-view-tabs]')
         : registry.get('[data-iptv-channel-list]');
@@ -183,6 +192,35 @@ for (const view of ['favorites', 'recents', 'all']) {
     tab.dataset.iptvView = view;
     viewTabs.appendChild(tab);
     registry.set('[data-iptv-view="' + view + '"]', tab);
+}
+const primaryTabs = register('[data-iptv-primary-tabs]', new FakeElement('nav'));
+const primaryPanels = {};
+for (const view of ['live', 'movies', 'series']) {
+    const tab = new FakeElement('button');
+    tab.dataset.iptvPrimary = view;
+    primaryTabs.appendChild(tab);
+    registry.set('[data-iptv-primary="' + view + '"]', tab);
+    const panel = new FakeElement('section');
+    panel.dataset.iptvPrimaryPanel = view;
+    panel.hidden = view !== 'live';
+    primaryPanels[view] = panel;
+    registry.set('[data-iptv-primary-panel="' + view + '"]', panel);
+}
+const vodFixtures = {};
+for (const view of ['movies', 'series']) {
+    const vodForm = register('[data-iptv-vod-form="' + view + '"]', new FakeElement('form'));
+    vodForm.elements = {query: {value: ''}, category: {value: ''}};
+    registry.set('[data-iptv-vod-form="' + view + '"] select[name="category"]', new FakeElement('select'));
+    vodFixtures[view] = {
+        browser: register('[data-iptv-vod-browser="' + view + '"]'),
+        detail: register('[data-iptv-vod-detail="' + view + '"]'),
+        list: register('[data-iptv-vod-list="' + view + '"]'),
+    };
+    vodFixtures[view].detail.hidden = true;
+    register('[data-iptv-vod-count="' + view + '"]');
+    register('[data-iptv-vod-page="' + view + '"]');
+    register('[data-iptv-vod-previous="' + view + '"]');
+    register('[data-iptv-vod-next="' + view + '"]');
 }
 register('[data-iptv-view-panel]', new FakeElement('div'));
 register('[data-iptv-channels-title]', new FakeElement('h2'));
@@ -945,6 +983,49 @@ assert.equal(settings.dataset.settingsState, 'idle');
 rootListeners.get('semyra:iptv-result')({detail: {action: 'list', ok: true, clientRequestId: initialListToken, sources: [
     {id: 9, name: 'Xtream VOD', type: 'xtream', channelCount: 20, movieCount: 1200, seriesCount: 80, vodSyncState: 'ready', lastRefreshStatus: 'ready'},
 ]}});
+function assertPrimaryVisibility(visible) {
+    for (const view of ['live', 'movies', 'series']) {
+        assert.equal(primaryPanels[view].hidden, view !== visible, visible + ' must be the only visible primary view');
+    }
+}
+assertPrimaryVisibility('live');
+
+primaryTabs.emit('click', {target: registry.get('[data-iptv-primary="movies"]')});
+assertPrimaryVisibility('movies');
+const movieCategoryToken = requests.findLast((item) => item.action === 'vod-categories').clientRequestId;
+const movieSearchToken = requests.findLast((item) => item.action === 'vod-movies-search').clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-categories', ok: true, clientRequestId: movieCategoryToken, categories: []}});
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-movies-search', ok: true, clientRequestId: movieSearchToken, offset: 0, hasMore: false, items: [
+    {id: 501, name: 'Filme seguro', year: '2026', rating: '8.1', genre: 'Drama', plot: 'Sinopse segura.'},
+]}});
+root.emit('click', {target: find(vodFixtures.movies.list, (item) => item.dataset.iptvVodOpen === 'movies')});
+assert.equal(vodFixtures.movies.browser.hidden, true);
+assert.equal(vodFixtures.movies.detail.hidden, false);
+assertPrimaryVisibility('movies');
+root.emit('click', {target: find(vodFixtures.movies.detail, (item) => item.dataset.iptvVodBack === 'movies')});
+assert.equal(vodFixtures.movies.browser.hidden, false);
+assert.equal(vodFixtures.movies.detail.hidden, true);
+assertPrimaryVisibility('movies');
+
+primaryTabs.emit('click', {target: registry.get('[data-iptv-primary="series"]')});
+assertPrimaryVisibility('series');
+const seriesCategoryToken = requests.findLast((item) => item.action === 'vod-categories').clientRequestId;
+const seriesSearchToken = requests.findLast((item) => item.action === 'vod-series-search').clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-categories', ok: true, clientRequestId: seriesCategoryToken, categories: []}});
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-series-search', ok: true, clientRequestId: seriesSearchToken, offset: 0, hasMore: false, items: [
+    {id: 601, name: 'Serie segura', year: '2026', rating: '8.4', genre: 'Drama', plot: 'Sinopse segura.'},
+]}});
+root.emit('click', {target: find(vodFixtures.series.list, (item) => item.dataset.iptvVodOpen === 'series')});
+assert.equal(vodFixtures.series.browser.hidden, true);
+assert.equal(vodFixtures.series.detail.hidden, false);
+assertPrimaryVisibility('series');
+root.emit('click', {target: find(vodFixtures.series.detail, (item) => item.dataset.iptvVodBack === 'series')});
+assert.equal(vodFixtures.series.browser.hidden, false);
+assert.equal(vodFixtures.series.detail.hidden, true);
+assertPrimaryVisibility('series');
+
+primaryTabs.emit('click', {target: registry.get('[data-iptv-primary="live"]')});
+assertPrimaryVisibility('live');
 const xtreamCard = sourceList.children.find((item) => item.dataset.sourceId === '9');
 assert.match(find(xtreamCard, (item) => item.className === 'iptv-source-meta' && item.textContent.includes('filmes')).textContent, /1\.200 filmes/);
 const vodButton = find(xtreamCard, (item) => item.dataset.iptvAction === 'vod-refresh');
@@ -957,6 +1038,15 @@ rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-refresh', ok: tru
 }}});
 assert.equal(settings.dataset.settingsState, 'idle');
 assert.equal(registry.get('[data-iptv-feedback]').textContent, 'Filmes e séries sincronizados.');
+
+primaryTabs.emit('click', {target: registry.get('[data-iptv-primary="series"]')});
+assertPrimaryVisibility('series');
+rootListeners.get('semyra:iptv-result')({detail: {action: 'list', ok: true, clientRequestId: initialListToken, sources: [
+    {id: 10, name: 'M3U', type: 'm3u_file', channelCount: 2, lastRefreshStatus: 'ready'},
+]}});
+assertPrimaryVisibility('live');
+assert.equal(registry.get('[data-iptv-primary="movies"]').hidden, true);
+assert.equal(registry.get('[data-iptv-primary="series"]').hidden, true);
 
 let logoutPrevented = 0;
 logoutForm.emit('submit', {preventDefault: () => { logoutPrevented += 1; }});

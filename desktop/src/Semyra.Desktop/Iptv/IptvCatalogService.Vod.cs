@@ -57,12 +57,28 @@ public sealed partial class IptvCatalogService
             var episodes = await _xtreamClient.GetSeriesInfoAsync(config, identity.ExternalSeriesId, linked.Token).ConfigureAwait(false);
             return _store.ReplaceSeriesEpisodes(seriesId, episodes);
         }
-        catch (XtreamException exception) { throw new IptvRefreshException(exception.Code, exception); }
+        catch (XtreamException exception)
+        {
+            var cached = _store.GetSeriesDetails(seriesId);
+            if (cached.LastSyncedAt is not null) return cached with { Stale = true };
+            throw new IptvRefreshException(exception.Code, exception);
+        }
         finally { lock (_vodGate) { _seriesOperations.Remove(key); } }
     }
 
     internal Uri ResolveMovieForPlayback(long movieId) => ResolveVod(_store.ResolveMovieForPlayback(PositiveId(movieId)));
     internal Uri ResolveEpisodeForPlayback(long episodeId) => ResolveVod(_store.ResolveEpisodeForPlayback(PositiveId(episodeId)));
+
+    internal IptvVodPlaybackTarget ResolveVodForPlayback(string kind, long mediaId)
+    {
+        var item = kind switch
+        {
+            "movie" => _store.ResolveMovieForPlayback(PositiveId(mediaId)),
+            "episode" => _store.ResolveEpisodeForPlayback(PositiveId(mediaId)),
+            _ => throw new IptvValidationException("vod_kind_invalid"),
+        };
+        return new(item.Id, item.SourceId, item.Name, ResolveVod(item));
+    }
 
     private Uri ResolveVod(IptvVodPlaybackItem item)
     { var config = GetXtreamConfiguration(item.SourceId); return new Uri(XtreamClient.BuildVodUrl(config, item.Kind, item.ExternalId, item.ContainerExtension)); }

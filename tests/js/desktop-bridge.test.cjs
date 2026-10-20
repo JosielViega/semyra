@@ -185,6 +185,20 @@ assert.deepEqual(dispatched.at(-1).detail.sources, [{
 }]);
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
 
+webviewWindow.crypto.randomUUID = () => 'iptv-vod-view';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'vod-view-start', kind: 'episode', mediaId: 301}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.vod.view-start', requestId: 'iptv-vod-view', accountContextId: 'b'.repeat(32),
+    kind: 'episode', mediaId: 301,
+});
+assert.equal(JSON.stringify(posted.at(-1)).includes('url'), false);
+messageListener({data: {
+    type: 'semyra.desktop.iptv.vod.view-start-result', requestId: 'iptv-vod-view', protocolVersion: 1, ok: true,
+    state: 'preparing', channelId: 301, channelName: 'Series · S01E01 — Pilot', playbackKind: 'native-mpv', sessionId: 'd'.repeat(32),
+}});
+assert.equal(dispatched.at(-1).detail.action, 'vod-view-start');
+assert.equal(dispatched.at(-1).detail.sessionId, 'd'.repeat(32));
+
 webviewWindow.crypto.randomUUID = () => 'iptv-vod-refresh';
 windowListeners.get('semyra:iptv-request')({detail: {action: 'vod-refresh', sourceId: 4}});
 assert.deepEqual(posted.at(-1), {type: 'semyra.desktop.iptv.vod.refresh', requestId: 'iptv-vod-refresh', accountContextId: 'b'.repeat(32), sourceId: 4});

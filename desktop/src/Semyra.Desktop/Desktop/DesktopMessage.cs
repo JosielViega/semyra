@@ -45,6 +45,8 @@ public static partial class DesktopMessage
     public const string IptvVodSeriesSearchResultType = "semyra.desktop.iptv.vod.series.search-result";
     public const string IptvVodSeriesDetailsType = "semyra.desktop.iptv.vod.series.details";
     public const string IptvVodSeriesDetailsResultType = "semyra.desktop.iptv.vod.series.details-result";
+    public const string IptvVodViewStartType = "semyra.desktop.iptv.vod.view-start";
+    public const string IptvVodViewStartResultType = "semyra.desktop.iptv.vod.view-start-result";
     public const string IptvFavoritesListType = "semyra.desktop.iptv.favorites.list";
     public const string IptvFavoritesListResultType = "semyra.desktop.iptv.favorites.list-result";
     public const string IptvFavoriteSetType = "semyra.desktop.iptv.favorite.set";
@@ -191,6 +193,19 @@ public static partial class DesktopMessage
                     return false;
                 }
                 request = new DesktopRequest(type, requestId, Media: new MediaRequest(channelId, contextId));
+                return true;
+            }
+
+            if (type == IptvVodViewStartType)
+            {
+                if (properties.Count != 5
+                    || !TryAccountContext(properties, out var contextId)
+                    || !TryString(properties, "kind", out var kind) || kind is not ("movie" or "episode")
+                    || !TryPositiveInt64(properties, "mediaId", out var mediaId))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Media: new MediaRequest(AccountContextId: contextId, Kind: kind, MediaId: mediaId));
                 return true;
             }
 

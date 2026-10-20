@@ -121,6 +121,34 @@ public sealed class MpvHostEngineTests : IDisposable
         Assert.Equal("idle", host.IptvMediaSnapshot().State);
     }
 
+    [Fact]
+    public async Task VodPlaybackUsesMpvAndDoesNotRecordALiveRecent()
+    {
+        var protector = new Protector();
+        var store = new IptvStore(Path.Combine(_root, "vod.db"), protector); store.Initialize();
+        var source = store.AddSource("Xtream", IptvSourceType.Xtream, "{\"version\":1,\"baseUrl\":\"https://provider.example\",\"username\":\"alice\",\"password\":\"secret\"}");
+        store.ReplaceVodCatalog(source.Id, new XtreamVodImport([], [new XtreamMovie("200", "Movie A", null, null, "mp4", null, null, null, null, null, null)], [new XtreamSeries("500", "Series A", null, null, null, null, null, null, null, null)]));
+        using var catalog = new IptvCatalogService(store, protector, new M3uParser());
+        var process = new FakeProcess();
+        var player = new MpvPlayer(new MpvRuntime(true, "mpv.exe", "test", "test", null), (nint)123, (_, _) => process);
+        await using var host = new HostEngine(_ => catalog, value => MediaEngine.CreateDefault(value, GStreamerRuntime.UnavailableForTests()), new MpvRuntime(true, "mpv.exe", "test", "test", null), (_, _) => player);
+        host.SetNativeVideoHost((nint)123); host.Start(); await host.ActivateAccountAsync(new string('b', 64));
+        var movie = Assert.Single(catalog.SearchMovies(source.Id, "", null, 0, 50).Items);
+
+        await host.StartIptvVodViewAsync("movie", movie.Id, default);
+        Assert.Contains("/movie/alice/secret/200.mp4", process.Commands.Last(item => item.Command == "loadfile").Arguments.OfType<string>().First());
+        process.Emit("""{"event":"start-file"}"""); process.Emit("""{"event":"playback-restart"}"""); process.Emit("""{"event":"property-change","name":"time-pos","data":1}""");
+
+        Assert.Empty(store.ListRecents(source.Id));
+        var series = Assert.Single(catalog.SearchSeries(source.Id, "", null, 0, 50).Items);
+        var details = store.ReplaceSeriesEpisodes(series.Id, [new XtreamEpisode("301", 1, 2, "Second", "mkv", "42:00", null, null)]);
+        await host.StartIptvVodViewAsync("episode", Assert.Single(details.Episodes).Id, default);
+        Assert.Contains("/series/alice/secret/301.mkv", process.Commands.Last(item => item.Command == "loadfile").Arguments.OfType<string>().First());
+        Assert.Contains("S01E02", host.IptvMediaSnapshot().ChannelName);
+        Assert.DoesNotContain("alice", System.Text.Json.JsonSerializer.Serialize(host.IptvMediaSnapshot()));
+        Assert.DoesNotContain("secret", System.Text.Json.JsonSerializer.Serialize(host.IptvMediaSnapshot()));
+    }
+
     private static async IAsyncEnumerable<ParsedM3uChannel> Channels()
     {
         yield return new ParsedM3uChannel("Movie", "https://example.invalid/private/movie", "movie-1", null, "Movies");
@@ -148,9 +176,13 @@ public sealed class MpvHostEngineTests : IDisposable
         public string PipeName => "semyra-mpv-test";
         public IReadOnlyList<string> Arguments => ["--idle=yes"];
         public bool Disposed { get; private set; }
+        public List<(string Command, IReadOnlyList<object?> Arguments)> Commands { get; } = [];
         public Task StartAsync(CancellationToken cancellationToken) { IsRunning = true; return Task.CompletedTask; }
-        public Task<JsonElement> CommandAsync(string command, IReadOnlyList<object?> arguments, CancellationToken cancellationToken) =>
-            Task.FromResult(JsonDocument.Parse("{}").RootElement.Clone());
+        public Task<JsonElement> CommandAsync(string command, IReadOnlyList<object?> arguments, CancellationToken cancellationToken)
+        {
+            Commands.Add((command, arguments));
+            return Task.FromResult(JsonDocument.Parse("{}").RootElement.Clone());
+        }
         public void Emit(string json)
         {
             using var document = JsonDocument.Parse(json);

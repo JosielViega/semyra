@@ -84,7 +84,13 @@
             </div>
             </div>
 
-            <section class="iptv-content" aria-labelledby="iptv-channels-title">
+            <nav class="iptv-primary-tabs" data-iptv-primary-tabs role="tablist" aria-label="Catálogo IPTV">
+                <button type="button" id="iptv-primary-live" data-iptv-primary="live" role="tab" aria-selected="true" aria-controls="iptv-primary-live-panel" tabindex="0" class="is-active">TV ao vivo</button>
+                <button type="button" id="iptv-primary-movies" data-iptv-primary="movies" role="tab" aria-selected="false" aria-controls="iptv-primary-movies-panel" tabindex="-1">Filmes</button>
+                <button type="button" id="iptv-primary-series" data-iptv-primary="series" role="tab" aria-selected="false" aria-controls="iptv-primary-series-panel" tabindex="-1">Séries</button>
+            </nav>
+
+            <section class="iptv-content" id="iptv-primary-live-panel" data-iptv-primary-panel="live" role="tabpanel" aria-labelledby="iptv-primary-live">
                 <div class="iptv-view-tabs" data-iptv-view-tabs role="tablist" aria-label="Visualização dos canais">
                     <button type="button" id="iptv-view-favorites" data-iptv-view="favorites" role="tab" aria-selected="false" aria-controls="iptv-view-panel" tabindex="-1">Favoritos</button>
                     <button type="button" id="iptv-view-recents" data-iptv-view="recents" role="tab" aria-selected="false" aria-controls="iptv-view-panel" tabindex="-1">Recentes</button>
@@ -110,6 +116,22 @@
                 <div class="iptv-pagination" data-iptv-pagination aria-label="Paginação do catálogo"><button type="button" class="iptv-button-quiet" data-iptv-previous disabled>Anterior</button><span data-iptv-page-label>Página 1</span><button type="button" class="iptv-button-quiet" data-iptv-next disabled>Próxima</button></div>
                 </div>
             </section>
+
+            <?php foreach (['movies' => ['Filmes', 'Buscar filmes'], 'series' => ['Séries', 'Buscar séries']] as $vodKey => [$vodTitle, $vodPlaceholder]): ?>
+            <section class="iptv-content iptv-vod-content" id="iptv-primary-<?= $vodKey ?>-panel" data-iptv-primary-panel="<?= $vodKey ?>" role="tabpanel" aria-labelledby="iptv-primary-<?= $vodKey ?>" hidden>
+                <div data-iptv-vod-browser="<?= $vodKey ?>">
+                    <div class="iptv-content-heading"><div><p class="eyebrow">Sob demanda</p><h2><?= $vodTitle ?></h2></div><span data-iptv-vod-count="<?= $vodKey ?>" aria-live="polite"></span></div>
+                    <form class="iptv-toolbar" data-iptv-vod-form="<?= $vodKey ?>" role="search">
+                        <label class="iptv-search-field"><span class="sr-only"><?= $vodPlaceholder ?></span><svg aria-hidden="true"><use href="#iptv-icon-search"></use></svg><input name="query" type="search" maxlength="120" autocomplete="off" placeholder="<?= $vodPlaceholder ?>"></label>
+                        <label class="iptv-group-field"><span class="sr-only">Filtrar por categoria</span><select name="category" aria-label="Filtrar por categoria"><option value="">Todas as categorias</option></select></label>
+                        <button type="submit">Buscar</button>
+                    </form>
+                    <div class="iptv-vod-grid" data-iptv-vod-list="<?= $vodKey ?>" aria-live="polite" aria-busy="false"></div>
+                    <div class="iptv-pagination" data-iptv-vod-pagination="<?= $vodKey ?>" aria-label="Paginação de <?= strtolower($vodTitle) ?>"><button type="button" class="iptv-button-quiet" data-iptv-vod-previous="<?= $vodKey ?>" disabled>Anterior</button><span data-iptv-vod-page="<?= $vodKey ?>">Página 1</span><button type="button" class="iptv-button-quiet" data-iptv-vod-next="<?= $vodKey ?>" disabled>Próxima</button></div>
+                </div>
+                <article class="iptv-vod-detail" data-iptv-vod-detail="<?= $vodKey ?>" hidden></article>
+            </section>
+            <?php endforeach; ?>
         </div>
     </div>
 
@@ -139,4 +161,4 @@
         </div>
     </dialog>
 </section>
-<script src="/assets/js/desktop-iptv.js?v=11k-b-xtream-vod" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11l-a-structured-vod" defer></script>

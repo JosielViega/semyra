@@ -38,6 +38,7 @@
         'vod-movies-search': ['semyra.desktop.iptv.vod.movies.search', 'semyra.desktop.iptv.vod.movies.search-result'],
         'vod-series-search': ['semyra.desktop.iptv.vod.series.search', 'semyra.desktop.iptv.vod.series.search-result'],
         'vod-series-details': ['semyra.desktop.iptv.vod.series.details', 'semyra.desktop.iptv.vod.series.details-result'],
+        'vod-view-start': ['semyra.desktop.iptv.vod.view-start', 'semyra.desktop.iptv.vod.view-start-result'],
         'pick-file': ['semyra.desktop.iptv.sources.pick-file', 'semyra.desktop.iptv.sources.pick-file-result'],
         groups: ['semyra.desktop.iptv.groups.list', 'semyra.desktop.iptv.groups.list-result'],
         search: ['semyra.desktop.iptv.channels.search', 'semyra.desktop.iptv.channels.search-result'],
@@ -517,6 +518,11 @@
                 if (request.channelId === null) {
                     return;
                 }
+            } else if (action === 'vod-view-start') {
+                if (!hostSnapshot.capabilities.includes('iptv.local-view')) return;
+                request.kind = ['movie', 'episode'].includes(detail.kind) ? detail.kind : null;
+                request.mediaId = positiveId(detail.mediaId);
+                if (request.kind === null || request.mediaId === null) return;
             } else if (action === 'player-control') {
                 if (typeof detail.sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(detail.sessionId)
                     || !['pause', 'play', 'seek-relative', 'seek-absolute', 'mute', 'unmute', 'volume', 'stop'].includes(detail.command)) return;
@@ -617,9 +623,9 @@
             } else if (pending.action === 'vod-categories' && Array.isArray(message.categories)) {
                 detail.categories = message.categories.filter(function (item) { return item && positiveId(item.id) && ['movie','series'].includes(item.mediaType) && typeof item.externalCategoryId === 'string' && typeof item.name === 'string'; }).map(function(item){return Object.freeze({id:item.id,mediaType:item.mediaType,externalCategoryId:item.externalCategoryId.slice(0,128),name:item.name.slice(0,240),displayOrder:Number.isSafeInteger(item.displayOrder)?item.displayOrder:0});});
             } else if (pending.action === 'vod-series-details' && positiveId(message.seriesId) && Array.isArray(message.episodes)) {
-                detail.seriesId=message.seriesId; detail.lastSyncedAt=typeof message.lastSyncedAt==='string'?message.lastSyncedAt:null; detail.episodes=message.episodes.filter(function(item){return item&&positiveId(item.id)&&Number.isSafeInteger(item.seasonNumber)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,seasonNumber:item.seasonNumber,episodeNumber:Number.isSafeInteger(item.episodeNumber)?item.episodeNumber:null,name:item.name.slice(0,240),duration:typeof item.duration==='string'?item.duration.slice(0,40):null});});
+                detail.seriesId=message.seriesId; detail.lastSyncedAt=typeof message.lastSyncedAt==='string'?message.lastSyncedAt:null; detail.stale=message.stale===true; detail.episodes=message.episodes.filter(function(item){return item&&positiveId(item.id)&&Number.isSafeInteger(item.seasonNumber)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,seasonNumber:item.seasonNumber,episodeNumber:Number.isSafeInteger(item.episodeNumber)?item.episodeNumber:null,name:item.name.slice(0,240),duration:typeof item.duration==='string'?item.duration.slice(0,40):null,plot:typeof item.plot==='string'?item.plot.slice(0,2000):null});});
             } else if (['vod-movies-search','vod-series-search'].includes(pending.action) && Array.isArray(message.items)) {
-                detail.items=message.items.filter(function(item){return item&&positiveId(item.id)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,name:item.name.slice(0,240),categoryId:typeof item.categoryId==='string'?item.categoryId.slice(0,128):null,posterUrl:typeof item.posterUrl==='string'?item.posterUrl.slice(0,1024):null,year:typeof item.year==='string'?item.year.slice(0,16):null,rating:typeof item.rating==='string'?item.rating.slice(0,16):null,genre:typeof item.genre==='string'?item.genre.slice(0,240):null});}); detail.offset=Number.isSafeInteger(message.offset)?message.offset:0;detail.limit=Number.isSafeInteger(message.limit)?message.limit:50;detail.hasMore=message.hasMore===true;
+                detail.items=message.items.filter(function(item){return item&&positiveId(item.id)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,name:item.name.slice(0,240),categoryId:typeof item.categoryId==='string'?item.categoryId.slice(0,128):null,posterUrl:typeof item.posterUrl==='string'?item.posterUrl.slice(0,1024):null,year:typeof item.year==='string'?item.year.slice(0,16):null,rating:typeof item.rating==='string'?item.rating.slice(0,16):null,genre:typeof item.genre==='string'?item.genre.slice(0,240):null,plot:typeof item.plot==='string'?item.plot.slice(0,2000):null,releaseDate:typeof item.releaseDate==='string'?item.releaseDate.slice(0,40):null});}); detail.offset=Number.isSafeInteger(message.offset)?message.offset:0;detail.limit=Number.isSafeInteger(message.limit)?message.limit:50;detail.hasMore=message.hasMore===true;
             } else if (pending.action === 'groups' && Array.isArray(message.groups)) {
                 detail.groups = message.groups.filter(function (group) { return typeof group === 'string'; }).map(function (group) { return group.slice(0, 240); });
             } else if (['search', 'favorites', 'recents'].includes(pending.action) && Array.isArray(message.channels)) {
@@ -638,9 +644,9 @@
                 detail.sourceId = positiveId(message.sourceId);
                 detail.removedCount = Number.isSafeInteger(message.removedCount) && message.removedCount >= 0
                     ? message.removedCount : null;
-            } else if (['view-start', 'view-stop', 'view-status', 'player-control', 'player-geometry', 'player-fullscreen', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
+            } else if (['view-start', 'vod-view-start', 'view-stop', 'view-status', 'player-control', 'player-geometry', 'player-fullscreen', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
                 Object.assign(detail, safeMediaState(message));
-                if (pending.action === 'view-start'
+                if (['view-start', 'vod-view-start'].includes(pending.action)
                     && message.playbackKind === 'native-mpv'
                     && typeof message.sessionId === 'string'
                     && /^[a-f0-9]{32}$/.test(message.sessionId)) {

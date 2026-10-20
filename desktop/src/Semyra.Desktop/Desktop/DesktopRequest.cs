@@ -33,7 +33,7 @@ public sealed record IptvRequest(
     long? SeriesId = null,
     bool Refresh = false);
 
-public sealed record MediaRequest(long? ChannelId = null, string? AccountContextId = null);
+public sealed record MediaRequest(long? ChannelId = null, string? AccountContextId = null, string? Kind = null, long? MediaId = null);
 
 public sealed record PlayerRequest(
     string AccountContextId,
