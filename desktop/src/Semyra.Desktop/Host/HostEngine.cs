@@ -18,6 +18,12 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private MpvPlayer? _mpvPlayer;
     private long? _recentChannelId;
+    private IptvVodPlaybackTarget? _activeVod;
+    private string? _activeVodSessionId;
+    private CancellationTokenSource? _vodProgressCancellation;
+    private Task? _vodProgressTask;
+    private long _vodGeneration;
+    private readonly TimeSpan _vodProgressInterval;
     private nint _nativeVideoHost;
     private bool _disposed;
 
@@ -33,12 +39,15 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         Func<string, IptvCatalogService> catalogFactory,
         Func<IptvCatalogService, MediaEngine> mediaFactory,
         MpvRuntime? mpvRuntime = null,
-        Func<MpvRuntime, nint, MpvPlayer>? mpvFactory = null)
+        Func<MpvRuntime, nint, MpvPlayer>? mpvFactory = null,
+        TimeSpan? vodProgressInterval = null)
     {
         _catalogFactory = catalogFactory;
         _mediaFactory = mediaFactory;
         _mpvRuntime = mpvRuntime ?? MpvRuntime.Unavailable();
         _mpvFactory = mpvFactory ?? ((runtime, handle) => new MpvPlayer(runtime, handle));
+        _vodProgressInterval = vodProgressInterval ?? TimeSpan.FromSeconds(30);
+        if (_vodProgressInterval <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(vodProgressInterval));
     }
 
     internal HostEngine(IptvCatalogService catalog, MediaEngine? media = null)
@@ -56,6 +65,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     public HostEngineState State { get; private set; } = HostEngineState.Stopped;
     public event EventHandler<MediaSnapshot>? MediaStateChanged;
+    public event EventHandler<IptvVodProgressChanged>? VodProgressChanged;
     internal event EventHandler<MpvGeometry>? NativeVideoGeometryChanged;
     internal event EventHandler<bool>? NativeVideoVisibilityChanged;
     internal event EventHandler<bool>? NativeVideoFullscreenChanged;
@@ -144,6 +154,8 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     private async Task ClearAccountCoreAsync()
     {
+        FlushVodProgress();
+        CancelVodProgressLoop();
         var media = _media;
         var mpv = _mpvPlayer;
         var catalog = _iptv;
@@ -182,6 +194,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     private void FenceActiveAccount()
     {
+        FlushVodProgress();
         _accountContextId = null;
         _authorization = null;
         _media?.InvalidatePlaybackAndCancel();
@@ -234,6 +247,9 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     public Task<IptvSourceSummary> RefreshIptvSourceAsync(long sourceId, CancellationToken cancellationToken) => Catalog().RefreshAsync(sourceId, cancellationToken);
     public Task<IptvSourceSummary> SyncIptvVodAsync(long sourceId, CancellationToken cancellationToken) => Catalog().SyncVodAsync(sourceId, cancellationToken);
     public IReadOnlyList<IptvVodCategorySummary> GetIptvVodCategories(long sourceId, IptvVodMediaType type) => Catalog().GetVodCategories(sourceId, type);
+    public IReadOnlyList<IptvContinueMovie> GetContinueWatchingMovies(long sourceId) => Catalog().GetContinueWatchingMovies(sourceId);
+    public IReadOnlyList<IptvContinueSeries> GetContinueWatchingSeries(long sourceId) => Catalog().GetContinueWatchingSeries(sourceId);
+    public bool DismissContinueWatching(long sourceId, string kind, long mediaId) => Catalog().DismissContinueWatching(sourceId, kind, mediaId);
     public IptvVodSearchResult<IptvMovieSummary> SearchIptvMovies(long sourceId, string? query, string? category, int offset, int limit) => Catalog().SearchMovies(sourceId, query, category, offset, limit);
     public IptvVodSearchResult<IptvSeriesSummary> SearchIptvSeries(long sourceId, string? query, string? category, int offset, int limit) => Catalog().SearchSeries(sourceId, query, category, offset, limit);
     public Task<IptvSeriesDetails> GetIptvSeriesDetailsAsync(long seriesId, bool refresh, CancellationToken cancellationToken) => Catalog().GetSeriesDetailsAsync(seriesId, refresh, cancellationToken);
@@ -250,6 +266,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         {
             throw new MediaEngineException("mpv_runtime_unavailable");
         }
+        FlushVodProgress(); CancelVodProgressLoop();
         var channel = Catalog().ResolveChannelForPlayback(channelId);
         _recentChannelId = channel.Id;
         return await EnsureMpvPlayer().StartAsync(channel, cancellationToken);
@@ -258,21 +275,51 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     public async Task<MpvPlaybackStartResult> StartIptvVodViewAsync(string kind, long mediaId, CancellationToken cancellationToken)
     {
         if (!MpvReady) throw new MediaEngineException("mpv_runtime_unavailable");
+        FlushVodProgress(); CancelVodProgressLoop();
         _recentChannelId = null;
         IptvVodPlaybackTarget target;
         try { target = Catalog().ResolveVodForPlayback(kind, mediaId); }
         catch (IptvValidationException) { throw new MediaEngineException("vod_not_found"); }
-        var media = new IptvPlaybackChannel(target.Id, target.SourceId, target.Name, null, target.StreamUri);
-        return await EnsureMpvPlayer().StartAsync(media, cancellationToken);
+        return await StartVodTargetAsync(target, cancellationToken);
     }
 
-    public Task<MediaSnapshot> StartIptvPublishAsync(long channelId, CancellationToken cancellationToken)
+    public async Task<MpvPlaybackStartResult> NavigateIptvEpisodeAsync(string direction, CancellationToken cancellationToken)
+    {
+        if (_activeVod is not { Kind: "episode" } current) throw new MediaEngineException("vod_navigation_unavailable");
+        var preserveFullscreen = _mpvPlayer?.Snapshot().Fullscreen == true;
+        FlushVodProgress(); CancelVodProgressLoop();
+        var target = Catalog().NavigateEpisode(current.SourceId, current.StableKey, direction) ?? throw new MediaEngineException("vod_navigation_unavailable");
+        return await StartVodTargetAsync(target, cancellationToken, preserveFullscreen);
+    }
+
+    private async Task<MpvPlaybackStartResult> StartVodTargetAsync(
+        IptvVodPlaybackTarget target,
+        CancellationToken cancellationToken,
+        bool preserveFullscreen = false,
+        bool announceState = false)
+    {
+        var media = new IptvPlaybackChannel(target.Id, target.SourceId, target.Name, null, target.StreamUri);
+        var result = await EnsureMpvPlayer().StartAsync(media, cancellationToken, target.ResumePosition, preserveFullscreen);
+        _activeVod = target; _activeVodSessionId = result.SessionId;
+        StartVodProgressLoop(result.SessionId);
+        var enriched = result with { Snapshot = EnrichVod(result.Snapshot) };
+        if (announceState) MediaStateChanged?.Invoke(this, enriched.Snapshot);
+        return enriched;
+    }
+
+    public async Task<MediaSnapshot> StartIptvPublishAsync(long channelId, CancellationToken cancellationToken)
     {
         if (_authorization is null || _authorization.ExpiresAt <= DateTimeOffset.UtcNow)
         {
             throw new MediaEngineException("host_authorization_required");
         }
-        return Media().StartPublishAsync(channelId, () => _authorization, cancellationToken);
+        FlushVodProgress();
+        CancelVodProgressLoop();
+        if (_mpvPlayer is not null && _mpvPlayer.Snapshot().State != "idle")
+        {
+            await _mpvPlayer.StopAsync();
+        }
+        return await Media().StartPublishAsync(channelId, () => _authorization, cancellationToken);
     }
 
     public async Task<MediaSnapshot> StopIptvMediaAsync()
@@ -283,17 +330,19 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         }
         return await Media().StopAsync();
     }
-    public MediaSnapshot IptvMediaSnapshot() =>
+    public MediaSnapshot IptvMediaSnapshot() => EnrichVod(
         _mpvPlayer is not null && _mpvPlayer.Snapshot().State != "idle"
             ? _mpvPlayer.Snapshot()
-            : _media?.Snapshot() ?? MediaSnapshot.Idle;
+            : _media?.Snapshot() ?? MediaSnapshot.Idle);
 
     internal async Task<MediaSnapshot> ControlMpvAsync(string sessionId, string command, double? value, CancellationToken cancellationToken)
     {
         var player = _mpvPlayer ?? throw new MediaEngineException("playback_session_changed");
+        if (command == "stop") { FlushVodProgress(); CancelVodProgressLoop(); }
         var snapshot = await player.ControlAsync(sessionId, command, value, cancellationToken);
+        if (command is "pause" or "seek-absolute" or "seek-relative") FlushVodProgress(snapshot);
         if (command == "stop") NativeVideoFullscreenChanged?.Invoke(this, false);
-        return snapshot;
+        return EnrichVod(snapshot);
     }
 
     internal MediaSnapshot UpdateMpvGeometry(string sessionId, MpvGeometry geometry)
@@ -302,7 +351,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         if (!geometry.IsValid || !string.Equals(snapshot.SessionId, sessionId, StringComparison.Ordinal))
             throw new MediaEngineException(!geometry.IsValid ? "invalid_player_geometry" : "playback_session_changed");
         NativeVideoGeometryChanged?.Invoke(this, geometry);
-        return snapshot;
+        return EnrichVod(snapshot);
     }
 
     internal MediaSnapshot SetMpvFullscreen(string sessionId, bool fullscreen)
@@ -310,7 +359,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         var snapshot = _mpvPlayer?.SetFullscreen(sessionId, fullscreen)
             ?? throw new MediaEngineException("playback_session_changed");
         NativeVideoFullscreenChanged?.Invoke(this, fullscreen);
-        return snapshot;
+        return EnrichVod(snapshot);
     }
     private IptvCatalogService Catalog() => State == HostEngineState.Ready && _iptv is not null
         ? _iptv : throw new IptvValidationException("O catálogo IPTV local não está disponível.");
@@ -335,7 +384,95 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private void OnMpvStateChanged(object? sender, MediaSnapshot snapshot)
     {
         if (!ReferenceEquals(sender, _mpvPlayer)) return;
-        MediaStateChanged?.Invoke(this, snapshot);
+        var enriched = EnrichVod(snapshot);
+        IptvVodPlaybackTarget? endedEpisode = null;
+        bool preserveFullscreen = false;
+        long expectedGeneration = 0;
+        if (snapshot.State == "ended")
+        {
+            var active = _activeVod;
+            var activeSession = _activeVodSessionId;
+            FlushVodProgress(snapshot);
+            if (active is { Kind: "episode" } && string.Equals(snapshot.SessionId, activeSession, StringComparison.Ordinal))
+            {
+                endedEpisode = active;
+                preserveFullscreen = snapshot.Fullscreen;
+            }
+            CancelVodProgressLoop();
+            expectedGeneration = _vodGeneration;
+        }
+        MediaStateChanged?.Invoke(this, enriched);
+        if (endedEpisode is not null)
+        {
+            _ = AutoplayNextEpisodeAsync(endedEpisode, preserveFullscreen, expectedGeneration);
+        }
+    }
+
+    private async Task AutoplayNextEpisodeAsync(
+        IptvVodPlaybackTarget completed,
+        bool preserveFullscreen,
+        long expectedGeneration)
+    {
+        await Task.Yield();
+        if (_vodGeneration != expectedGeneration || _activeVod is not null || State != HostEngineState.Ready) return;
+        IptvVodPlaybackTarget? next;
+        try { next = Catalog().NavigateEpisode(completed.SourceId, completed.StableKey, "next"); }
+        catch { return; }
+        if (next is null || _vodGeneration != expectedGeneration || _activeVod is not null) return;
+        try { await StartVodTargetAsync(next, CancellationToken.None, preserveFullscreen, announceState: true); }
+        catch { }
+    }
+
+    private MediaSnapshot EnrichVod(MediaSnapshot snapshot)
+    {
+        if (_activeVod is not { } active || !string.Equals(snapshot.SessionId, _activeVodSessionId, StringComparison.Ordinal)) return snapshot;
+        if (active.Kind != "episode") return snapshot with { VodContentKind = "movie" };
+        var nav = Catalog().EpisodeNavigationAvailability(active.SourceId, active.StableKey);
+        return snapshot with { VodContentKind = "episode", CanPreviousEpisode = nav.Previous, CanNextEpisode = nav.Next };
+    }
+
+    private void FlushVodProgress(MediaSnapshot? snapshot = null)
+    {
+        var active = _activeVod; var session = _activeVodSessionId; var catalog = _iptv;
+        if (active is null || session is null || catalog is null) return;
+        var current = snapshot ?? _mpvPlayer?.Snapshot();
+        if (current is null || !string.Equals(current.SessionId, session, StringComparison.Ordinal)) return;
+        try
+        {
+            var item = new IptvVodPlaybackItem(active.Id, active.SourceId, active.Name, string.Empty, null,
+                active.Kind, active.StableKey, active.SeriesStableKey, active.SeriesId, active.SeasonNumber, active.EpisodeNumber);
+            if (!catalog.SaveVodProgress(item, current.Position, current.Duration)) return;
+            var position = Math.Clamp(current.Position, 0, current.Duration);
+            VodProgressChanged?.Invoke(this, new IptvVodProgressChanged(
+                active.SourceId,
+                active.Kind == "movie" ? "movie" : "episode",
+                active.Id,
+                active.SeriesId,
+                position,
+                current.Duration,
+                current.Duration > 0 ? Math.Clamp(position / current.Duration * 100, 0, 100) : 0,
+                IptvStore.IsCompleted(position, current.Duration),
+                active.SeasonNumber,
+                active.EpisodeNumber,
+                session));
+        }
+        catch { }
+    }
+
+    private void StartVodProgressLoop(string sessionId)
+    {
+        var generation = ++_vodGeneration; var cancellation = new CancellationTokenSource(); _vodProgressCancellation = cancellation;
+        _vodProgressTask = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(_vodProgressInterval);
+            try { while (await timer.WaitForNextTickAsync(cancellation.Token)) { if (generation != _vodGeneration || _activeVodSessionId != sessionId) return; FlushVodProgress(); } }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    private void CancelVodProgressLoop()
+    {
+        _vodGeneration++; _vodProgressCancellation?.Cancel(); _vodProgressCancellation?.Dispose(); _vodProgressCancellation = null; _vodProgressTask = null; _activeVod = null; _activeVodSessionId = null;
     }
 
     private void OnMpvPlaybackConfirmed(object? sender, long channelId)

@@ -34,9 +34,13 @@ internal sealed class MpvPlayer : IAsyncDisposable
     private bool _hasVideo;
     private bool _buffering;
     private bool _videoVisible;
+    private bool _eofReached;
+    private bool _eofSignalEmitted;
     private double _volume = 100;
     private bool _muted;
     private long? _activePlaylistEntryId;
+    private double _pendingResumePosition;
+    private bool _preserveFullscreenForLoad;
     private bool _disposed;
 
     internal MpvPlayer(
@@ -59,7 +63,11 @@ internal sealed class MpvPlayer : IAsyncDisposable
         lock (_snapshotLock) return _snapshot;
     }
 
-    internal async Task<MpvPlaybackStartResult> StartAsync(IptvPlaybackChannel channel, CancellationToken cancellationToken)
+    internal async Task<MpvPlaybackStartResult> StartAsync(
+        IptvPlaybackChannel channel,
+        CancellationToken cancellationToken,
+        double resumePosition = 0,
+        bool preserveFullscreen = false)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -72,6 +80,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
 
             var coldStart = _process is null || !_process.IsRunning;
             var sessionId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+            _preserveFullscreenForLoad = preserveFullscreen && Snapshot().Fullscreen;
             _acceptProperties = false;
             _durationObserved = false;
             _seekableObserved = false;
@@ -80,6 +89,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
             _hasVideo = false;
             _buffering = false;
             _activePlaylistEntryId = null;
+            _pendingResumePosition = double.IsFinite(resumePosition) && resumePosition >= 5 ? resumePosition : 0;
             SetVideoVisibility(false);
             if (coldStart)
             {
@@ -97,12 +107,13 @@ internal sealed class MpvPlayer : IAsyncDisposable
                 await _process!.CommandAsync("stop", [], cancellationToken);
             }
 
+            ResetEofState();
             // MPV properties survive while the idle process stays warm. Every new item starts unpaused.
-            Update("loading", channel.Id, channel.Name, null, sessionId);
+            Update("loading", channel.Id, channel.Name, null, sessionId, _preserveFullscreenForLoad);
             await _process!.CommandAsync("set_property", ["pause", false], cancellationToken);
             // The provider URL exists only in native memory and this IPC write. It is never logged or returned.
             await _process!.CommandAsync("loadfile", [channel.StreamUri.AbsoluteUri, "replace"], cancellationToken);
-            var snapshot = Update("loading", channel.Id, channel.Name, null, sessionId);
+            var snapshot = Update("loading", channel.Id, channel.Name, null, sessionId, _preserveFullscreenForLoad);
             return new MpvPlaybackStartResult(snapshot, "native-mpv", sessionId);
         }
         catch
@@ -187,7 +198,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
 
     private async Task ObserveAsync(IMpvProcess process, CancellationToken cancellationToken)
     {
-        string[] properties = ["pause", "time-pos", "duration", "seekable", "mute", "volume", "paused-for-cache", "file-format", "video-format", "video-codec", "audio-codec-name", "vid", "track-list"];
+        string[] properties = ["pause", "time-pos", "duration", "seekable", "mute", "volume", "paused-for-cache", "file-format", "video-format", "video-codec", "audio-codec-name", "vid", "track-list", "eof-reached"];
         for (var index = 0; index < properties.Length; index++)
         {
             await process.CommandAsync("observe_property", [index + 1, properties[index]], cancellationToken);
@@ -254,13 +265,14 @@ internal sealed class MpvPlayer : IAsyncDisposable
                 var eventName = eventElement.GetString();
                 if (eventName == "start-file")
                 {
+                    ResetEofState();
                     _acceptProperties = true;
                     _activePlaylistEntryId = PlaylistEntryId(message);
                     var current = Snapshot();
                     UpdateFrom(current with
                     {
                         State = "loading", LastErrorCode = null, Position = 0, Duration = 0,
-                        Seekable = false, MediaKind = null, Fullscreen = false, Paused = false,
+                        Seekable = false, MediaKind = null, Fullscreen = _preserveFullscreenForLoad, Paused = false,
                     });
                 }
                 else if (eventName == "file-loaded")
@@ -280,18 +292,24 @@ internal sealed class MpvPlayer : IAsyncDisposable
                     });
                     ShowVideoIfReady();
                     ConfirmProgress(playing);
+                    QueueResumeIfReady(playing);
                 }
                 else if (eventName == "end-file")
                 {
                     if (!_acceptProperties || !MatchesActiveEntry(message)) return;
                     var reason = message.TryGetProperty("reason", out var reasonElement) ? reasonElement.GetString() : null;
+                    if (reason == "eof")
+                    {
+                        HandleNaturalEof();
+                        return;
+                    }
                     var current = Snapshot();
                     _acceptProperties = false;
                     SetVideoVisibility(false);
                     UpdateFrom(current with
                     {
-                        State = reason == "eof" ? "ended" : "failed",
-                        LastErrorCode = reason == "eof" ? null : ClassifyEndFile(message),
+                        State = "failed",
+                        LastErrorCode = ClassifyEndFile(message),
                     });
                 }
                 else if (eventName == "property-change")
@@ -317,6 +335,14 @@ internal sealed class MpvPlayer : IAsyncDisposable
         if (name == "mute" && data.ValueKind is JsonValueKind.True or JsonValueKind.False)
             _muted = data.GetBoolean();
         if (!_acceptProperties) return;
+        if (name == "eof-reached" && data.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            var reached = data.GetBoolean();
+            var transitionedToEof = !_eofReached && reached;
+            _eofReached = reached;
+            if (transitionedToEof) HandleNaturalEof();
+            return;
+        }
         var current = Snapshot();
         if (name == "duration") _durationObserved = true;
         if (name == "seekable") _seekableObserved = true;
@@ -350,7 +376,22 @@ internal sealed class MpvPlayer : IAsyncDisposable
             next = UpdateFrom(next);
             ShowVideoIfReady();
             ConfirmProgress(next);
+            QueueResumeIfReady(next);
         }
+    }
+
+    private void QueueResumeIfReady(MediaSnapshot snapshot)
+    {
+        if (_pendingResumePosition < 5 || snapshot.MediaKind != "vod" || !snapshot.Seekable || snapshot.Duration <= 0 || _process is null) return;
+        var target = Math.Clamp(_pendingResumePosition, 0, Math.Max(0, snapshot.Duration - 5));
+        _pendingResumePosition = 0;
+        if (target < 5) return;
+        var process = _process;
+        _ = Task.Run(async () =>
+        {
+            try { await process.CommandAsync("seek", [target, "absolute+exact"], CancellationToken.None); }
+            catch { }
+        });
     }
 
     private void OnProcessExited(object? sender, EventArgs e)
@@ -376,10 +417,10 @@ internal sealed class MpvPlayer : IAsyncDisposable
         }
     }
 
-    private MediaSnapshot Update(string state, long channelId, string channelName, string? errorCode, string sessionId) =>
+    private MediaSnapshot Update(string state, long channelId, string channelName, string? errorCode, string sessionId, bool fullscreen = false) =>
         UpdateFrom(new MediaSnapshot(
             state, channelId, channelName, 1, errorCode, "view", "native-mpv", sessionId,
-            Muted: _muted, Volume: _volume, Paused: false));
+            Muted: _muted, Volume: _volume, Fullscreen: fullscreen, Paused: false));
 
     private MediaSnapshot UpdateFrom(MediaSnapshot snapshot)
     {
@@ -399,6 +440,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
 
     private async Task DisposeProcessAsync()
     {
+        ResetEofState();
         var process = _process;
         _process = null;
         if (process is null) return;
@@ -418,6 +460,9 @@ internal sealed class MpvPlayer : IAsyncDisposable
     private async Task<MediaSnapshot> StopCoreAsync(CancellationToken cancellationToken)
     {
         _acceptProperties = false;
+        ResetEofState();
+        _pendingResumePosition = 0;
+        _preserveFullscreenForLoad = false;
         if (_process is { IsRunning: true })
         {
             try { await _process.CommandAsync("stop", [], cancellationToken); }
@@ -433,6 +478,28 @@ internal sealed class MpvPlayer : IAsyncDisposable
         if (snapshot.State is not ("playing" or "paused" or "buffering")) return;
         _progressConfirmed = true;
         PlaybackConfirmed?.Invoke(this, channelId);
+    }
+
+    private void HandleNaturalEof()
+    {
+        if (_eofSignalEmitted) return;
+        _eofSignalEmitted = true;
+        _acceptProperties = false;
+        var current = Snapshot();
+        SetVideoVisibility(false);
+        UpdateFrom(current with
+        {
+            State = "ended",
+            LastErrorCode = null,
+            Paused = true,
+            Position = current.Duration > 0 ? current.Duration : current.Position,
+        });
+    }
+
+    private void ResetEofState()
+    {
+        _eofReached = false;
+        _eofSignalEmitted = false;
     }
 
     private void ShowVideoIfReady()
@@ -514,6 +581,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
         try
         {
             _acceptProperties = false;
+            ResetEofState();
             SetVideoVisibility(false);
             await DisposeProcessAsync();
             UpdateFrom(MediaSnapshot.Idle);

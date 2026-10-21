@@ -12,6 +12,26 @@ public sealed class IptvDesktopBridgeTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "semyra-bridge-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public void VodProgressEventContainsOnlySafeCurrentCatalogIdentity()
+    {
+        var progress = new IptvVodProgressChanged(
+            4, "episode", 17, 9, 350, 1000, 35, false, 2, 3, new string('a', 32));
+
+        var json = DesktopBridge.CreateVodProgressChangedEvent(progress, new string('b', 32));
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        Assert.Equal("semyra.desktop.iptv.vod.progress-changed", root.GetProperty("type").GetString());
+        Assert.Equal(4, root.GetProperty("sourceId").GetInt64());
+        Assert.Equal(17, root.GetProperty("mediaId").GetInt64());
+        Assert.Equal(9, root.GetProperty("seriesId").GetInt64());
+        Assert.Equal(35, root.GetProperty("progressPercent").GetDouble());
+        Assert.DoesNotContain("stable", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("url", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("credential", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task XtreamAddReturnsOnlySafeReadySourceSummary()
     {
         Directory.CreateDirectory(_directory);
@@ -234,6 +254,50 @@ public sealed class IptvDesktopBridgeTests : IDisposable
             engine,
             () => null);
         AssertResult(controlledError, DesktopMessage.IptvFavoriteSetResultType, false);
+    }
+
+    [Fact]
+    public async Task ContinueDismissUsesLocalIdentityAndAccountAndSourceFencesWithoutExposingStableKey()
+    {
+        Directory.CreateDirectory(_directory);
+        var protector = new TestProtector();
+        var store = new IptvStore(Path.Combine(_directory, "dismiss.db"), protector);
+        store.Initialize();
+        var catalog = new IptvCatalogService(store, protector, new M3uParser(), new HttpClient());
+        var source = store.AddSource("Xtream", IptvSourceType.Xtream, "protected");
+        store.ReplaceVodCatalog(source.Id, new XtreamVodImport([], [
+            new XtreamMovie("200", "Movie", null, null, "mp4", null, null, null, null, null, null),
+        ], []));
+        var movie = Assert.Single(store.SearchMovies(source.Id, "", null, 0, 10).Items);
+        await using var engine = new HostEngine(catalog);
+        engine.Start();
+        await engine.ActivateAccountAsync(new string('a', 64));
+        var context = engine.CurrentAccountContextId;
+
+        var response = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.vod.continue-dismiss","requestId":"dismiss","accountContextId":"{{context}}","sourceId":{{source.Id}},"kind":"movie","mediaId":{{movie.Id}}}""",
+            engine,
+            () => null);
+        AssertResult(response, DesktopMessage.IptvVodContinueDismissResultType, true);
+        Assert.True(JsonDocument.Parse(response.Response).RootElement.GetProperty("dismissed").GetBoolean());
+        Assert.DoesNotContain("stable", response.Response, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("external", response.Response, StringComparison.OrdinalIgnoreCase);
+
+        var other = store.AddSource("Other", IptvSourceType.Xtream, "protected");
+        var wrongSource = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.vod.continue-dismiss","requestId":"wrong-source","accountContextId":"{{context}}","sourceId":{{other.Id}},"kind":"movie","mediaId":{{movie.Id}}}""",
+            engine,
+            () => null);
+        AssertResult(wrongSource, DesktopMessage.IptvVodContinueDismissResultType, true);
+        Assert.False(JsonDocument.Parse(wrongSource.Response).RootElement.GetProperty("dismissed").GetBoolean());
+
+        await engine.ActivateAccountAsync(new string('b', 64));
+        var stale = await DesktopBridge.TryHandleAsync(
+            $$"""{"type":"semyra.desktop.iptv.vod.continue-dismiss","requestId":"stale","accountContextId":"{{context}}","sourceId":{{source.Id}},"kind":"movie","mediaId":{{movie.Id}}}""",
+            engine,
+            () => null);
+        AssertResult(stale, DesktopMessage.IptvVodContinueDismissResultType, false);
+        Assert.Contains("account_context_changed", stale.Response);
     }
 
     public void Dispose()

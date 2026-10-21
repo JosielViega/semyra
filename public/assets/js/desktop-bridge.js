@@ -38,7 +38,10 @@
         'vod-movies-search': ['semyra.desktop.iptv.vod.movies.search', 'semyra.desktop.iptv.vod.movies.search-result'],
         'vod-series-search': ['semyra.desktop.iptv.vod.series.search', 'semyra.desktop.iptv.vod.series.search-result'],
         'vod-series-details': ['semyra.desktop.iptv.vod.series.details', 'semyra.desktop.iptv.vod.series.details-result'],
+        'vod-continue': ['semyra.desktop.iptv.vod.continue.list', 'semyra.desktop.iptv.vod.continue.list-result'],
+        'vod-continue-dismiss': ['semyra.desktop.iptv.vod.continue-dismiss', 'semyra.desktop.iptv.vod.continue-dismiss-result'],
         'vod-view-start': ['semyra.desktop.iptv.vod.view-start', 'semyra.desktop.iptv.vod.view-start-result'],
+        'vod-navigate': ['semyra.desktop.iptv.vod.navigate', 'semyra.desktop.iptv.vod.navigate-result'],
         'pick-file': ['semyra.desktop.iptv.sources.pick-file', 'semyra.desktop.iptv.sources.pick-file-result'],
         groups: ['semyra.desktop.iptv.groups.list', 'semyra.desktop.iptv.groups.list-result'],
         search: ['semyra.desktop.iptv.channels.search', 'semyra.desktop.iptv.channels.search-result'],
@@ -58,6 +61,7 @@
         'publish-status': ['semyra.desktop.iptv.publish.status', 'semyra.desktop.iptv.publish.status-result'],
     });
     const IPTV_MEDIA_STATE_TYPE = 'semyra.desktop.iptv.media.state';
+    const IPTV_VOD_PROGRESS_CHANGED_TYPE = 'semyra.desktop.iptv.vod.progress-changed';
     const PROTOCOL_VERSION = 1;
     const PLAYER_USER_ACTIVITY_TYPE = 'semyra.desktop.player.user-activity';
     const PLAYER_CONTROLS_VISIBILITY_TYPE = 'semyra.desktop.player.controls-visibility';
@@ -494,6 +498,14 @@
                 request.seriesId = positiveId(detail.seriesId);
                 request.refresh = detail.refresh === true;
                 if (request.seriesId === null) return;
+            } else if (action === 'vod-continue') {
+                request.sourceId = positiveId(detail.sourceId);
+                if (request.sourceId === null) return;
+            } else if (action === 'vod-continue-dismiss') {
+                request.sourceId = positiveId(detail.sourceId);
+                request.mediaId = positiveId(detail.mediaId);
+                request.kind = ['movie', 'series'].includes(detail.kind) ? detail.kind : null;
+                if (request.sourceId === null || request.mediaId === null || request.kind === null) return;
             } else if (action === 'recents') {
                 request.sourceId = positiveId(detail.sourceId);
                 if (request.sourceId === null) return;
@@ -523,6 +535,10 @@
                 request.kind = ['movie', 'episode'].includes(detail.kind) ? detail.kind : null;
                 request.mediaId = positiveId(detail.mediaId);
                 if (request.kind === null || request.mediaId === null) return;
+            } else if (action === 'vod-navigate') {
+                if (!hostSnapshot.capabilities.includes('iptv.local-view')) return;
+                request.direction = ['previous', 'next'].includes(detail.direction) ? detail.direction : null;
+                if (request.direction === null) return;
             } else if (action === 'player-control') {
                 if (typeof detail.sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(detail.sessionId)
                     || !['pause', 'play', 'seek-relative', 'seek-absolute', 'mute', 'unmute', 'volume', 'stop'].includes(detail.command)) return;
@@ -623,7 +639,12 @@
             } else if (pending.action === 'vod-categories' && Array.isArray(message.categories)) {
                 detail.categories = message.categories.filter(function (item) { return item && positiveId(item.id) && ['movie','series'].includes(item.mediaType) && typeof item.externalCategoryId === 'string' && typeof item.name === 'string'; }).map(function(item){return Object.freeze({id:item.id,mediaType:item.mediaType,externalCategoryId:item.externalCategoryId.slice(0,128),name:item.name.slice(0,240),displayOrder:Number.isSafeInteger(item.displayOrder)?item.displayOrder:0});});
             } else if (pending.action === 'vod-series-details' && positiveId(message.seriesId) && Array.isArray(message.episodes)) {
-                detail.seriesId=message.seriesId; detail.lastSyncedAt=typeof message.lastSyncedAt==='string'?message.lastSyncedAt:null; detail.stale=message.stale===true; detail.episodes=message.episodes.filter(function(item){return item&&positiveId(item.id)&&Number.isSafeInteger(item.seasonNumber)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,seasonNumber:item.seasonNumber,episodeNumber:Number.isSafeInteger(item.episodeNumber)?item.episodeNumber:null,name:item.name.slice(0,240),duration:typeof item.duration==='string'?item.duration.slice(0,40):null,plot:typeof item.plot==='string'?item.plot.slice(0,2000):null});});
+                detail.seriesId=message.seriesId; detail.lastSyncedAt=typeof message.lastSyncedAt==='string'?message.lastSyncedAt:null; detail.stale=message.stale===true; detail.episodes=message.episodes.filter(function(item){return item&&positiveId(item.id)&&Number.isSafeInteger(item.seasonNumber)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,seasonNumber:item.seasonNumber,episodeNumber:Number.isSafeInteger(item.episodeNumber)?item.episodeNumber:null,name:item.name.slice(0,240),duration:typeof item.duration==='string'?item.duration.slice(0,40):null,plot:typeof item.plot==='string'?item.plot.slice(0,2000):null,position:safeSeconds(item.position),progressPercent:safePercent(item.progressPercent),completed:item.completed===true,continueHere:item.continueHere===true});});
+            } else if (pending.action === 'vod-continue' && Array.isArray(message.movies) && Array.isArray(message.series)) {
+                detail.movies = message.movies.filter(function(item){return item&&positiveId(item.id)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,name:item.name.slice(0,240),posterUrl:safeUrl(item.posterUrl),year:typeof item.year==='string'?item.year.slice(0,16):null,position:safeSeconds(item.position),duration:safeSeconds(item.duration),progressPercent:safePercent(item.progressPercent),lastWatchedAt:safeDate(item.lastWatchedAt)});});
+                detail.series = message.series.filter(function(item){return item&&positiveId(item.seriesId)&&positiveId(item.episodeId)&&typeof item.name==='string'&&Number.isSafeInteger(item.seasonNumber);}).map(function(item){return Object.freeze({seriesId:item.seriesId,name:item.name.slice(0,240),posterUrl:safeUrl(item.posterUrl),episodeId:item.episodeId,seasonNumber:item.seasonNumber,episodeNumber:Number.isSafeInteger(item.episodeNumber)?item.episodeNumber:null,episodeTitle:typeof item.episodeTitle==='string'?item.episodeTitle.slice(0,240):'',position:safeSeconds(item.position),duration:safeSeconds(item.duration),progressPercent:safePercent(item.progressPercent),completedPrevious:item.completedPrevious===true,lastWatchedAt:safeDate(item.lastWatchedAt)});});
+            } else if (pending.action === 'vod-continue-dismiss') {
+                detail.dismissed = message.dismissed === true;
             } else if (['vod-movies-search','vod-series-search'].includes(pending.action) && Array.isArray(message.items)) {
                 detail.items=message.items.filter(function(item){return item&&positiveId(item.id)&&typeof item.name==='string';}).map(function(item){return Object.freeze({id:item.id,name:item.name.slice(0,240),categoryId:typeof item.categoryId==='string'?item.categoryId.slice(0,128):null,posterUrl:typeof item.posterUrl==='string'?item.posterUrl.slice(0,1024):null,year:typeof item.year==='string'?item.year.slice(0,16):null,rating:typeof item.rating==='string'?item.rating.slice(0,16):null,genre:typeof item.genre==='string'?item.genre.slice(0,240):null,plot:typeof item.plot==='string'?item.plot.slice(0,2000):null,releaseDate:typeof item.releaseDate==='string'?item.releaseDate.slice(0,40):null});}); detail.offset=Number.isSafeInteger(message.offset)?message.offset:0;detail.limit=Number.isSafeInteger(message.limit)?message.limit:50;detail.hasMore=message.hasMore===true;
             } else if (pending.action === 'groups' && Array.isArray(message.groups)) {
@@ -644,7 +665,7 @@
                 detail.sourceId = positiveId(message.sourceId);
                 detail.removedCount = Number.isSafeInteger(message.removedCount) && message.removedCount >= 0
                     ? message.removedCount : null;
-            } else if (['view-start', 'vod-view-start', 'view-stop', 'view-status', 'player-control', 'player-geometry', 'player-fullscreen', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
+            } else if (['view-start', 'vod-view-start', 'vod-navigate', 'view-stop', 'view-status', 'player-control', 'player-geometry', 'player-fullscreen', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
                 Object.assign(detail, safeMediaState(message));
                 if (['view-start', 'vod-view-start'].includes(pending.action)
                     && message.playbackKind === 'native-mpv'
@@ -705,7 +726,26 @@
                 fullscreen: message.fullscreen === true,
                 paused: message.paused === true,
                 buffering: message.buffering === true,
+                vodContentKind: ['movie', 'episode'].includes(message.vodContentKind) ? message.vodContentKind : null,
+                canPreviousEpisode: message.canPreviousEpisode === true,
+                canNextEpisode: message.canNextEpisode === true,
             };
+        }
+
+        function safeSeconds(value) {
+            return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+        }
+
+        function safePercent(value) {
+            return typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
+        }
+
+        function safeUrl(value) {
+            return typeof value === 'string' && /^https?:\/\//i.test(value) ? value.slice(0, 1024) : null;
+        }
+
+        function safeDate(value) {
+            return typeof value === 'string' && value.length <= 64 ? value : null;
         }
 
         function receiveMediaState(message) {
@@ -714,6 +754,30 @@
             }
             target.dispatchEvent(new target.CustomEvent('semyra:iptv-media-state', {
                 detail: Object.freeze(safeMediaState(message)),
+            }));
+        }
+
+        function receiveVodProgressChanged(message) {
+            if (!ready || message.protocolVersion !== PROTOCOL_VERSION || message.accountContextId !== accountContextId
+                || !positiveId(message.sourceId) || !['movie', 'episode'].includes(message.mediaType)
+                || !positiveId(message.mediaId) || typeof message.sessionId !== 'string'
+                || !/^[a-f0-9]{32}$/.test(message.sessionId)) return;
+            const detail = {
+                accountContextId,
+                sourceId: message.sourceId,
+                mediaType: message.mediaType,
+                mediaId: message.mediaId,
+                seriesId: positiveId(message.seriesId),
+                positionSeconds: safeSeconds(message.positionSeconds),
+                durationSeconds: safeSeconds(message.durationSeconds),
+                progressPercent: safePercent(message.progressPercent),
+                completed: message.completed === true,
+                seasonNumber: Number.isSafeInteger(message.seasonNumber) ? message.seasonNumber : null,
+                episodeNumber: Number.isSafeInteger(message.episodeNumber) ? message.episodeNumber : null,
+                sessionId: message.sessionId,
+            };
+            target.dispatchEvent(new target.CustomEvent('semyra:iptv-vod-progress-changed', {
+                detail: Object.freeze(detail),
             }));
         }
 
@@ -745,6 +809,9 @@
                     break;
                 case IPTV_MEDIA_STATE_TYPE:
                     receiveMediaState(message);
+                    break;
+                case IPTV_VOD_PROGRESS_CHANGED_TYPE:
+                    receiveVodProgressChanged(message);
                     break;
                 default:
                     if (Object.values(IPTV_COMMANDS).some(function (command) { return command[1] === message.type; })) {

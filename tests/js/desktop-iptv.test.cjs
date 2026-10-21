@@ -23,6 +23,9 @@ assert.equal(iptv.localViewAvailable({capabilities: []}), false);
 assert.equal(iptv.localViewAvailable({capabilities: ['iptv.local-view']}), true);
 assert.equal(iptv.formatMediaTime(65), '1:05');
 assert.equal(iptv.formatMediaTime(3661), '1:01:01');
+assert.equal(iptv.displayEpisodeDuration('00:00:00'), '');
+assert.equal(iptv.displayEpisodeDuration('0:00'), '');
+assert.equal(iptv.displayEpisodeDuration('42:15'), '42:15');
 const rangeStyle = new Map();
 const controlledRange = {value: '', dataset: {}, style: {setProperty: (name, value) => rangeStyle.set(name, value)}};
 assert.equal(iptv.syncRangeVisual(controlledRange, 35), 35);
@@ -87,6 +90,8 @@ class FakeElement {
         if (selector === '[data-iptv-vod-open]' && this.dataset.iptvVodOpen) return this;
         if (selector === '[data-iptv-vod-back]' && this.dataset.iptvVodBack) return this;
         if (selector === '[data-iptv-vod-play]' && this.dataset.iptvVodPlay) return this;
+        if (selector === '[data-iptv-continue-series]' && this.dataset.iptvContinueSeries) return this;
+        if (selector === '[data-iptv-continue-dismiss]' && this.dataset.iptvContinueDismiss) return this;
         if (selector === '[data-iptv-action]' && this.dataset.iptvAction) return this;
         if (selector === '[data-source-id]' && this.dataset.sourceId) return this;
         if (selector === '.iptv-channel-card' && this.className.split(/\s+/).includes('iptv-channel-card')) return this;
@@ -96,6 +101,8 @@ class FakeElement {
         if (selector === '.iptv-channel-copy strong') return find(this, (item) => item.tagName === 'STRONG' && item.parent?.className === 'iptv-channel-copy');
         if (selector === '[data-iptv-channel-live]') return find(this, (item) => Object.hasOwn(item.dataset, 'iptvChannelLive'));
         if (selector === 'button[type="submit"]') return find(this, (item) => item.tagName === 'BUTTON' && item.type === 'submit');
+        const episode = selector.match(/^\[data-iptv-episode-id="(\d+)"\]$/);
+        if (episode) return find(this, (item) => item.dataset.iptvEpisodeId === episode[1]);
         return null;
     }
     querySelectorAll(selector) {
@@ -143,6 +150,10 @@ root.querySelectorAll = (selector) => {
             registry.get('[data-iptv-native-seek="30"]'),
         ].filter(Boolean);
     }
+    if (selector === '[data-iptv-episode-nav]') return [
+        registry.get('[data-iptv-episode-nav="previous"]'),
+        registry.get('[data-iptv-episode-nav="next"]'),
+    ].filter(Boolean);
     if (selector === '[data-iptv-primary]') return registry.get('[data-iptv-primary-tabs]')?.children || [];
     if (selector === '[data-iptv-primary-panel]') return ['live', 'movies', 'series'].map((view) => registry.get('[data-iptv-primary-panel="' + view + '"]'));
     const container = selector === '[data-iptv-view]'
@@ -215,8 +226,11 @@ for (const view of ['movies', 'series']) {
         browser: register('[data-iptv-vod-browser="' + view + '"]'),
         detail: register('[data-iptv-vod-detail="' + view + '"]'),
         list: register('[data-iptv-vod-list="' + view + '"]'),
+        continueSection: register('[data-iptv-vod-continue-section="' + view + '"]'),
+        continueList: register('[data-iptv-vod-continue-list="' + view + '"]'),
     };
     vodFixtures[view].detail.hidden = true;
+    vodFixtures[view].continueSection.hidden = true;
     register('[data-iptv-vod-count="' + view + '"]');
     register('[data-iptv-vod-page="' + view + '"]');
     register('[data-iptv-vod-previous="' + view + '"]');
@@ -239,6 +253,7 @@ for (const selector of [
     '[data-iptv-previous]', '[data-iptv-next]', '[data-iptv-page-label]', '[data-iptv-result-count]',
     '[data-iptv-native-controls]', '[data-iptv-native-playback]', '[data-iptv-native-seek="-30"]',
     '[data-iptv-native-seek="30"]', '[data-iptv-native-mute]', '[data-iptv-native-volume]', '[data-iptv-native-stop]',
+    '[data-iptv-episode-nav="previous"]', '[data-iptv-episode-nav="next"]',
     '[data-iptv-native-timeline]', '[data-iptv-native-progress]', '[data-iptv-native-fullscreen]',
     '[data-iptv-native-context]', '[data-iptv-native-title]', '[data-iptv-native-buffering]',
     '[data-iptv-native-fullscreen-icon]', '[data-iptv-native-compress-icon]',
@@ -992,6 +1007,28 @@ assertPrimaryVisibility('live');
 
 primaryTabs.emit('click', {target: registry.get('[data-iptv-primary="movies"]')});
 assertPrimaryVisibility('movies');
+const movieContinueToken = requests.findLast((item) => item.action === 'vod-continue').clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-continue', ok: true, clientRequestId: movieContinueToken, movies: [
+    {id: 501, name: 'Filme seguro', position: 120, duration: 1200, progressPercent: 10},
+], series: [
+    {seriesId: 601, name: 'Serie segura', episodeId: 701, seasonNumber: 2, episodeNumber: 3, episodeTitle: 'Três', position: 400, duration: 1000, progressPercent: 40, completedPrevious: false},
+]}});
+assert.equal(vodFixtures.movies.continueSection.hidden, false);
+assert.equal(vodFixtures.series.continueSection.hidden, false);
+assert.equal(vodFixtures.movies.continueList.children.length, 1);
+assert.equal(vodFixtures.series.continueList.children.length, 1);
+const movieDismiss = find(vodFixtures.movies.continueList, (item) => item.dataset.iptvContinueDismiss === 'movies');
+let dismissPropagationStopped = false;
+const playbackRequestsBeforeDismiss = requests.filter((item) => item.action === 'vod-view-start').length;
+root.emit('click', {target: movieDismiss, preventDefault() {}, stopPropagation() { dismissPropagationStopped = true; }});
+assert.equal(dismissPropagationStopped, true, 'dismiss must stop card click propagation');
+assert.equal(requests.at(-1).action, 'vod-continue-dismiss');
+assert.deepEqual({sourceId: requests.at(-1).sourceId, kind: requests.at(-1).kind, mediaId: requests.at(-1).mediaId}, {sourceId: 9, kind: 'movie', mediaId: 501});
+assert.equal(requests.filter((item) => item.action === 'vod-view-start').length, playbackRequestsBeforeDismiss, 'dismiss must not start playback');
+const movieDismissToken = requests.at(-1).clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-continue-dismiss', ok: true, clientRequestId: movieDismissToken, dismissed: true}});
+assert.equal(vodFixtures.movies.continueList.children.length, 0);
+assert.equal(vodFixtures.movies.continueSection.hidden, true, 'last dismissed movie must hide the rail');
 const movieCategoryToken = requests.findLast((item) => item.action === 'vod-categories').clientRequestId;
 const movieSearchToken = requests.findLast((item) => item.action === 'vod-movies-search').clientRequestId;
 rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-categories', ok: true, clientRequestId: movieCategoryToken, categories: []}});
@@ -1015,6 +1052,44 @@ rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-categories', ok: 
 rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-series-search', ok: true, clientRequestId: seriesSearchToken, offset: 0, hasMore: false, items: [
     {id: 601, name: 'Serie segura', year: '2026', rating: '8.4', genre: 'Drama', plot: 'Sinopse segura.'},
 ]}});
+const playbackRequestsBeforeContinue = requests.filter((item) => item.action === 'vod-view-start').length;
+root.emit('click', {target: find(vodFixtures.series.continueList, (item) => item.dataset.iptvContinueSeries === '601')});
+assert.equal(requests.filter((item) => item.action === 'vod-view-start').length, playbackRequestsBeforeContinue, 'continue series must not start playback');
+assert.equal(vodFixtures.series.browser.hidden, true);
+assert.equal(vodFixtures.series.detail.hidden, false);
+const seriesDetailsContainer = find(vodFixtures.series.detail, (item) => item.dataset.iptvSeriesEpisodes === 'true');
+registry.set('[data-iptv-series-episodes]', seriesDetailsContainer);
+const continueDetailsToken = requests.findLast((item) => item.action === 'vod-series-details').clientRequestId;
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-series-details', ok: true, clientRequestId: continueDetailsToken, stale: false, episodes: [
+    {id: 700, seasonNumber: 1, episodeNumber: 1, name: 'Primeiro', duration: '42:00', position: 0, progressPercent: 0, completed: false, continueHere: false},
+    {id: 701, seasonNumber: 2, episodeNumber: 3, name: 'Terceiro', duration: '00:00:00', position: 400, progressPercent: 40, completed: false, continueHere: true},
+]}});
+const seasonTwoTab = find(seriesDetailsContainer, (item) => item.dataset.iptvSeasonTab === '2');
+const seasonOneSection = find(seriesDetailsContainer, (item) => item.dataset.iptvSeason === '1');
+const seasonTwoSection = find(seriesDetailsContainer, (item) => item.dataset.iptvSeason === '2');
+assert.equal(seasonTwoTab.classList.contains('is-active'), true, 'continue context must select its season');
+assert.equal(seasonOneSection.hidden, true);
+assert.equal(seasonTwoSection.hidden, false);
+const continueEpisode = find(seriesDetailsContainer, (item) => item.dataset.iptvEpisodeId === '701');
+assert.equal(continueEpisode.classList.contains('is-continue'), true);
+assert.equal(find(continueEpisode, (item) => item.className === 'iptv-episode-continue').textContent, 'Continuar daqui');
+assert.equal(find(continueEpisode, (item) => item.dataset.iptvVodPlay === 'episode').textContent, 'Continuar');
+assert.equal(find(continueEpisode, (item) => item.className === 'iptv-episode-duration'), null, 'zero duration must be omitted');
+const detailCallsBeforeProgress = requests.filter((item) => item.action === 'vod-series-details').length;
+rootListeners.get('semyra:iptv-vod-progress-changed')({detail: {
+    sourceId: 9, mediaType: 'episode', mediaId: 701, seriesId: 601, positionSeconds: 350,
+    durationSeconds: 1000, progressPercent: 35, completed: false, seasonNumber: 2,
+    episodeNumber: 3, sessionId: 'f'.repeat(32),
+}});
+assert.equal(find(continueEpisode, (item) => item.className === 'iptv-episode-state').textContent, '35% assistido');
+assert.equal(requests.filter((item) => item.action === 'vod-series-details').length, detailCallsBeforeProgress, 'progress event must not refetch series info');
+rootListeners.get('semyra:iptv-vod-progress-changed')({detail: {
+    sourceId: 9, mediaType: 'episode', mediaId: 701, seriesId: 601, positionSeconds: 1000,
+    durationSeconds: 1000, progressPercent: 100, completed: true, seasonNumber: 2,
+    episodeNumber: 3, sessionId: 'f'.repeat(32),
+}});
+assert.equal(find(continueEpisode, (item) => item.className === 'iptv-episode-state').textContent, '✓ Assistido');
+root.emit('click', {target: find(vodFixtures.series.detail, (item) => item.dataset.iptvVodBack === 'series')});
 root.emit('click', {target: find(vodFixtures.series.list, (item) => item.dataset.iptvVodOpen === 'series')});
 assert.equal(vodFixtures.series.browser.hidden, true);
 assert.equal(vodFixtures.series.detail.hidden, false);
@@ -1023,6 +1098,14 @@ root.emit('click', {target: find(vodFixtures.series.detail, (item) => item.datas
 assert.equal(vodFixtures.series.browser.hidden, false);
 assert.equal(vodFixtures.series.detail.hidden, true);
 assertPrimaryVisibility('series');
+const seriesDismiss = find(vodFixtures.series.continueList, (item) => item.dataset.iptvContinueDismiss === 'series');
+root.emit('click', {target: seriesDismiss, preventDefault() {}, stopPropagation() {}});
+const seriesDismissToken = requests.at(-1).clientRequestId;
+assert.equal(requests.at(-1).action, 'vod-continue-dismiss');
+assert.deepEqual({sourceId: requests.at(-1).sourceId, kind: requests.at(-1).kind, mediaId: requests.at(-1).mediaId}, {sourceId: 9, kind: 'series', mediaId: 601});
+rootListeners.get('semyra:iptv-result')({detail: {action: 'vod-continue-dismiss', ok: true, clientRequestId: seriesDismissToken, dismissed: true}});
+assert.equal(vodFixtures.series.continueList.children.length, 0);
+assert.equal(vodFixtures.series.continueSection.hidden, true, 'last dismissed series must hide the rail');
 
 primaryTabs.emit('click', {target: registry.get('[data-iptv-primary="live"]')});
 assertPrimaryVisibility('live');

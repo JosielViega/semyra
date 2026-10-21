@@ -35,7 +35,7 @@ public sealed partial class IptvStore
         var version = Convert.ToInt32(versionCommand.ExecuteScalar(), CultureInfo.InvariantCulture);
         if (version == 0)
         {
-            CreateVersionFour(connection);
+            CreateVersionSix(connection);
             return;
         }
         if (version == 1)
@@ -51,18 +51,30 @@ public sealed partial class IptvStore
         if (version == 3)
         {
             MigrateVersionThreeToFour(connection);
+            version = 4;
+        }
+        if (version == 4)
+        {
+            MigrateVersionFourToFive(connection);
+            version = 5;
+        }
+        if (version == 5)
+        {
+            MigrateVersionFiveToSix(connection);
             return;
         }
-        if (version != 4)
+        if (version != 6)
         {
             throw new InvalidDataException("Versão do catálogo IPTV local não suportada.");
         }
     }
 
-    private static void CreateVersionFour(SqliteConnection connection)
+    private static void CreateVersionSix(SqliteConnection connection)
     {
         CreateVersionThree(connection);
         MigrateVersionThreeToFour(connection);
+        MigrateVersionFourToFive(connection);
+        MigrateVersionFiveToSix(connection);
     }
 
     private static void CreateVersionThree(SqliteConnection connection)

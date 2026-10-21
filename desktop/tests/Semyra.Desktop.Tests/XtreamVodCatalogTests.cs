@@ -115,7 +115,7 @@ public sealed class XtreamVodCatalogTests : IDisposable
     }
 
     [Fact]
-    public void VersionThreeMigratesToFourWithoutRebuildingLiveTables()
+    public void VersionThreeMigratesThroughFiveWithoutRebuildingLiveTables()
     {
         var database = DatabasePath(); using (var c = Open(database)) using (var command = c.CreateCommand()) { command.CommandText = """
             CREATE TABLE iptv_sources(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,type TEXT NOT NULL CHECK(type IN('m3u_url','m3u_file','xtream')),protected_location BLOB NOT NULL,enabled INTEGER NOT NULL,refresh_status TEXT NOT NULL,refresh_error TEXT NULL,last_refresh_at TEXT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -127,7 +127,7 @@ public sealed class XtreamVodCatalogTests : IDisposable
             PRAGMA user_version=3;
             """; command.ExecuteNonQuery(); }
         new IptvStore(database, _protector).Initialize();
-        Assert.Equal(4, Scalar(database, "PRAGMA user_version")); Assert.Equal(1, Scalar(database, "SELECT COUNT(*) FROM iptv_channels")); Assert.Equal(1, Scalar(database, "SELECT COUNT(*) FROM pragma_table_info('iptv_movies') WHERE name='external_stream_id'"));
+        Assert.Equal(6, Scalar(database, "PRAGMA user_version")); Assert.Equal(1, Scalar(database, "SELECT COUNT(*) FROM iptv_channels")); Assert.Equal(1, Scalar(database, "SELECT COUNT(*) FROM pragma_table_info('iptv_movies') WHERE name='external_stream_id'"));
     }
 
     [Fact]

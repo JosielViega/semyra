@@ -35,6 +35,7 @@ public partial class MainWindow : Window
             () => new WindowInteropHelper(this).Handle);
         _cursorActivity.Activity += OnCursorActivity;
         _hostEngine.MediaStateChanged += OnMediaStateChanged;
+        _hostEngine.VodProgressChanged += OnVodProgressChanged;
         _hostEngine.NativeVideoGeometryChanged += OnNativeVideoGeometryChanged;
         _hostEngine.NativeVideoVisibilityChanged += OnNativeVideoVisibilityChanged;
         _hostEngine.NativeVideoFullscreenChanged += OnNativeVideoFullscreenChanged;
@@ -199,6 +200,7 @@ public partial class MainWindow : Window
         _shutdownStarted = true;
 
         _hostEngine.MediaStateChanged -= OnMediaStateChanged;
+        _hostEngine.VodProgressChanged -= OnVodProgressChanged;
         _hostEngine.NativeVideoGeometryChanged -= OnNativeVideoGeometryChanged;
         _hostEngine.NativeVideoVisibilityChanged -= OnNativeVideoVisibilityChanged;
         _hostEngine.NativeVideoFullscreenChanged -= OnNativeVideoFullscreenChanged;
@@ -247,6 +249,18 @@ public partial class MainWindow : Window
             if (Browser.CoreWebView2 is not null)
             {
                 Browser.CoreWebView2.PostWebMessageAsJson(DesktopBridge.CreateMediaStateEvent(snapshot, _hostEngine.CurrentAccountContextId));
+            }
+        });
+    }
+
+    private void OnVodProgressChanged(object? sender, IptvVodProgressChanged progress)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (Browser.CoreWebView2 is not null)
+            {
+                Browser.CoreWebView2.PostWebMessageAsJson(
+                    DesktopBridge.CreateVodProgressChangedEvent(progress, _hostEngine.CurrentAccountContextId));
             }
         });
     }

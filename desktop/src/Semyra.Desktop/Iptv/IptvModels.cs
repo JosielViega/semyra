@@ -40,10 +40,23 @@ public sealed record IptvVodCategorySummary(long Id, string MediaType, string Ex
 public sealed record IptvMovieSummary(long Id, string Name, string? CategoryId, string? PosterUrl, string? Year, string? Rating, string? Genre, string? Plot = null, string? ReleaseDate = null);
 public sealed record IptvSeriesSummary(long Id, string Name, string? CategoryId, string? PosterUrl, string? Year, string? Rating, string? Genre, string? Plot = null, string? ReleaseDate = null);
 public sealed record IptvVodSearchResult<T>(IReadOnlyList<T> Items, int Offset, int Limit, bool HasMore);
-public sealed record IptvEpisodeSummary(long Id, int SeasonNumber, int? EpisodeNumber, string Name, string? Duration, string? Plot = null);
+public sealed record IptvEpisodeSummary(long Id, int SeasonNumber, int? EpisodeNumber, string Name, string? Duration, string? Plot = null,
+    double Position = 0, double ProgressPercent = 0, bool Completed = false, bool ContinueHere = false);
 public sealed record IptvSeriesDetails(long SeriesId, IReadOnlyList<IptvEpisodeSummary> Episodes, DateTimeOffset? LastSyncedAt, bool Stale = false);
-internal sealed record IptvVodPlaybackItem(long Id, long SourceId, string Name, string ExternalId, string? ContainerExtension, string Kind);
-internal sealed record IptvVodPlaybackTarget(long Id, long SourceId, string Name, Uri StreamUri);
+internal sealed record IptvVodPlaybackItem(long Id, long SourceId, string Name, string ExternalId, string? ContainerExtension,
+    string Kind, string StableKey, string? SeriesStableKey = null, long? SeriesId = null, int? SeasonNumber = null, int? EpisodeNumber = null);
+internal sealed record IptvVodPlaybackTarget(long Id, long SourceId, string Name, Uri StreamUri, string Kind,
+    string StableKey, string? SeriesStableKey, long? SeriesId, int? SeasonNumber, int? EpisodeNumber, double ResumePosition);
+public sealed record IptvContinueMovie(long Id, string Name, string? PosterUrl, string? Year, double Position,
+    double Duration, double ProgressPercent, DateTimeOffset LastWatchedAt);
+public sealed record IptvContinueSeries(long SeriesId, string Name, string? PosterUrl, long EpisodeId,
+    int SeasonNumber, int? EpisodeNumber, string EpisodeTitle, double Position, double Duration,
+    double ProgressPercent, bool CompletedPrevious, DateTimeOffset LastWatchedAt);
+internal sealed record IptvVodProgress(string MediaType, string StableKey, string? SeriesStableKey,
+    int? SeasonNumber, int? EpisodeNumber, double Position, double Duration, bool Completed, DateTimeOffset LastWatchedAt);
+public sealed record IptvVodProgressChanged(long SourceId, string MediaType, long MediaId, long? SeriesId,
+    double PositionSeconds, double DurationSeconds, double ProgressPercent, bool Completed,
+    int? SeasonNumber, int? EpisodeNumber, string SessionId);
 
 public sealed record IptvChannelSummary(
     long Id,

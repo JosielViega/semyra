@@ -77,8 +77,34 @@ public sealed partial class IptvCatalogService
             "episode" => _store.ResolveEpisodeForPlayback(PositiveId(mediaId)),
             _ => throw new IptvValidationException("vod_kind_invalid"),
         };
-        return new(item.Id, item.SourceId, item.Name, ResolveVod(item));
+        return Target(item);
     }
+
+    internal IptvVodPlaybackTarget? NavigateEpisode(long sourceId, string stableKey, string direction)
+    {
+        if (direction is not ("previous" or "next")) throw new IptvValidationException("vod_direction_invalid");
+        var item = _store.NavigateEpisode(sourceId, stableKey, direction == "previous" ? "previous" : "next");
+        return item is null ? null : Target(item);
+    }
+
+    internal (bool Previous, bool Next) EpisodeNavigationAvailability(long sourceId, string stableKey) =>
+        (_store.NavigateEpisode(sourceId, stableKey, "previous") is not null, _store.NavigateEpisode(sourceId, stableKey, "next") is not null);
+
+    internal bool SaveVodProgress(IptvVodPlaybackItem item, double position, double duration) =>
+        _store.SaveVodProgress(item, position, duration);
+
+    public IReadOnlyList<IptvContinueMovie> GetContinueWatchingMovies(long sourceId) =>
+        _store.GetContinueWatchingMovies(PositiveId(sourceId));
+
+    public IReadOnlyList<IptvContinueSeries> GetContinueWatchingSeries(long sourceId) =>
+        _store.GetContinueWatchingSeries(PositiveId(sourceId));
+
+    public bool DismissContinueWatching(long sourceId, string kind, long mediaId) =>
+        _store.DismissContinueWatching(PositiveId(sourceId), kind, PositiveId(mediaId));
+
+    private IptvVodPlaybackTarget Target(IptvVodPlaybackItem item) => new(
+        item.Id, item.SourceId, item.Name, ResolveVod(item), item.Kind == "movie" ? "movie" : "episode",
+        item.StableKey, item.SeriesStableKey, item.SeriesId, item.SeasonNumber, item.EpisodeNumber, _store.ResumePosition(item));
 
     private Uri ResolveVod(IptvVodPlaybackItem item)
     { var config = GetXtreamConfiguration(item.SourceId); return new Uri(XtreamClient.BuildVodUrl(config, item.Kind, item.ExternalId, item.ContainerExtension)); }

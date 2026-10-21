@@ -73,9 +73,11 @@
                     <output data-iptv-native-timeline>0:00 / 0:00</output>
                 </div>
                 <div class="iptv-native-actions">
+                    <button type="button" class="iptv-icon-button iptv-episode-nav" data-iptv-episode-nav="previous" hidden disabled aria-label="Episódio anterior" title="Episódio anterior"><span aria-hidden="true">⏮</span></button>
                     <button type="button" class="iptv-icon-button" data-iptv-native-playback data-command="pause" data-iptv-native-vod hidden aria-label="Pausar" title="Pausar"><svg data-player-icon="pause" aria-hidden="true"><use href="#iptv-icon-pause"></use></svg></button>
                     <button type="button" class="iptv-seek-button" data-iptv-native-seek="-30" data-iptv-native-vod hidden aria-label="Voltar 30 segundos" title="Voltar 30 segundos"><span aria-hidden="true">↶</span><strong>30</strong></button>
                     <button type="button" class="iptv-seek-button" data-iptv-native-seek="30" data-iptv-native-vod hidden aria-label="Avançar 30 segundos" title="Avançar 30 segundos"><strong>30</strong><span aria-hidden="true">↷</span></button>
+                    <button type="button" class="iptv-icon-button iptv-episode-nav" data-iptv-episode-nav="next" hidden disabled aria-label="Próximo episódio" title="Próximo episódio"><span aria-hidden="true">⏭</span></button>
                     <button type="button" class="iptv-icon-button" data-iptv-native-mute aria-label="Silenciar" title="Silenciar"><svg data-player-icon="volume" aria-hidden="true"><use href="#iptv-icon-volume"></use></svg></button>
                     <label class="iptv-volume-control"><span class="sr-only">Volume</span><input type="range" min="0" max="100" value="100" data-range-progress="100" style="--iptv-range-progress:100%" data-iptv-native-volume aria-label="Volume"></label>
                     <button type="button" class="iptv-icon-button" data-iptv-native-fullscreen aria-label="Entrar em tela cheia" title="Entrar em tela cheia"><svg data-iptv-native-fullscreen-icon aria-hidden="true"><use href="#iptv-icon-fullscreen"></use></svg><svg data-iptv-native-compress-icon aria-hidden="true" hidden><use href="#iptv-icon-compress"></use></svg></button>
@@ -92,9 +94,9 @@
 
             <section class="iptv-content" id="iptv-primary-live-panel" data-iptv-primary-panel="live" role="tabpanel" aria-labelledby="iptv-primary-live">
                 <div class="iptv-view-tabs" data-iptv-view-tabs role="tablist" aria-label="Visualização dos canais">
+                    <button type="button" id="iptv-view-all" data-iptv-view="all" role="tab" aria-selected="true" aria-controls="iptv-view-panel" tabindex="0" class="is-active">Todos os canais</button>
                     <button type="button" id="iptv-view-favorites" data-iptv-view="favorites" role="tab" aria-selected="false" aria-controls="iptv-view-panel" tabindex="-1">Favoritos</button>
                     <button type="button" id="iptv-view-recents" data-iptv-view="recents" role="tab" aria-selected="false" aria-controls="iptv-view-panel" tabindex="-1">Recentes</button>
-                    <button type="button" id="iptv-view-all" data-iptv-view="all" role="tab" aria-selected="true" aria-controls="iptv-view-panel" tabindex="0" class="is-active">Todos</button>
                 </div>
                 <div id="iptv-view-panel" role="tabpanel" aria-labelledby="iptv-view-all" data-iptv-view-panel>
                 <div class="iptv-content-heading"><div><p class="eyebrow">Canais</p><h2 id="iptv-channels-title">O que você quer assistir?</h2></div><span data-iptv-result-count aria-live="polite"></span></div>
@@ -121,6 +123,10 @@
             <section class="iptv-content iptv-vod-content" id="iptv-primary-<?= $vodKey ?>-panel" data-iptv-primary-panel="<?= $vodKey ?>" role="tabpanel" aria-labelledby="iptv-primary-<?= $vodKey ?>" hidden>
                 <div data-iptv-vod-browser="<?= $vodKey ?>">
                     <div class="iptv-content-heading"><div><p class="eyebrow">Sob demanda</p><h2><?= $vodTitle ?></h2></div><span data-iptv-vod-count="<?= $vodKey ?>" aria-live="polite"></span></div>
+                    <section class="iptv-vod-continue" data-iptv-vod-continue-section="<?= $vodKey ?>" aria-labelledby="iptv-vod-continue-<?= $vodKey ?>" hidden>
+                        <div class="iptv-vod-continue-heading"><h3 id="iptv-vod-continue-<?= $vodKey ?>">Continuar assistindo</h3></div>
+                        <div class="iptv-vod-continue-rail" data-iptv-vod-continue-list="<?= $vodKey ?>"></div>
+                    </section>
                     <form class="iptv-toolbar" data-iptv-vod-form="<?= $vodKey ?>" role="search">
                         <label class="iptv-search-field"><span class="sr-only"><?= $vodPlaceholder ?></span><svg aria-hidden="true"><use href="#iptv-icon-search"></use></svg><input name="query" type="search" maxlength="120" autocomplete="off" placeholder="<?= $vodPlaceholder ?>"></label>
                         <label class="iptv-group-field"><span class="sr-only">Filtrar por categoria</span><select name="category" aria-label="Filtrar por categoria"><option value="">Todas as categorias</option></select></label>
@@ -161,4 +167,4 @@
         </div>
     </dialog>
 </section>
-<script src="/assets/js/desktop-iptv.js?v=11l-a-structured-vod" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=11l-b-dismiss-gate" defer></script>

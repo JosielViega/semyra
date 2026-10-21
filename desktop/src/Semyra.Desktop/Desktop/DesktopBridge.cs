@@ -114,6 +114,8 @@ public static class DesktopBridge
                 DesktopMessage.IptvVodMoviesSearchType => Success(DesktopMessage.IptvVodMoviesSearchResultType, request.RequestId, hostEngine.SearchIptvMovies(request.Iptv.SourceId!.Value, request.Iptv.Query, request.Iptv.Category, request.Iptv.Offset, request.Iptv.Limit)),
                 DesktopMessage.IptvVodSeriesSearchType => Success(DesktopMessage.IptvVodSeriesSearchResultType, request.RequestId, hostEngine.SearchIptvSeries(request.Iptv.SourceId!.Value, request.Iptv.Query, request.Iptv.Category, request.Iptv.Offset, request.Iptv.Limit)),
                 DesktopMessage.IptvVodSeriesDetailsType => Success(DesktopMessage.IptvVodSeriesDetailsResultType, request.RequestId, await hostEngine.GetIptvSeriesDetailsAsync(request.Iptv.SeriesId!.Value, request.Iptv.Refresh, cancellationToken)),
+                DesktopMessage.IptvVodContinueListType => Success(DesktopMessage.IptvVodContinueListResultType, request.RequestId, new { movies = hostEngine.GetContinueWatchingMovies(request.Iptv.SourceId!.Value), series = hostEngine.GetContinueWatchingSeries(request.Iptv.SourceId.Value) }),
+                DesktopMessage.IptvVodContinueDismissType => Success(DesktopMessage.IptvVodContinueDismissResultType, request.RequestId, new { dismissed = hostEngine.DismissContinueWatching(request.Iptv.SourceId!.Value, request.Iptv.MediaType!, request.Iptv.MediaId!.Value) }),
                 DesktopMessage.IptvSourcesPickFileType => PickFile(request.RequestId, hostEngine, pickM3uFile),
                 DesktopMessage.IptvCatalogGroupsType => Success(
                     DesktopMessage.IptvCatalogGroupsResultType,
@@ -237,6 +239,11 @@ public static class DesktopBridge
                 var result = await hostEngine.StartIptvVodViewAsync(request.Media!.Kind!, request.Media.MediaId!.Value, cancellationToken);
                 return (true, LocalViewResult(ResultType(request.Type), request.RequestId, result));
             }
+            if (request.Type == DesktopMessage.IptvVodNavigateType)
+            {
+                var result = await hostEngine.NavigateIptvEpisodeAsync(request.Media!.Direction!, cancellationToken);
+                return (true, LocalViewResult(ResultType(request.Type), request.RequestId, result));
+            }
             var snapshot = request.Type switch
             {
                 DesktopMessage.IptvPublishStartType => await hostEngine.StartIptvPublishAsync(
@@ -286,7 +293,31 @@ public static class DesktopBridge
             fullscreen = snapshot.Fullscreen,
             paused = snapshot.Paused,
             buffering = snapshot.Buffering,
+            vodContentKind = snapshot.VodContentKind,
+            canPreviousEpisode = snapshot.CanPreviousEpisode,
+            canNextEpisode = snapshot.CanNextEpisode,
             accountContextId,
+        }, JsonOptions);
+    }
+
+    public static string CreateVodProgressChangedEvent(IptvVodProgressChanged progress, string? accountContextId = null)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            type = DesktopMessage.IptvVodProgressChangedType,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            accountContextId,
+            sourceId = progress.SourceId,
+            mediaType = progress.MediaType,
+            mediaId = progress.MediaId,
+            seriesId = progress.SeriesId,
+            positionSeconds = progress.PositionSeconds,
+            durationSeconds = progress.DurationSeconds,
+            progressPercent = progress.ProgressPercent,
+            completed = progress.Completed,
+            seasonNumber = progress.SeasonNumber,
+            episodeNumber = progress.EpisodeNumber,
+            sessionId = progress.SessionId,
         }, JsonOptions);
     }
 
@@ -468,6 +499,9 @@ public static class DesktopBridge
             fullscreen = snapshot.Fullscreen,
             paused = snapshot.Paused,
             buffering = snapshot.Buffering,
+            vodContentKind = snapshot.VodContentKind,
+            canPreviousEpisode = snapshot.CanPreviousEpisode,
+            canNextEpisode = snapshot.CanNextEpisode,
         }, JsonOptions);
     }
 
@@ -500,6 +534,9 @@ public static class DesktopBridge
             mode = snapshot.Mode,
             playbackKind = result.PlaybackKind,
             sessionId = result.SessionId,
+            vodContentKind = snapshot.VodContentKind,
+            canPreviousEpisode = snapshot.CanPreviousEpisode,
+            canNextEpisode = snapshot.CanNextEpisode,
         }, JsonOptions);
     }
 
@@ -516,6 +553,9 @@ public static class DesktopBridge
         DesktopMessage.IptvVodSeriesSearchType => DesktopMessage.IptvVodSeriesSearchResultType,
         DesktopMessage.IptvVodSeriesDetailsType => DesktopMessage.IptvVodSeriesDetailsResultType,
         DesktopMessage.IptvVodViewStartType => DesktopMessage.IptvVodViewStartResultType,
+        DesktopMessage.IptvVodContinueListType => DesktopMessage.IptvVodContinueListResultType,
+        DesktopMessage.IptvVodContinueDismissType => DesktopMessage.IptvVodContinueDismissResultType,
+        DesktopMessage.IptvVodNavigateType => DesktopMessage.IptvVodNavigateResultType,
         DesktopMessage.IptvSourcesPickFileType => DesktopMessage.IptvSourcesPickFileResultType,
         DesktopMessage.IptvCatalogGroupsType => DesktopMessage.IptvCatalogGroupsResultType,
         DesktopMessage.IptvCatalogSearchType => DesktopMessage.IptvCatalogSearchResultType,

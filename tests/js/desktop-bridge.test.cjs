@@ -185,6 +185,20 @@ assert.deepEqual(dispatched.at(-1).detail.sources, [{
 }]);
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
 
+webviewWindow.crypto.randomUUID = () => 'iptv-vod-continue-dismiss';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'vod-continue-dismiss', sourceId: 4, kind: 'series', mediaId: 500}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.vod.continue-dismiss', requestId: 'iptv-vod-continue-dismiss',
+    accountContextId: 'b'.repeat(32), sourceId: 4, kind: 'series', mediaId: 500,
+});
+messageListener({data: {
+    type: 'semyra.desktop.iptv.vod.continue-dismiss-result', requestId: 'iptv-vod-continue-dismiss',
+    protocolVersion: 1, ok: true, dismissed: true, stableKey: 'must-not-cross',
+}});
+assert.equal(dispatched.at(-1).detail.action, 'vod-continue-dismiss');
+assert.equal(dispatched.at(-1).detail.dismissed, true);
+assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+
 webviewWindow.crypto.randomUUID = () => 'iptv-vod-view';
 windowListeners.get('semyra:iptv-request')({detail: {action: 'vod-view-start', kind: 'episode', mediaId: 301}});
 assert.deepEqual(posted.at(-1), {
@@ -198,6 +212,26 @@ messageListener({data: {
 }});
 assert.equal(dispatched.at(-1).detail.action, 'vod-view-start');
 assert.equal(dispatched.at(-1).detail.sessionId, 'd'.repeat(32));
+
+webviewWindow.crypto.randomUUID = () => 'iptv-vod-continue';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'vod-continue', sourceId: 4}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.vod.continue.list', requestId: 'iptv-vod-continue', accountContextId: 'b'.repeat(32), sourceId: 4,
+});
+messageListener({data: {
+    type: 'semyra.desktop.iptv.vod.continue.list-result', requestId: 'iptv-vod-continue', protocolVersion: 1, ok: true,
+    movies: [{id: 200, name: 'Movie', position: 100, duration: 1000, progressPercent: 10, stableKey: 'must-not-cross'}],
+    series: [{seriesId: 500, name: 'Series', episodeId: 301, seasonNumber: 1, episodeNumber: 2, episodeTitle: 'Two', position: 900, duration: 2400, progressPercent: 37.5, completedPrevious: false, streamUrl: 'must-not-cross'}],
+}});
+assert.equal(dispatched.at(-1).detail.movies[0].progressPercent, 10);
+assert.equal(dispatched.at(-1).detail.series[0].episodeId, 301);
+assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+
+webviewWindow.crypto.randomUUID = () => 'iptv-vod-navigate';
+windowListeners.get('semyra:iptv-request')({detail: {action: 'vod-navigate', direction: 'next'}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.iptv.vod.navigate', requestId: 'iptv-vod-navigate', accountContextId: 'b'.repeat(32), direction: 'next',
+});
 
 webviewWindow.crypto.randomUUID = () => 'iptv-vod-refresh';
 windowListeners.get('semyra:iptv-request')({detail: {action: 'vod-refresh', sourceId: 4}});
@@ -351,8 +385,30 @@ assert.deepEqual(dispatched.at(-1).detail, {
     state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null, mode: 'local',
     playbackKind: null, sessionId: null, position: 0, duration: 0, seekable: false,
     muted: false, volume: 100, container: null, videoCodec: null, audioCodec: null, mediaKind: null, fullscreen: false, paused: false, buffering: false,
+    vodContentKind: null, canPreviousEpisode: false, canNextEpisode: false,
 });
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+
+messageListener({data: {
+    type: 'semyra.desktop.iptv.vod.progress-changed', protocolVersion: 1,
+    accountContextId: 'b'.repeat(32), sourceId: 4, mediaType: 'episode', mediaId: 301, seriesId: 500,
+    positionSeconds: 350, durationSeconds: 1000, progressPercent: 35, completed: false,
+    seasonNumber: 2, episodeNumber: 3, sessionId: 'd'.repeat(32), stableKey: 'must-not-cross',
+}});
+assert.equal(dispatched.at(-1).type, 'semyra:iptv-vod-progress-changed');
+assert.deepEqual(dispatched.at(-1).detail, {
+    accountContextId: 'b'.repeat(32), sourceId: 4, mediaType: 'episode', mediaId: 301, seriesId: 500,
+    positionSeconds: 350, durationSeconds: 1000, progressPercent: 35, completed: false,
+    seasonNumber: 2, episodeNumber: 3, sessionId: 'd'.repeat(32),
+});
+assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+const progressEventCount = dispatched.length;
+messageListener({data: {
+    type: 'semyra.desktop.iptv.vod.progress-changed', protocolVersion: 1,
+    accountContextId: 'e'.repeat(32), sourceId: 4, mediaType: 'episode', mediaId: 301,
+    seriesId: 500, sessionId: 'd'.repeat(32),
+}});
+assert.equal(dispatched.length, progressEventCount, 'stale account progress must be ignored');
 
 webviewWindow.crypto.randomUUID = () => 'request-11a';
 windowListeners.get('semyra:iptv-request')({detail: {action: 'pick-file', path: 'C:\\private.m3u'}});

@@ -112,6 +112,12 @@ public sealed class MpvHostEngineTests : IDisposable
         Assert.False(host.SetMpvFullscreen(started.SessionId!, false).Fullscreen);
         Assert.Equal([true, false], fullscreenStates);
 
+        var liveLoadCount = process.Commands.Count(command => command.Command == "loadfile");
+        process.Emit("""{"event":"property-change","name":"eof-reached","data":true}""");
+        await Task.Delay(30);
+        Assert.Equal(liveLoadCount, process.Commands.Count(command => command.Command == "loadfile"));
+        Assert.Equal("ended", host.IptvMediaSnapshot().State);
+
         var hidden = false;
         host.NativeVideoVisibilityChanged += (_, visible) => hidden |= !visible;
         await host.ClearAccountAsync();
@@ -137,9 +143,18 @@ public sealed class MpvHostEngineTests : IDisposable
 
         await host.StartIptvVodViewAsync("movie", movie.Id, default);
         Assert.Contains("/movie/alice/secret/200.mp4", process.Commands.Last(item => item.Command == "loadfile").Arguments.OfType<string>().First());
-        process.Emit("""{"event":"start-file"}"""); process.Emit("""{"event":"playback-restart"}"""); process.Emit("""{"event":"property-change","name":"time-pos","data":1}""");
+        process.Emit("""{"event":"start-file"}""");
+        process.Emit("""{"event":"property-change","name":"duration","data":100}""");
+        process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
+        process.Emit("""{"event":"playback-restart"}""");
+        process.Emit("""{"event":"property-change","name":"time-pos","data":100}""");
+        process.Emit("""{"event":"property-change","name":"eof-reached","data":false}""");
+        process.Emit("""{"event":"property-change","name":"eof-reached","data":true}""");
+        await Task.Delay(30);
 
         Assert.Empty(store.ListRecents(source.Id));
+        Assert.Single(process.Commands, command => command.Command == "loadfile");
+        Assert.Equal("ended", host.IptvMediaSnapshot().State);
         var series = Assert.Single(catalog.SearchSeries(source.Id, "", null, 0, 50).Items);
         var details = store.ReplaceSeriesEpisodes(series.Id, [new XtreamEpisode("301", 1, 2, "Second", "mkv", "42:00", null, null)]);
         await host.StartIptvVodViewAsync("episode", Assert.Single(details.Episodes).Id, default);
@@ -147,6 +162,166 @@ public sealed class MpvHostEngineTests : IDisposable
         Assert.Contains("S01E02", host.IptvMediaSnapshot().ChannelName);
         Assert.DoesNotContain("alice", System.Text.Json.JsonSerializer.Serialize(host.IptvMediaSnapshot()));
         Assert.DoesNotContain("secret", System.Text.Json.JsonSerializer.Serialize(host.IptvMediaSnapshot()));
+    }
+
+    [Fact]
+    public async Task VodResumeUsesMpvIpcAndPeriodicWriterIsSingleAndSessionFenced()
+    {
+        var nowCalls = 0;
+        var protector = new Protector();
+        var store = new IptvStore(Path.Combine(_root, "progress.db"), protector, () =>
+        {
+            Interlocked.Increment(ref nowCalls);
+            return DateTimeOffset.Parse("2026-10-20T12:00:00Z").AddSeconds(nowCalls);
+        });
+        store.Initialize();
+        var source = store.AddSource("Xtream", IptvSourceType.Xtream, "{\"version\":1,\"baseUrl\":\"https://provider.example\",\"username\":\"alice\",\"password\":\"secret\"}");
+        store.ReplaceVodCatalog(source.Id, new XtreamVodImport([], [
+            new XtreamMovie("200", "Movie A", null, null, "mp4", null, null, null, null, null, null),
+            new XtreamMovie("201", "Movie B", null, null, "mp4", null, null, null, null, null, null),
+        ], []));
+        var movies = store.SearchMovies(source.Id, "Movie", null, 0, 10).Items;
+        store.SaveVodProgress(store.ResolveMovieForPlayback(movies[0].Id), 1800, 7200);
+
+        using var catalog = new IptvCatalogService(store, protector, new M3uParser());
+        var process = new FakeProcess();
+        var player = new MpvPlayer(new MpvRuntime(true, "mpv.exe", "test", "test", null), (nint)123, (_, _) => process);
+        await using var host = new HostEngine(_ => catalog, value => MediaEngine.CreateDefault(value, GStreamerRuntime.UnavailableForTests()),
+            new MpvRuntime(true, "mpv.exe", "test", "test", null), (_, _) => player, TimeSpan.FromMilliseconds(25));
+        host.SetNativeVideoHost((nint)123); host.Start(); await host.ActivateAccountAsync(new string('c', 64));
+
+        await host.StartIptvVodViewAsync("movie", movies[0].Id, default);
+        process.Emit("""{"event":"start-file"}""");
+        process.Emit("""{"event":"property-change","name":"duration","data":7200}""");
+        process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
+        process.Emit("""{"event":"playback-restart"}""");
+        await Task.Delay(25);
+        Assert.Contains(process.Commands, command => command.Command == "seek" && Convert.ToDouble(command.Arguments[0]) == 1800);
+
+        process.Emit("""{"event":"property-change","name":"time-pos","data":100}""");
+        var beforePeriodic = Volatile.Read(ref nowCalls);
+        await Task.Delay(90);
+        var periodicWrites = Volatile.Read(ref nowCalls) - beforePeriodic;
+        Assert.InRange(periodicWrites, 2, 5);
+
+        await host.StartIptvVodViewAsync("movie", movies[1].Id, default);
+        Assert.Equal(100, store.ResumePosition(store.ResolveMovieForPlayback(movies[0].Id)));
+        process.Emit("""{"event":"start-file"}""");
+        process.Emit("""{"event":"property-change","name":"duration","data":1000}""");
+        process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
+        process.Emit("""{"event":"property-change","name":"time-pos","data":40}""");
+        await host.ControlMpvAsync(host.IptvMediaSnapshot().SessionId!, "stop", null, default);
+        Assert.Equal(40, store.ResumePosition(store.ResolveMovieForPlayback(movies[1].Id)));
+        Assert.Equal(100, store.ResumePosition(store.ResolveMovieForPlayback(movies[0].Id)));
+    }
+
+    [Fact]
+    public async Task EpisodeEofAutoplaysExactlyOnceAcrossSeasonsAndPreservesFullscreen()
+    {
+        var setup = await EpisodeHostAsync("autoplay.db");
+        await using var host = setup.Host;
+        var progress = new List<IptvVodProgressChanged>();
+        host.VodProgressChanged += (_, value) => progress.Add(value);
+
+        var started = await host.StartIptvVodViewAsync("episode", setup.Episodes[0].Id, default);
+        setup.Process.Emit("""{"event":"start-file","playlist_entry_id":10}""");
+        setup.Process.Emit("""{"event":"property-change","name":"duration","data":1000}""");
+        setup.Process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
+        setup.Process.Emit("""{"event":"playback-restart","playlist_entry_id":10}""");
+        setup.Process.Emit("""{"event":"property-change","name":"time-pos","data":950}""");
+        host.SetMpvFullscreen(started.SessionId!, true);
+
+        await host.ControlMpvAsync(started.SessionId!, "pause", null, default);
+        await host.ControlMpvAsync(started.SessionId!, "seek-absolute", 998, default);
+        await Task.Delay(30);
+        Assert.Single(setup.Process.Commands, command => command.Command == "loadfile");
+
+        setup.Process.Emit("""{"event":"property-change","name":"eof-reached","data":false}""");
+        setup.Process.Emit("""{"event":"property-change","name":"eof-reached","data":true}""");
+        await WaitUntilAsync(() => setup.Process.Commands.Count(command => command.Command == "loadfile") == 2);
+        Assert.Contains("/series/alice/secret/302.mkv", setup.Process.Commands.Last(command => command.Command == "loadfile").Arguments.OfType<string>().First());
+        Assert.True(host.IptvMediaSnapshot().Fullscreen);
+        Assert.Contains(progress, value => value.MediaId == setup.Episodes[0].Id && value.Completed);
+
+        setup.Process.Emit("""{"event":"end-file","reason":"eof","playlist_entry_id":10}""");
+        await Task.Delay(30);
+        Assert.Equal(2, setup.Process.Commands.Count(command => command.Command == "loadfile"));
+
+        setup.Process.Emit("""{"event":"start-file","playlist_entry_id":11}""");
+        setup.Process.Emit("""{"event":"property-change","name":"duration","data":1000}""");
+        setup.Process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
+        setup.Process.Emit("""{"event":"property-change","name":"time-pos","data":1000}""");
+        setup.Process.Emit("""{"event":"property-change","name":"eof-reached","data":true}""");
+        await WaitUntilAsync(() => setup.Process.Commands.Count(command => command.Command == "loadfile") == 3);
+        Assert.Contains("/series/alice/secret/401.mkv", setup.Process.Commands.Last(command => command.Command == "loadfile").Arguments.OfType<string>().First());
+        Assert.True(host.IptvMediaSnapshot().Fullscreen);
+
+        setup.Process.Emit("""{"event":"start-file","playlist_entry_id":12}""");
+        setup.Process.Emit("""{"event":"property-change","name":"duration","data":1000}""");
+        setup.Process.Emit("""{"event":"property-change","name":"time-pos","data":1000}""");
+        setup.Process.Emit("""{"event":"property-change","name":"eof-reached","data":true}""");
+        await Task.Delay(30);
+        Assert.Equal(3, setup.Process.Commands.Count(command => command.Command == "loadfile"));
+        Assert.Equal("ended", host.IptvMediaSnapshot().State);
+    }
+
+    [Fact]
+    public async Task ManualEpisodeNavigationPreservesTheExistingFullscreenStateAndStopNeverAutoplays()
+    {
+        var setup = await EpisodeHostAsync("navigation.db");
+        await using var host = setup.Host;
+        var started = await host.StartIptvVodViewAsync("episode", setup.Episodes[0].Id, default);
+        setup.Process.Emit("""{"event":"start-file"}""");
+        setup.Process.Emit("""{"event":"property-change","name":"duration","data":1000}""");
+        setup.Process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
+        setup.Process.Emit("""{"event":"playback-restart"}""");
+        setup.Process.Emit("""{"event":"property-change","name":"time-pos","data":999}""");
+        host.SetMpvFullscreen(started.SessionId!, true);
+
+        var next = await host.NavigateIptvEpisodeAsync("next", default);
+        Assert.True(next.Snapshot.Fullscreen);
+        var previous = await host.NavigateIptvEpisodeAsync("previous", default);
+        Assert.True(previous.Snapshot.Fullscreen);
+
+        host.SetMpvFullscreen(previous.SessionId!, false);
+        var windowed = await host.NavigateIptvEpisodeAsync("next", default);
+        Assert.False(windowed.Snapshot.Fullscreen);
+        setup.Process.Emit("""{"event":"start-file"}""");
+        setup.Process.Emit("""{"event":"property-change","name":"duration","data":1000}""");
+        setup.Process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
+        setup.Process.Emit("""{"event":"playback-restart"}""");
+        setup.Process.Emit("""{"event":"property-change","name":"time-pos","data":999}""");
+        var beforeStop = setup.Process.Commands.Count(command => command.Command == "loadfile");
+        await host.ControlMpvAsync(windowed.SessionId!, "stop", null, default);
+        await Task.Delay(30);
+        Assert.Equal(beforeStop, setup.Process.Commands.Count(command => command.Command == "loadfile"));
+    }
+
+    private async Task<(HostEngine Host, FakeProcess Process, IReadOnlyList<IptvEpisodeSummary> Episodes)> EpisodeHostAsync(string database)
+    {
+        var protector = new Protector();
+        var store = new IptvStore(Path.Combine(_root, database), protector); store.Initialize();
+        var source = store.AddSource("Xtream", IptvSourceType.Xtream, "{\"version\":1,\"baseUrl\":\"https://provider.example\",\"username\":\"alice\",\"password\":\"secret\"}");
+        store.ReplaceVodCatalog(source.Id, new XtreamVodImport([], [], [new XtreamSeries("500", "Series A", null, null, null, null, null, null, null, null)]));
+        var series = Assert.Single(store.SearchSeries(source.Id, "", null, 0, 10).Items);
+        var details = store.ReplaceSeriesEpisodes(series.Id, [
+            new XtreamEpisode("301", 1, 2, "Episode 2", "mkv", "16:40", null, null),
+            new XtreamEpisode("302", 1, 3, "Episode 3", "mkv", "16:40", null, null),
+            new XtreamEpisode("401", 2, 1, "Episode 1", "mkv", "16:40", null, null),
+        ]);
+        var catalog = new IptvCatalogService(store, protector, new M3uParser());
+        var process = new FakeProcess();
+        var player = new MpvPlayer(new MpvRuntime(true, "mpv.exe", "test", "test", null), (nint)123, (_, _) => process);
+        var host = new HostEngine(_ => catalog, value => MediaEngine.CreateDefault(value, GStreamerRuntime.UnavailableForTests()),
+            new MpvRuntime(true, "mpv.exe", "test", "test", null), (_, _) => player);
+        host.SetNativeVideoHost((nint)123); host.Start(); await host.ActivateAccountAsync(new string('d', 64));
+        return (host, process, details.Episodes);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        for (var attempt = 0; attempt < 50 && !predicate(); attempt++) await Task.Delay(10);
+        Assert.True(predicate());
     }
 
     private static async IAsyncEnumerable<ParsedM3uChannel> Channels()

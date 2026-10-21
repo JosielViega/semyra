@@ -20,7 +20,10 @@ public sealed record MediaSnapshot(
     string? MediaKind = null,
     bool Fullscreen = false,
     bool Paused = false,
-    bool Buffering = false)
+    bool Buffering = false,
+    string? VodContentKind = null,
+    bool CanPreviousEpisode = false,
+    bool CanNextEpisode = false)
 {
     public static MediaSnapshot Idle { get; } = new("idle", null, null, 0, null, "local");
 }

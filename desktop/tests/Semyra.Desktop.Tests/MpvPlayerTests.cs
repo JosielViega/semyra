@@ -130,6 +130,41 @@ public sealed class MpvPlayerTests
     }
 
     [Fact]
+    public async Task KeepOpenEofTransitionEndsEachFileExactlyOnceAndResetsForTheNextLoad()
+    {
+        var process = new FakeMpvProcess();
+        await using var player = Player(() => process);
+        var ended = 0;
+        player.StateChanged += (_, snapshot) =>
+        {
+            if (snapshot.State == "ended") ended++;
+        };
+
+        await player.StartAsync(Channel(1), default);
+        Assert.Contains(process.Commands, command => command.Command == "observe_property"
+            && command.Arguments.Count == 2 && Equals(command.Arguments[1], "eof-reached"));
+        process.Emit("""{"event":"start-file","playlist_entry_id":1}""");
+        process.Emit("""{"event":"property-change","name":"duration","data":100}""");
+        process.Emit("""{"event":"property-change","name":"time-pos","data":99}""");
+        process.Emit("""{"event":"property-change","name":"pause","data":true}""");
+        process.Emit("""{"event":"property-change","name":"eof-reached","data":false}""");
+        Assert.Equal(0, ended);
+
+        process.Emit("""{"event":"property-change","name":"eof-reached","data":true}""");
+        process.Emit("""{"event":"property-change","name":"eof-reached","data":true}""");
+        process.Emit("""{"event":"end-file","reason":"eof","playlist_entry_id":1}""");
+        Assert.Equal(1, ended);
+        Assert.Equal(100, player.Snapshot().Position);
+
+        await player.StartAsync(Channel(2), default);
+        process.Emit("""{"event":"start-file","playlist_entry_id":2}""");
+        process.Emit("""{"event":"property-change","name":"duration","data":200}""");
+        process.Emit("""{"event":"property-change","name":"eof-reached","data":true}""");
+        Assert.Equal(2, ended);
+        Assert.Equal(200, player.Snapshot().Position);
+    }
+
+    [Fact]
     public async Task ControlResponseReadsCanonicalPauseWhenPropertyEventHasNotArrived()
     {
         var process = new FakeMpvProcess { AutoEmitPropertyChanges = false };

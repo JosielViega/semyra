@@ -47,6 +47,12 @@ public static partial class DesktopMessage
     public const string IptvVodSeriesDetailsResultType = "semyra.desktop.iptv.vod.series.details-result";
     public const string IptvVodViewStartType = "semyra.desktop.iptv.vod.view-start";
     public const string IptvVodViewStartResultType = "semyra.desktop.iptv.vod.view-start-result";
+    public const string IptvVodContinueListType = "semyra.desktop.iptv.vod.continue.list";
+    public const string IptvVodContinueListResultType = "semyra.desktop.iptv.vod.continue.list-result";
+    public const string IptvVodContinueDismissType = "semyra.desktop.iptv.vod.continue-dismiss";
+    public const string IptvVodContinueDismissResultType = "semyra.desktop.iptv.vod.continue-dismiss-result";
+    public const string IptvVodNavigateType = "semyra.desktop.iptv.vod.navigate";
+    public const string IptvVodNavigateResultType = "semyra.desktop.iptv.vod.navigate-result";
     public const string IptvFavoritesListType = "semyra.desktop.iptv.favorites.list";
     public const string IptvFavoritesListResultType = "semyra.desktop.iptv.favorites.list-result";
     public const string IptvFavoriteSetType = "semyra.desktop.iptv.favorite.set";
@@ -58,6 +64,7 @@ public static partial class DesktopMessage
     public const string IptvRecentsClearType = "semyra.desktop.iptv.recents.clear";
     public const string IptvRecentsClearResultType = "semyra.desktop.iptv.recents.clear-result";
     public const string IptvMediaStateType = "semyra.desktop.iptv.media.state";
+    public const string IptvVodProgressChangedType = "semyra.desktop.iptv.vod.progress-changed";
     public const string IptvViewStartType = "semyra.desktop.iptv.view.start";
     public const string IptvViewStartResultType = "semyra.desktop.iptv.view.start-result";
     public const string IptvViewStopType = "semyra.desktop.iptv.view.stop";
@@ -209,6 +216,14 @@ public static partial class DesktopMessage
                 return true;
             }
 
+            if (type == IptvVodNavigateType)
+            {
+                if (properties.Count != 4 || !TryAccountContext(properties, out var contextId)
+                    || !TryString(properties, "direction", out var direction) || direction is not ("previous" or "next")) return false;
+                request = new DesktopRequest(type, requestId, Media: new MediaRequest(AccountContextId: contextId, Direction: direction));
+                return true;
+            }
+
             if (type == IptvPlayerControlType)
             {
                 if (properties.Count is < 5 or > 6
@@ -312,6 +327,26 @@ public static partial class DesktopMessage
                     return false;
                 }
                 request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, AccountContextId: contextId));
+                return true;
+            }
+
+            if (type == IptvVodContinueListType)
+            {
+                if (properties.Count != 4 || !TryPositiveInt64(properties, "sourceId", out var sourceId) || !TryAccountContext(properties, out var contextId)) return false;
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(SourceId: sourceId, AccountContextId: contextId));
+                return true;
+            }
+
+            if (type == IptvVodContinueDismissType)
+            {
+                if (properties.Count != 6
+                    || !TryPositiveInt64(properties, "sourceId", out var sourceId)
+                    || !TryPositiveInt64(properties, "mediaId", out var mediaId)
+                    || !TryAccountContext(properties, out var contextId)
+                    || !TryString(properties, "kind", out var kind)
+                    || kind is not ("movie" or "series")) return false;
+                request = new DesktopRequest(type, requestId, Iptv: new IptvRequest(
+                    SourceId: sourceId, AccountContextId: contextId, MediaType: kind, MediaId: mediaId));
                 return true;
             }
 

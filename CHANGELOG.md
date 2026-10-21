@@ -13,6 +13,11 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Progresso VOD local persistente no Desktop, com retomada exata de filmes e episódios, “Continuar assistindo”, estados assistidos e navegação manual anterior/próximo entre temporadas, preservado por refresh Xtream via identidade estável.
+- “Continuar assistindo” de séries agora abre a temporada e destaca o episódio correto sem iniciar playback; progresso persistido atualiza o detalhe aberto, e EOF natural avança uma única vez ao próximo episódio preservando fullscreen, inclusive entre temporadas.
+- Filmes e séries podem ser removidos de “Continuar assistindo” sem apagar progresso ou episódios assistidos; nova atividade faz o item reaparecer automaticamente.
+- Com `--keep-open=yes`, o player observa a transição `eof-reached=false→true` e a converge com `end-file reason=eof` em um único encerramento natural por arquivo; a busca/filtro VOD também ganhou separação consistente da rail e do grid.
+
 - Minha IPTV agora separa TV ao vivo, Filmes e Séries; catálogos Xtream VOD usam busca/categoria/paginação nativas, detalhes lazy de episódios e reprodução segura de filmes/episódios no MPV por ID local, sem expor URLs ou credenciais à WebView.
 
 - Catálogo Xtream VOD local estruturado, com filmes, séries e episódios sob demanda, sincronização global atômica, cache lazy por série e URLs resolvidas somente no native.
