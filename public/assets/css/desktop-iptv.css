@@ -75,7 +75,8 @@ body.semyra-player-fullscreen { width: 100%; height: 100dvh; }
 .iptv-experience.is-native-fullscreen .iptv-player-stage { position: fixed; inset: 0 0 82px; width: 100vw; height: auto; min-height: 0; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
 .iptv-experience.is-native-fullscreen .iptv-native-controls { position: fixed; right: 0; bottom: 0; left: 0; z-index: 10001; min-height: 82px; margin: 0; border: 0; border-radius: 0; transition: opacity .2s ease, transform .2s ease; }
 .iptv-experience.is-native-fullscreen.is-native-controls-hidden .iptv-player-stage { bottom: 0; }
-.iptv-experience.is-native-fullscreen.is-native-controls-hidden { cursor: none; }
+.iptv-experience.is-native-fullscreen.is-native-controls-hidden,
+.iptv-experience.is-native-fullscreen.is-native-controls-hidden * { cursor: none !important; }
 .iptv-experience.is-native-fullscreen .iptv-native-controls { cursor: default; }
 .iptv-experience.is-native-fullscreen.is-native-controls-hidden .iptv-native-controls { visibility: hidden; opacity: 0; pointer-events: none; transform: translateY(100%); }
 

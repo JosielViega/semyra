@@ -6,8 +6,10 @@ namespace Semyra.Desktop.Desktop;
 internal sealed class MpvVideoHost : HwndHost
 {
     internal const uint PlaybackZOrderFlags = 0x0002 | 0x0001 | 0x0010 | 0x0040;
+    private const int WmSetCursor = 0x0020;
     internal static nint PlaybackInsertAfter => 0;
     private nint _handle;
+    private readonly NativeCursorState _cursor = new(new Win32NativeCursorApi());
     internal nint HostHandle => _handle;
 
     internal NativeVideoWindowSnapshot Snapshot()
@@ -31,6 +33,13 @@ internal sealed class MpvVideoHost : HwndHost
     {
         if (_handle != 0 && IsWindow(_handle)) ShowWindow(_handle, visible ? 5 : 0);
     }
+
+    internal void SetCursorHidden(bool hidden)
+    {
+        _cursor.SetHidden(hidden);
+    }
+
+    internal void ReapplyHiddenCursor() => _cursor.ReapplyIfHidden();
 
     internal bool PromoteForPlayback()
     {
@@ -66,8 +75,23 @@ internal sealed class MpvVideoHost : HwndHost
 
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
+        _cursor.SetHidden(false);
         if (hwnd.Handle != 0) DestroyWindow(hwnd.Handle);
         _handle = 0;
+    }
+
+    protected override nint WndProc(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
+    {
+        if (message == WmSetCursor)
+        {
+            if (_cursor.HandleSetCursor())
+            {
+                handled = true;
+                return 1;
+            }
+        }
+
+        return base.WndProc(hwnd, message, wParam, lParam, ref handled);
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -134,6 +158,55 @@ internal sealed class MpvVideoHost : HwndHost
         internal int Right;
         internal int Bottom;
     }
+}
+
+internal interface INativeCursorApi
+{
+    nint LoadArrow();
+    void Set(nint cursor);
+}
+
+internal sealed class Win32NativeCursorApi : INativeCursorApi
+{
+    public nint LoadArrow() => LoadCursor(0, (nint)MpvVideoHostCursor.IdcArrow);
+    public void Set(nint cursor) => SetCursor(cursor);
+
+    [DllImport("user32.dll", EntryPoint = "LoadCursorW")]
+    private static extern nint LoadCursor(nint instance, nint cursorName);
+
+    [DllImport("user32.dll")]
+    private static extern nint SetCursor(nint cursor);
+}
+
+internal static class MpvVideoHostCursor
+{
+    internal const int IdcArrow = 32512;
+}
+
+internal sealed class NativeCursorState(INativeCursorApi api)
+{
+    internal bool Hidden { get; private set; }
+
+    internal void SetHidden(bool hidden)
+    {
+        if (Hidden == hidden) return;
+        Hidden = hidden;
+        Apply();
+    }
+
+    internal void ReapplyIfHidden()
+    {
+        if (Hidden) api.Set(0);
+    }
+
+    internal bool HandleSetCursor()
+    {
+        if (!Hidden) return false;
+        api.Set(0);
+        return true;
+    }
+
+    private void Apply() => api.Set(Hidden ? 0 : api.LoadArrow());
 }
 
 internal sealed record NativeVideoLayout(double X, double Y, double Width, double Height)

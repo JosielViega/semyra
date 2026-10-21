@@ -492,6 +492,38 @@ public sealed class MpvPlayerTests
     }
 
     [Fact]
+    public void NativeCursorStateAppliesHideAndRestoreImmediatelyWithoutWaitingForWindowMessage()
+    {
+        var api = new FakeNativeCursorApi();
+        var cursor = new NativeCursorState(api);
+
+        cursor.SetHidden(true);
+        Assert.Equal([(nint)0], api.Applied);
+        Assert.Equal(0, api.LoadArrowCalls);
+
+        cursor.SetHidden(false);
+        Assert.Equal([(nint)0, api.Arrow], api.Applied);
+        Assert.Equal(1, api.LoadArrowCalls);
+    }
+
+    [Fact]
+    public void NativeCursorStateReassertsHiddenCursorAfterGeometryAndOnWindowMessage()
+    {
+        var api = new FakeNativeCursorApi();
+        var cursor = new NativeCursorState(api);
+        cursor.SetHidden(true);
+
+        cursor.ReapplyIfHidden();
+        Assert.True(cursor.HandleSetCursor());
+        Assert.Equal([(nint)0, (nint)0, (nint)0], api.Applied);
+
+        cursor.SetHidden(false);
+        var beforeVisibleMessage = api.Applied.Count;
+        Assert.False(cursor.HandleSetCursor());
+        Assert.Equal(beforeVisibleMessage, api.Applied.Count);
+    }
+
+    [Fact]
     public void CursorMonitorDetectsOnlyRealMovement()
     {
         var source = new FakeCursorActivitySource(new(500, 500));
@@ -570,15 +602,24 @@ public sealed class MpvPlayerTests
     {
         var source = new FakeCursorActivitySource(new(500, 500));
         using var monitor = new CursorActivityMonitor(source, scheduleAutomatically: false);
-        using var controller = new PlayerCursorActivityController(monitor, () => (nint)42);
+        var cursorStates = new List<bool>();
+        using var controller = new PlayerCursorActivityController(monitor, () => (nint)42, cursorStates.Add);
 
         controller.SetPlaybackVisible(true);
         controller.SetFullscreen(true);
         Assert.False(controller.IsRunning);
         controller.SetControlsHidden(true);
         Assert.True(controller.IsRunning);
+        Assert.Equal([true], cursorStates);
+        controller.SetWindowActive(false);
+        Assert.False(controller.IsRunning);
+        Assert.Equal([true, false], cursorStates);
+        controller.SetWindowActive(true);
+        Assert.True(controller.IsRunning);
+        Assert.Equal([true, false, true], cursorStates);
         controller.SetControlsHidden(false);
         Assert.False(controller.IsRunning);
+        Assert.Equal([true, false, true, false], cursorStates);
         controller.SetControlsHidden(true);
         Assert.True(controller.IsRunning);
         controller.SetFullscreen(false);
@@ -591,11 +632,13 @@ public sealed class MpvPlayerTests
         Assert.True(controller.IsRunning);
         controller.Reset();
         Assert.False(controller.IsRunning);
+        Assert.Equal([true, false, true, false, true, false, true, false, true, false], cursorStates);
         controller.Dispose();
         controller.SetPlaybackVisible(true);
         controller.SetFullscreen(true);
         controller.SetControlsHidden(true);
         Assert.False(controller.IsRunning);
+        Assert.Equal([true, false, true, false, true, false, true, false, true, false], cursorStates);
     }
 
     [Fact]
@@ -669,6 +712,21 @@ public sealed class MpvPlayerTests
 
         public bool IsForeground(nint windowHandle) => Foreground && windowHandle == (nint)42;
         public bool IsInsideWindow(nint windowHandle, CursorScreenPoint position) => InsideWindow && windowHandle == (nint)42;
+    }
+
+    private sealed class FakeNativeCursorApi : INativeCursorApi
+    {
+        internal nint Arrow { get; } = (nint)123;
+        internal int LoadArrowCalls { get; private set; }
+        internal List<nint> Applied { get; } = [];
+
+        public nint LoadArrow()
+        {
+            LoadArrowCalls++;
+            return Arrow;
+        }
+
+        public void Set(nint cursor) => Applied.Add(cursor);
     }
 
     private sealed class FakeMpvProcess : IMpvProcess

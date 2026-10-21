@@ -32,7 +32,8 @@ public partial class MainWindow : Window
         _hostEngine = new HostEngine();
         _cursorActivity = new PlayerCursorActivityController(
             new CursorActivityMonitor(new Win32CursorActivitySource()),
-            () => new WindowInteropHelper(this).Handle);
+            () => new WindowInteropHelper(this).Handle,
+            hidden => NativePlayerHost.SetCursorHidden(hidden));
         _cursorActivity.Activity += OnCursorActivity;
         _hostEngine.MediaStateChanged += OnMediaStateChanged;
         _hostEngine.VodProgressChanged += OnVodProgressChanged;
@@ -42,6 +43,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         Loaded += OnLoaded;
         Closing += OnClosing;
+        Activated += OnActivated;
+        Deactivated += OnDeactivated;
         SizeChanged += OnWindowSizeChanged;
         PreviewKeyDown += OnPreviewKeyDown;
     }
@@ -226,6 +229,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         Closing -= OnClosing;
+        Activated -= OnActivated;
+        Deactivated -= OnDeactivated;
         SizeChanged -= OnWindowSizeChanged;
         PreviewKeyDown -= OnPreviewKeyDown;
         base.OnClosed(e);
@@ -241,6 +246,10 @@ public partial class MainWindow : Window
     }
 
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) => ApplyNativeVideoGeometry();
+
+    private void OnActivated(object? sender, EventArgs e) => _cursorActivity.SetWindowActive(true);
+
+    private void OnDeactivated(object? sender, EventArgs e) => _cursorActivity.SetWindowActive(false);
 
     private void OnMediaStateChanged(object? sender, MediaSnapshot snapshot)
     {
@@ -361,6 +370,7 @@ public partial class MainWindow : Window
         NativePlayerHost.UpdateLayout();
         NativePlayerHost.SetPlaybackVisible(true);
         NativePlayerHost.PromoteForPlayback();
+        NativePlayerHost.ReapplyHiddenCursor();
     }
 
     private void RunOnUi(Action action)

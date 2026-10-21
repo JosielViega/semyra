@@ -127,6 +127,8 @@
         let settingsOperation = null;
         let navigationStopRequested = false;
         let nativeSessionId = null;
+        let nativeMediaKind = null;
+        let nativeSessionNeedsAutoHide = false;
         let nativePaused = false;
         let nativeMuted = false;
         let nativeVolume = 100;
@@ -947,6 +949,8 @@
                 stage.dataset.nativePlayer = 'false';
             }
             nativeSessionId = null;
+            nativeMediaKind = null;
+            nativeSessionNeedsAutoHide = false;
             nativeFullscreen = false;
             nativeScrubbing = false;
             nativeRecentSession = null;
@@ -1048,7 +1052,9 @@
 
         function attachNativePlayer(sessionId) {
             if (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId)) return false;
+            const changed = nativeSessionId !== sessionId;
             nativeSessionId = sessionId;
+            if (changed) nativeSessionNeedsAutoHide = true;
             nativePaused = false;
             const stage = element('[data-iptv-player-stage]');
             if (stage) stage.dataset.nativePlayer = 'true';
@@ -1122,13 +1128,18 @@
                 if (typeof detail.muted === 'boolean') nativeMuted = detail.muted;
                 if (typeof detail.volume === 'number') nativeVolume = Math.min(100, Math.max(0, detail.volume));
                 renderNativeControlModel({paused: nativePaused, muted: nativeMuted, volume: nativeVolume});
+                const playing = ['streaming', 'playing'].includes(mediaState);
                 if (nativePaused) {
                     clearHideTimer();
                     setControlsVisible(true);
-                } else if (wasPaused && ['streaming', 'playing'].includes(mediaState)) {
+                } else if (nativeSessionNeedsAutoHide && playing) {
+                    nativeSessionNeedsAutoHide = false;
+                    if (nativeFullscreen) userActivity();
+                } else if (wasPaused && playing) {
                     scheduleHide();
                 }
                 const mediaKind = detail.mediaKind === 'vod' ? 'vod' : detail.mediaKind === 'live' ? 'live' : null;
+                if (mediaKind) nativeMediaKind = mediaKind;
                 root.querySelectorAll?.('[data-iptv-native-vod]').forEach(function (control) { control.hidden = mediaKind !== 'vod'; });
                 root.querySelectorAll?.('[data-iptv-episode-nav]').forEach(function (control) {
                     const episode = mediaKind === 'vod' && detail.vodContentKind === 'episode';
@@ -1309,6 +1320,45 @@
             lastUserActivity = Date.now();
             setControlsVisible(true);
             scheduleHide();
+        }
+
+        function keyboardContextConsumesPlayerShortcut(event) {
+            return [event?.target, document.activeElement].filter(Boolean).some(function (candidate) {
+                const tag = candidate.tagName?.toLowerCase?.();
+                if (['input', 'textarea', 'select', 'option', 'button'].includes(tag)) return true;
+                if (candidate.isContentEditable === true) return true;
+                return typeof candidate.closest === 'function'
+                    && candidate.closest('input, textarea, select, button, [contenteditable="true"], [role="button"], [role="dialog"]') !== null;
+            });
+        }
+
+        function playerControlFromPointerEvent(controls, event) {
+            const control = event?.target?.closest?.('button, input[type="range"]');
+            return control && controls.contains(control) ? control : null;
+        }
+
+        function bindPlayerPointerFocusRelease() {
+            const controls = element('[data-iptv-native-controls]');
+            if (!controls) return;
+            let pointerControl = null;
+            controls.addEventListener('pointerdown', function (event) {
+                pointerControl = playerControlFromPointerEvent(controls, event);
+            });
+            controls.addEventListener('pointercancel', function () {
+                pointerControl = null;
+            });
+            controls.addEventListener('pointerup', function (event) {
+                const control = playerControlFromPointerEvent(controls, event);
+                if (!control || control !== pointerControl || control.tagName?.toLowerCase?.() !== 'input' || control.type !== 'range') return;
+                pointerControl = null;
+                if (document.activeElement === control) control.blur?.();
+            });
+            controls.addEventListener('click', function (event) {
+                const control = playerControlFromPointerEvent(controls, event);
+                if (!control || control !== pointerControl || control.tagName?.toLowerCase?.() !== 'button') return;
+                pointerControl = null;
+                if (document.activeElement === control) control.blur?.();
+            });
         }
 
         function loadSources() {
@@ -1593,7 +1643,6 @@
                 renderChannels([], false);
                 recentsFeedback('', false);
             } else if (['view-start', 'vod-view-start', 'vod-navigate', 'view-stop', 'view-status'].includes(detail.action)) {
-                if (['view-start', 'vod-view-start', 'view-status'].includes(detail.action) && detail.playbackKind === 'native-mpv') attachNativePlayer(detail.sessionId);
                 if (detail.action === 'view-stop') destroyPlayer();
                 renderMediaState(detail);
             } else if (detail.action === 'player-control') {
@@ -1610,7 +1659,6 @@
                     && event.detail.state === 'loading'
                     && event.detail.vodContentKind === 'episode';
                 if (!autoplayTransition) return;
-                attachNativePlayer(event.detail.sessionId);
             }
             renderMediaState(event.detail);
             if (['idle', 'ended'].includes(event.detail.state)) loadContinueWatching();
@@ -1859,13 +1907,15 @@
             bind('[data-iptv-previous]', 'click', function () { offset = Math.max(0, offset - limit); loadCurrentView('Carregando página anterior…'); });
             bind('[data-iptv-next]', 'click', function () { offset += limit; loadCurrentView('Carregando próxima página…'); });
 
+            bindPlayerPointerFocusRelease();
+
             const stage = element('[data-iptv-player-stage]');
             ['pointermove', 'pointerdown', 'keydown'].forEach(function (type) { stage?.addEventListener(type, userActivity); });
             ['pointermove', 'pointerdown', 'keydown'].forEach(function (type) { root?.addEventListener?.(type, userActivity); });
             target.addEventListener?.('semyra:player-user-activity', userActivity);
             document.addEventListener?.('keydown', function (event) {
-                const tag = document.activeElement?.tagName?.toLowerCase();
-                if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+                const settings = element('[data-iptv-settings]');
+                if (event.repeat === true || settings?.open === true || keyboardContextConsumesPlayerShortcut(event)) return;
                 const openDetail = primaryView !== 'live' ? element('[data-iptv-vod-detail="' + primaryView + '"]:not([hidden])') : null;
                 if (event.key === 'Escape' && openDetail && !nativeFullscreen) {
                     const back = openDetail.querySelector?.('[data-iptv-vod-back]'); back?.click?.();
@@ -1875,6 +1925,15 @@
                 } else if (nativeSessionId && nativeFullscreen && event.key === 'Escape') {
                     event.preventDefault?.();
                     request('player-fullscreen', {sessionId: nativeSessionId, fullscreen: false});
+                } else if (nativeSessionId && nativeMediaKind === 'vod' && (event.key === ' ' || event.code === 'Space')) {
+                    event.preventDefault?.();
+                    sendNativeControl(nativePaused ? 'play' : 'pause');
+                } else if (nativeSessionId && nativeMediaKind === 'vod' && event.key === 'ArrowLeft') {
+                    event.preventDefault?.();
+                    sendNativeControl('seek-relative', -30);
+                } else if (nativeSessionId && nativeMediaKind === 'vod' && event.key === 'ArrowRight') {
+                    event.preventDefault?.();
+                    sendNativeControl('seek-relative', 30);
                 }
             });
             target.addEventListener('pagehide', leavePage);

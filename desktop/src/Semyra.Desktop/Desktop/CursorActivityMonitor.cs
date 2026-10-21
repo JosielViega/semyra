@@ -151,15 +151,22 @@ internal sealed class PlayerCursorActivityController : IDisposable
 {
     private readonly CursorActivityMonitor _monitor;
     private readonly Func<nint> _windowHandle;
+    private readonly Action<bool> _setCursorHidden;
     private bool _controlsHidden;
     private bool _fullscreen;
     private bool _playbackVisible;
+    private bool _windowActive = true;
+    private bool _cursorHidden;
     private bool _disposed;
 
-    internal PlayerCursorActivityController(CursorActivityMonitor monitor, Func<nint> windowHandle)
+    internal PlayerCursorActivityController(
+        CursorActivityMonitor monitor,
+        Func<nint> windowHandle,
+        Action<bool>? setCursorHidden = null)
     {
         _monitor = monitor;
         _windowHandle = windowHandle;
+        _setCursorHidden = setCursorHidden ?? (_ => { });
         _monitor.Activity += OnActivity;
     }
 
@@ -187,6 +194,13 @@ internal sealed class PlayerCursorActivityController : IDisposable
         Update();
     }
 
+    internal void SetWindowActive(bool active)
+    {
+        if (_disposed) return;
+        _windowActive = active;
+        Update();
+    }
+
     internal void Reset()
     {
         if (_disposed) return;
@@ -194,11 +208,13 @@ internal sealed class PlayerCursorActivityController : IDisposable
         _fullscreen = false;
         _playbackVisible = false;
         _monitor.Stop();
+        SetCursorHidden(false);
     }
 
     public void Dispose()
     {
         if (_disposed) return;
+        SetCursorHidden(false);
         _disposed = true;
         _monitor.Activity -= OnActivity;
         _monitor.Dispose();
@@ -206,7 +222,9 @@ internal sealed class PlayerCursorActivityController : IDisposable
 
     private void Update()
     {
-        if (_controlsHidden && _fullscreen && _playbackVisible)
+        var shouldHideCursor = _controlsHidden && _fullscreen && _playbackVisible && _windowActive;
+        SetCursorHidden(shouldHideCursor);
+        if (shouldHideCursor)
         {
             _monitor.Start(_windowHandle());
         }
@@ -214,6 +232,13 @@ internal sealed class PlayerCursorActivityController : IDisposable
         {
             _monitor.Stop();
         }
+    }
+
+    private void SetCursorHidden(bool hidden)
+    {
+        if (_cursorHidden == hidden) return;
+        _cursorHidden = hidden;
+        _setCursorHidden(hidden);
     }
 
     private void OnActivity(object? sender, EventArgs e) => Activity?.Invoke(this, EventArgs.Empty);

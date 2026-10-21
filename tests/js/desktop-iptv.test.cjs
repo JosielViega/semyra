@@ -1,7 +1,16 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const iptv = require('../../public/assets/js/desktop-iptv.js');
+
+const desktopIptvCss = fs.readFileSync(require.resolve('../../public/assets/css/desktop-iptv.css'), 'utf8');
+const appCss = fs.readFileSync(require.resolve('../../public/assets/css/app.css'), 'utf8');
+assert.match(desktopIptvCss, /\.iptv-experience button:focus-visible/);
+assert.match(appCss, /button:focus-visible/);
+assert.doesNotMatch(desktopIptvCss + appCss, /button:focus(?!-visible)[^{]*\{[^}]*outline\s*:\s*none/i);
+assert.match(desktopIptvCss, /\.iptv-experience\.is-native-fullscreen\.is-native-controls-hidden \*\s*\{\s*cursor:\s*none\s*!important;/);
+assert.doesNotMatch(desktopIptvCss, /\.iptv-experience\.is-native-controls-hidden \*\s*\{\s*cursor:\s*none/i, 'cursor hiding must remain fullscreen-only');
 
 assert.equal(typeof iptv.createIptvCatalog, 'function');
 assert.equal(iptv.mediaStatusLabel('preparing'), 'Preparando canal…');
@@ -61,6 +70,7 @@ class FakeElement {
         this.open = false;
         this.textContent = '';
         this.value = '';
+        this.type = '';
         this.title = '';
         this.styleValues = new Map();
         this.style = {setProperty: (name, value) => this.styleValues.set(name, value)};
@@ -95,6 +105,7 @@ class FakeElement {
         if (selector === '[data-iptv-action]' && this.dataset.iptvAction) return this;
         if (selector === '[data-source-id]' && this.dataset.sourceId) return this;
         if (selector === '.iptv-channel-card' && this.className.split(/\s+/).includes('iptv-channel-card')) return this;
+        if (selector === 'button, input[type="range"]' && (this.tagName === 'BUTTON' || (this.tagName === 'INPUT' && this.type === 'range'))) return this;
         return this.parent?.closest(selector) || null;
     }
     querySelector(selector) {
@@ -120,6 +131,7 @@ class FakeElement {
     contains(candidate) { return candidate === this || Boolean(find(this, (item) => item === candidate)); }
     scrollIntoView() {}
     focus() { fakeDocument.activeElement = this; }
+    blur() { if (fakeDocument.activeElement === this) fakeDocument.activeElement = null; }
     showModal() { this.open = true; }
     close() { this.open = false; }
 }
@@ -260,6 +272,24 @@ for (const selector of [
     '[data-iptv-recents-actions]', '[data-iptv-recents-clear]', '[data-iptv-recents-confirm]',
     '[data-iptv-recents-cancel]', '[data-iptv-recents-confirm-clear]', '[data-iptv-recents-feedback]',
 ]) if (!registry.has(selector)) register(selector);
+const nativeControls = registry.get('[data-iptv-native-controls]');
+for (const selector of [
+    '[data-iptv-native-playback]', '[data-iptv-native-seek="-30"]', '[data-iptv-native-seek="30"]',
+    '[data-iptv-native-mute]', '[data-iptv-native-stop]', '[data-iptv-native-fullscreen]',
+    '[data-iptv-episode-nav="previous"]', '[data-iptv-episode-nav="next"]',
+]) {
+    const button = registry.get(selector);
+    button.tagName = 'BUTTON';
+    nativeControls.appendChild(button);
+}
+for (const selector of ['[data-iptv-native-volume]', '[data-iptv-native-progress]']) {
+    const range = registry.get(selector);
+    range.tagName = 'INPUT';
+    range.type = 'range';
+    nativeControls.appendChild(range);
+}
+registry.get('[data-iptv-episode-nav="previous"]').dataset.iptvEpisodeNav = 'previous';
+registry.get('[data-iptv-episode-nav="next"]').dataset.iptvEpisodeNav = 'next';
 registry.get('[data-iptv-pick-file]').tagName = 'BUTTON';
 settingsContent.appendChild(urlForm);
 settingsContent.appendChild(xtreamForm);
@@ -733,12 +763,157 @@ assert.equal(registry.get('[data-iptv-native-progress]').hidden, true);
 assert.equal(registry.get('[data-iptv-native-playback]').hidden, true);
 assert.equal(registry.get('[data-iptv-native-seek="30"]').hidden, true);
 assert.equal(registry.get('[data-iptv-native-context]').textContent, 'Ao vivo');
+fakeDocument.activeElement = null;
+const liveShortcutRequests = requests.length;
+documentListeners.get('keydown')({key: ' ', code: 'Space', target: stage, repeat: false, preventDefault() { throw new Error('Live shortcut must be a no-op'); }});
+documentListeners.get('keydown')({key: 'ArrowRight', target: stage, repeat: false, preventDefault() { throw new Error('Live shortcut must be a no-op'); }});
+assert.equal(requests.length, liveShortcutRequests, 'VOD shortcuts must not control live playback');
 rootListeners.get('semyra:iptv-media-state')({detail: {
     playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
     channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: false,
 }});
 assert.equal(registry.get('[data-iptv-native-playback]').attributes.get('aria-label'), 'Pausar');
 assertNativeControlIcon('[data-iptv-native-playback]', 'pause');
+let shortcutPrevented = 0;
+const keyboard = documentListeners.get('keydown');
+const shortcut = (key, extra = {}) => keyboard(Object.assign({
+    key,
+    code: key === ' ' ? 'Space' : key,
+    target: stage,
+    repeat: false,
+    preventDefault() { shortcutPrevented += 1; },
+}, extra));
+const pointerClickPlayerControl = (control) => {
+    control.focus();
+    nativeControls.emit('pointerdown', {target: control, pointerType: 'mouse'});
+    control.emit('click', {target: control, detail: 1});
+    nativeControls.emit('click', {target: control, detail: 1});
+    assert.equal(fakeDocument.activeElement, null, 'pointer-clicked player control must release focus');
+};
+const pointerReleasePlayerRange = (control) => {
+    control.focus();
+    control.emit('pointerdown', {target: control, pointerType: 'mouse'});
+    nativeControls.emit('pointerdown', {target: control, pointerType: 'mouse'});
+    control.emit('pointerup', {target: control, pointerType: 'mouse'});
+    nativeControls.emit('pointerup', {target: control, pointerType: 'mouse'});
+    assert.equal(fakeDocument.activeElement, null, 'pointer-adjusted player range must release focus after pointerup');
+};
+shortcut(' ');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'pause'});
+assert.equal(shortcutPrevented, 1);
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'paused', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: true,
+}});
+shortcut(' ');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'play'});
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: false,
+}});
+shortcut('ArrowLeft');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'seek-relative', value: -30});
+shortcut('ArrowRight');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'seek-relative', value: 30});
+const ignoredShortcutRequests = requests.length;
+shortcut('ArrowRight', {repeat: true});
+shortcut('ArrowRight', {target: new FakeElement('input')});
+shortcut('ArrowRight', {target: new FakeElement('button')});
+fakeDocument.activeElement = new FakeElement('textarea');
+shortcut('ArrowRight', {target: stage});
+fakeDocument.activeElement = null;
+const editable = new FakeElement('div');
+editable.isContentEditable = true;
+shortcut('ArrowRight', {target: editable});
+settings.open = true;
+shortcut('ArrowRight');
+settings.open = false;
+assert.equal(requests.length, ignoredShortcutRequests, 'repeat, interactive targets, and open settings must ignore shortcuts');
+
+const seekForwardButton = registry.get('[data-iptv-native-seek="30"]');
+pointerClickPlayerControl(seekForwardButton);
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'seek-relative', value: 30});
+shortcut('ArrowLeft');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'seek-relative', value: -30});
+shortcut(' ');
+assert.equal(requests.at(-1).command, 'pause', 'Space after pointer-clicking +30 must control playback');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'paused', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: true,
+}});
+shortcut(' ');
+assert.equal(requests.at(-1).command, 'play');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: false,
+}});
+
+const playbackButton = registry.get('[data-iptv-native-playback]');
+pointerClickPlayerControl(playbackButton);
+assert.equal(requests.at(-1).command, 'pause');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'paused', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: true,
+}});
+shortcut('ArrowRight');
+assert.equal(requests.at(-1).command, 'seek-relative', 'arrows must work after pointer-clicking Play/Pause');
+shortcut(' ');
+assert.equal(requests.at(-1).command, 'play', 'Space must remain Play/Pause after pointer-clicking Play/Pause');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: false,
+}});
+
+const muteButton = registry.get('[data-iptv-native-mute]');
+const muteCommandsBeforePointerTest = requests.filter((item) => ['mute', 'unmute'].includes(item.command)).length;
+pointerClickPlayerControl(muteButton);
+assert.equal(requests.filter((item) => ['mute', 'unmute'].includes(item.command)).length, muteCommandsBeforePointerTest + 1);
+shortcut(' ');
+assert.equal(requests.at(-1).command, 'pause', 'Space after pointer-clicking Mute must control playback');
+assert.equal(requests.filter((item) => ['mute', 'unmute'].includes(item.command)).length, muteCommandsBeforePointerTest + 1, 'Space must not toggle Mute again');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: false,
+}});
+
+pointerReleasePlayerRange(registry.get('[data-iptv-native-volume]'));
+shortcut('ArrowRight');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'seek-relative', value: 30});
+
+playbackButton.focus();
+let accessibleCommandsBefore = requests.length;
+shortcut(' ', {target: playbackButton});
+assert.equal(requests.length, accessibleCommandsBefore, 'global Space must defer to a keyboard-focused player button');
+playbackButton.emit('click', {target: playbackButton, detail: 0});
+nativeControls.emit('click', {target: playbackButton, detail: 0});
+assert.equal(requests.length, accessibleCommandsBefore + 1);
+assert.equal(requests.at(-1).command, 'pause');
+assert.equal(fakeDocument.activeElement, playbackButton, 'keyboard-focused button must retain focus');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'paused', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: true,
+}});
+accessibleCommandsBefore = requests.length;
+shortcut('Enter', {target: playbackButton});
+assert.equal(requests.length, accessibleCommandsBefore, 'global handler must defer Enter to the focused button');
+playbackButton.emit('click', {target: playbackButton, detail: 0});
+nativeControls.emit('click', {target: playbackButton, detail: 0});
+assert.equal(requests.length, accessibleCommandsBefore + 1);
+assert.equal(requests.at(-1).command, 'play');
+assert.equal(fakeDocument.activeElement, playbackButton);
+fakeDocument.activeElement = null;
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: false,
+}});
+
+query.focus();
+const searchFocusedRequests = requests.length;
+shortcut(' ', {target: query});
+shortcut('ArrowLeft', {target: query});
+shortcut('ArrowRight', {target: query});
+assert.equal(requests.length, searchFocusedRequests, 'search input must retain native typing and caret keys');
+fakeDocument.activeElement = null;
 rootListeners.get('semyra:iptv-media-state')({detail: {
     playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'buffering', channelId: 7,
     channelName: 'Globo News', mediaKind: 'vod', position: 65, duration: 3600, seekable: true, paused: false,
@@ -801,8 +976,39 @@ registry.get('[data-iptv-native-progress]').emit('input');
 registry.get('[data-iptv-native-progress]').emit('change');
 assert.equal(requests.at(-1).command, 'seek-absolute');
 assert.equal(requests.at(-1).value, 90);
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Episode A', mediaKind: 'vod', vodContentKind: 'episode', position: 90, duration: 1800,
+    seekable: true, paused: false, canPreviousEpisode: true, canNextEpisode: true,
+}});
+const previousEpisodeButton = registry.get('[data-iptv-episode-nav="previous"]');
+const nextEpisodeButton = registry.get('[data-iptv-episode-nav="next"]');
+let navigateRequestsBefore = requests.filter((item) => item.action === 'vod-navigate').length;
+pointerClickPlayerControl(previousEpisodeButton);
+assert.deepEqual(requests.at(-1), {action: 'vod-navigate', direction: 'previous'});
+shortcut(' ');
+assert.equal(requests.at(-1).command, 'pause', 'Space after pointer-clicking Previous must control playback');
+assert.equal(requests.filter((item) => item.action === 'vod-navigate').length, navigateRequestsBefore + 1, 'Space must not repeat Previous');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Episode A', mediaKind: 'vod', vodContentKind: 'episode', position: 90, duration: 1800,
+    seekable: true, paused: false, canPreviousEpisode: true, canNextEpisode: true,
+}});
+nextEpisodeButton.focus();
+navigateRequestsBefore = requests.filter((item) => item.action === 'vod-navigate').length;
+shortcut('Enter', {target: nextEpisodeButton});
+assert.equal(requests.filter((item) => item.action === 'vod-navigate').length, navigateRequestsBefore);
+nextEpisodeButton.emit('click', {target: nextEpisodeButton, detail: 0});
+nativeControls.emit('click', {target: nextEpisodeButton, detail: 0});
+assert.equal(requests.filter((item) => item.action === 'vod-navigate').length, navigateRequestsBefore + 1, 'keyboard Enter must activate Next exactly once');
+assert.equal(fakeDocument.activeElement, nextEpisodeButton, 'keyboard-accessible Next must retain focus');
+fakeDocument.activeElement = null;
 lifecycleTarget.pendingTimers.splice(0).filter((callback) => callback.testDelay === 50).forEach((callback) => callback());
-registry.get('[data-iptv-native-fullscreen]').emit('click');
+const fullscreenShortcutRequests = requests.length;
+shortcut('F');
+assert.equal(requests.length, fullscreenShortcutRequests + 1);
+assert.deepEqual(requests.at(-1), {action: 'player-fullscreen', sessionId: 'c'.repeat(32), fullscreen: true});
+pointerClickPlayerControl(registry.get('[data-iptv-native-fullscreen]'));
 assert.deepEqual(requests.at(-1), {action: 'player-fullscreen', sessionId: 'c'.repeat(32), fullscreen: true});
 rootListeners.get('semyra:iptv-result')({detail: {
     action: 'player-fullscreen', ok: true, playbackKind: 'native-mpv', sessionId: 'c'.repeat(32),
@@ -811,6 +1017,22 @@ rootListeners.get('semyra:iptv-result')({detail: {
 assert.match(root.className, /is-native-fullscreen/);
 assert.match(fakeDocument.documentElement.className, /semyra-player-fullscreen/);
 assert.match(fakeDocument.body.className, /semyra-player-fullscreen/);
+shortcut('ArrowRight');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'seek-relative', value: 30});
+shortcut(' ');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'pause'});
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'paused', channelId: 7,
+    channelName: 'Episode A', mediaKind: 'vod', vodContentKind: 'episode', position: 90, duration: 1800,
+    fullscreen: true, paused: true, canPreviousEpisode: true, canNextEpisode: true,
+}});
+shortcut(' ');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'play'});
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Episode A', mediaKind: 'vod', vodContentKind: 'episode', position: 90, duration: 1800,
+    fullscreen: true, paused: false, canPreviousEpisode: true, canNextEpisode: true,
+}});
 const autoHideTimer = lifecycleTarget.pendingTimers.findLast(isAutoHideTimer);
 assert.ok(autoHideTimer, 'fullscreen playing must schedule a 3000 ms auto-hide');
 for (let index = 0; index < 20; index += 1) {
@@ -836,6 +1058,14 @@ lifecycleTarget.pendingTimers.splice(lifecycleTarget.pendingTimers.indexOf(autoH
 autoHideTimer();
 assert.match(root.className, /is-native-controls-hidden/);
 assert.equal(requests.filter((item) => typeof item.hidden === 'boolean').at(-1).hidden, true);
+shortcut('ArrowRight');
+assert.doesNotMatch(root.className, /is-native-controls-hidden/, 'a consumed shortcut must reveal controls as user activity');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: 'c'.repeat(32), command: 'seek-relative', value: 30});
+const shortcutHideTimer = lifecycleTarget.pendingTimers.findLast(isAutoHideTimer);
+assert.ok(shortcutHideTimer, 'a consumed shortcut must rearm auto-hide');
+lifecycleTarget.pendingTimers.splice(lifecycleTarget.pendingTimers.indexOf(shortcutHideTimer), 1);
+shortcutHideTimer();
+assert.match(root.className, /is-native-controls-hidden/);
 const geometryBeforeNativeActivity = requests.filter((item) => item.action === 'player-geometry').length;
 rootListeners.get('semyra:player-user-activity')({});
 assert.doesNotMatch(root.className, /is-native-controls-hidden/, 'native cursor activity must reveal native controls');
@@ -887,6 +1117,60 @@ assert.deepEqual(requests.findLast((item) => item.action === 'player-geometry'),
     action: 'player-geometry', sessionId: 'c'.repeat(32), x: 0, y: 0, width: 0, height: 0,
     viewportWidth: 1200, viewportHeight: 800, visible: false,
 });
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'playing', channelId: 7,
+    channelName: 'Episode A', mediaKind: 'vod', vodContentKind: 'episode', position: 1799, duration: 1800,
+    fullscreen: true, paused: false, canPreviousEpisode: true, canNextEpisode: true,
+}});
+const nextRequestsBeforePointerAutoplay = requests.filter((item) => item.action === 'vod-navigate' && item.direction === 'next').length;
+pointerClickPlayerControl(nextEpisodeButton);
+assert.deepEqual(requests.at(-1), {action: 'vod-navigate', direction: 'next'});
+lifecycleTarget.pendingTimers.filter(isAutoHideTimer).forEach((timer) => {
+    lifecycleTarget.pendingTimers.splice(lifecycleTarget.pendingTimers.indexOf(timer), 1);
+});
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: 'c'.repeat(32), state: 'ended', channelId: 7,
+    channelName: 'Episode A', mediaKind: 'vod', vodContentKind: 'episode', position: 1800, duration: 1800,
+    fullscreen: true, paused: false,
+}});
+const autoplaySession = 'a'.repeat(32);
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: autoplaySession, state: 'loading', channelId: 8,
+    channelName: 'Episode B', mediaKind: 'vod', vodContentKind: 'episode', position: 0, duration: 1900,
+    fullscreen: true, paused: false,
+}});
+assert.equal(lifecycleTarget.pendingTimers.filter(isAutoHideTimer).length, 0, 'loading autoplay must not arm auto-hide');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: autoplaySession, state: 'playing', channelId: 8,
+    channelName: 'Episode B', mediaKind: 'vod', vodContentKind: 'episode', position: 1, duration: 1900,
+    fullscreen: true, paused: false,
+}});
+const autoplayTimer = lifecycleTarget.pendingTimers.findLast(isAutoHideTimer);
+assert.ok(autoplayTimer, 'first playing snapshot after autoplay must arm auto-hide once');
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: autoplaySession, state: 'playing', channelId: 8,
+    channelName: 'Episode B', mediaKind: 'vod', vodContentKind: 'episode', position: 2, duration: 1900,
+    fullscreen: true, paused: false,
+}});
+assert.equal(lifecycleTarget.pendingTimers.find(isAutoHideTimer), autoplayTimer, 'periodic autoplay snapshots must not reset auto-hide');
+lifecycleTarget.pendingTimers.splice(lifecycleTarget.pendingTimers.indexOf(autoplayTimer), 1);
+autoplayTimer();
+assert.match(root.className, /is-native-controls-hidden/, 'autoplay controls must hide after the timer');
+rootListeners.get('semyra:player-user-activity')({});
+assert.doesNotMatch(root.className, /is-native-controls-hidden/, 'mouse activity must reveal autoplay controls');
+shortcut(' ');
+assert.deepEqual(requests.at(-1), {action: 'player-control', sessionId: autoplaySession, command: 'pause'});
+assert.equal(
+    requests.filter((item) => item.action === 'vod-navigate' && item.direction === 'next').length,
+    nextRequestsBeforePointerAutoplay + 1,
+    'Space after pointer-clicking Next must not navigate to another episode',
+);
+rootListeners.get('semyra:iptv-media-state')({detail: {
+    playbackKind: 'native-mpv', sessionId: autoplaySession, state: 'paused', channelId: 8,
+    channelName: 'Episode B', mediaKind: 'vod', vodContentKind: 'episode', position: 2, duration: 1900,
+    fullscreen: true, paused: true,
+}});
+assert.equal(lifecycleTarget.pendingTimers.findLast(isAutoHideTimer), undefined, 'paused autoplay must keep controls visible');
 registry.get('[data-iptv-native-mute]').emit('click');
 assert.equal(requests.at(-1).command, 'unmute');
 registry.get('[data-iptv-native-volume]').value = '55';
@@ -895,7 +1179,7 @@ assert.equal(requests.at(-1).value, 55);
 registry.get('[data-iptv-native-stop]').emit('click');
 assert.equal(requests.at(-1).action, 'player-control');
 assert.equal(requests.at(-1).command, 'stop');
-assert.equal(requests.at(-1).sessionId, 'c'.repeat(32));
+assert.equal(requests.at(-1).sessionId, autoplaySession);
 assert.equal(registry.get('[data-iptv-native-controls]').hidden, true);
 
 channels.emit('click', {target: playButton});
