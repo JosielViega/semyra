@@ -167,13 +167,8 @@ public sealed class MpvHostEngineTests : IDisposable
     [Fact]
     public async Task VodResumeUsesMpvIpcAndPeriodicWriterIsSingleAndSessionFenced()
     {
-        var nowCalls = 0;
         var protector = new Protector();
-        var store = new IptvStore(Path.Combine(_root, "progress.db"), protector, () =>
-        {
-            Interlocked.Increment(ref nowCalls);
-            return DateTimeOffset.Parse("2026-10-20T12:00:00Z").AddSeconds(nowCalls);
-        });
+        var store = new IptvStore(Path.Combine(_root, "progress.db"), protector);
         store.Initialize();
         var source = store.AddSource("Xtream", IptvSourceType.Xtream, "{\"version\":1,\"baseUrl\":\"https://provider.example\",\"username\":\"alice\",\"password\":\"secret\"}");
         store.ReplaceVodCatalog(source.Id, new XtreamVodImport([], [
@@ -190,26 +185,74 @@ public sealed class MpvHostEngineTests : IDisposable
             new MpvRuntime(true, "mpv.exe", "test", "test", null), (_, _) => player, TimeSpan.FromMilliseconds(25));
         host.SetNativeVideoHost((nint)123); host.Start(); await host.ActivateAccountAsync(new string('c', 64));
 
-        await host.StartIptvVodViewAsync("movie", movies[0].Id, default);
+        var progressGate = new object();
+        var movieAEvents = 0;
+        var movieBEvents = 0;
+        string? movieASession = null;
+        string? movieBSession = null;
+        IptvVodProgressChanged? lastMovieAProgress = null;
+        IptvVodProgressChanged? lastMovieBProgress = null;
+        var movieAProgressReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var movieBProgressReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.VodProgressChanged += (_, progress) =>
+        {
+            lock (progressGate)
+            {
+                if (progress.MediaId == movies[0].Id && progress.SessionId == movieASession)
+                {
+                    movieAEvents++;
+                    lastMovieAProgress = progress;
+                    if (movieAEvents >= 2) movieAProgressReady.TrySetResult();
+                }
+                else if (progress.MediaId == movies[1].Id && progress.SessionId == movieBSession)
+                {
+                    movieBEvents++;
+                    lastMovieBProgress = progress;
+                    if (movieBEvents >= 2) movieBProgressReady.TrySetResult();
+                }
+            }
+        };
+
+        var movieAStarted = await host.StartIptvVodViewAsync("movie", movies[0].Id, default);
+        lock (progressGate) movieASession = movieAStarted.SessionId;
         process.Emit("""{"event":"start-file"}""");
         process.Emit("""{"event":"property-change","name":"duration","data":7200}""");
         process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
         process.Emit("""{"event":"playback-restart"}""");
-        await Task.Delay(25);
+        await WaitUntilAsync(() => process.Commands.Any(command => command.Command == "seek" && Convert.ToDouble(command.Arguments[0]) == 1800));
         Assert.Contains(process.Commands, command => command.Command == "seek" && Convert.ToDouble(command.Arguments[0]) == 1800);
 
         process.Emit("""{"event":"property-change","name":"time-pos","data":100}""");
-        var beforePeriodic = Volatile.Read(ref nowCalls);
-        await Task.Delay(90);
-        var periodicWrites = Volatile.Read(ref nowCalls) - beforePeriodic;
-        Assert.InRange(periodicWrites, 2, 5);
+        await movieAProgressReady.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        lock (progressGate)
+        {
+            Assert.True(movieAEvents >= 2);
+            var progress = Assert.IsType<IptvVodProgressChanged>(lastMovieAProgress);
+            Assert.Equal(100, progress.PositionSeconds);
+            Assert.Equal(movieAStarted.SessionId, progress.SessionId);
+        }
 
-        await host.StartIptvVodViewAsync("movie", movies[1].Id, default);
+        var movieBStarted = await host.StartIptvVodViewAsync("movie", movies[1].Id, default);
+        int movieAEventsAfterSwitch;
+        lock (progressGate)
+        {
+            movieBSession = movieBStarted.SessionId;
+            movieAEventsAfterSwitch = movieAEvents;
+        }
         Assert.Equal(100, store.ResumePosition(store.ResolveMovieForPlayback(movies[0].Id)));
         process.Emit("""{"event":"start-file"}""");
         process.Emit("""{"event":"property-change","name":"duration","data":1000}""");
         process.Emit("""{"event":"property-change","name":"seekable","data":true}""");
         process.Emit("""{"event":"property-change","name":"time-pos","data":40}""");
+        await movieBProgressReady.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        lock (progressGate)
+        {
+            Assert.Equal(movieAEventsAfterSwitch, movieAEvents);
+            Assert.True(movieBEvents >= 2);
+            var progress = Assert.IsType<IptvVodProgressChanged>(lastMovieBProgress);
+            Assert.Equal(40, progress.PositionSeconds);
+            Assert.Equal(movieBStarted.SessionId, progress.SessionId);
+        }
         await host.ControlMpvAsync(host.IptvMediaSnapshot().SessionId!, "stop", null, default);
         Assert.Equal(40, store.ResumePosition(store.ResolveMovieForPlayback(movies[1].Id)));
         Assert.Equal(100, store.ResumePosition(store.ResolveMovieForPlayback(movies[0].Id)));
