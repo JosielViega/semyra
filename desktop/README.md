@@ -4,7 +4,9 @@
 
 Quando o runtime oficial do GStreamer também oferece `whipsink`, o Desktop anuncia `media.whip` e `livekit.publish`. O canal continua resolvido exclusivamente no catálogo SQLite local; a aplicação web envia somente o identificador opaco do canal. O Desktop provisiona um endpoint WHIP efêmero com sua Host Session, publica áudio/vídeo no LiveKit e remove o ingress ao parar ou trocar a autorização. URLs e credenciais da fonte IPTV nunca atravessam o JavaScript ou o backend PHP.
 
-O player integrado (`iptv.local-view`) permanece independente de `whipsink`. Assistir localmente é gratuito, exige somente uma conta ativa no Desktop e não cria sala, Host Session, WHIP ou conexão LiveKit.
+Essa é uma fundação técnica condicionada às capabilities `livekit.publish` e `iptv.catalog`. A disponibilidade reproduzível da seleção IPTV na interface principal da sala ainda não está productizada; o gate Premium não força nem simula essas capabilities.
+
+O player integrado (`iptv.local-view`) permanece independente de `whipsink`. Assistir localmente é gratuito, exige somente uma conta ativa no Desktop e não cria sala, Host Session, WHIP ou conexão LiveKit. Somente publicar IPTV em uma sala exige o entitlement Premium atual da conta; o backend valida essa regra antes de criar a transmissão, ao emitir a Host Session e novamente antes do ingress.
 
 Fundação Windows do Semyra: uma janela WPF hospeda o aplicativo web existente em Microsoft Edge WebView2. Login, cadastro e sessão continuam sendo os fluxos web normais; o perfil persistente do WebView fica em `%LOCALAPPDATA%\Semyra\WebView2`. Na página de login, o handshake Desktop pré-marca “Manter conectado” sem impedir que o usuário desmarque. A persistência usa somente o cookie HttpOnly emitido pelo servidor; o aplicativo nativo não lê nem armazena tokens de autenticação.
 
@@ -80,4 +82,4 @@ O Desktop possui a camada WebView/UI, uma ponte `postMessage` allowlisted na ver
 
 Para a publicação de mídia, o backend emite uma Host Session curta de `media.publish`, ligada à sala, instance, revision e owner atuais. O validator fica somente como hash no banco; o token bruto chega ao Host Engine apenas em memória, é substituído por uma autorização nova e é apagado por `clear` ou `Stop()`. Segredos globais do bridge worker nunca são enviados ao cliente.
 
-Ainda não existem Premium, favoritos VOD, tab de recentes VOD, EPG, gravação ou distribuição definitiva dos runtimes MPV/GStreamer. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.
+Ainda não existem cobrança, checkout, planos comerciais, favoritos VOD, tab de recentes VOD, EPG, gravação ou distribuição definitiva dos runtimes MPV/GStreamer. O booleano Premium atual serve somente como entitlement backend para publicação IPTV em sala. O Host Engine pode ser separado em outro processo no futuro se isolamento operacional se tornar necessário.

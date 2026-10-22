@@ -39,6 +39,7 @@ final class UserRepositoryTest extends TestCase
         self::assertSame(1, $id);
         self::assertSame('Josiel', $user['display_name']);
         self::assertSame('teste@email.com', $user['email']);
+        self::assertFalse($user['is_premium']);
         self::assertArrayNotHasKey('password_hash', $user);
     }
 
@@ -53,6 +54,18 @@ final class UserRepositoryTest extends TestCase
         self::assertSame($hash, $user['password_hash']);
         self::assertTrue(password_verify('secure-password', $user['password_hash']));
         self::assertNotSame('secure-password', $this->pdo->rows[1]['password_hash']);
+    }
+
+    public function testFindByIdMapsRawPremiumDatabaseValuesToStrictBooleans(): void
+    {
+        $freeId = $this->repository->create('Free', 'free@example.com', password_hash('secure-password', PASSWORD_DEFAULT));
+        $premiumId = $this->repository->create('Premium', 'premium@example.com', password_hash('secure-password', PASSWORD_DEFAULT));
+        $this->pdo->rows[$premiumId]['is_premium'] = 1;
+
+        self::assertFalse($this->repository->findById($freeId)['is_premium']);
+        self::assertTrue($this->repository->findById($premiumId)['is_premium']);
+        self::assertIsBool($this->repository->findById($freeId)['is_premium']);
+        self::assertIsBool($this->repository->findById($premiumId)['is_premium']);
     }
 
     public function testMissingEmailReturnsNull(): void
@@ -110,6 +123,15 @@ final class UserRepositoryTest extends TestCase
         self::assertStringContainsString('COLLATE ascii_bin', $migration);
         self::assertStringContainsString('NULL', $migration);
         self::assertStringContainsString('UNIQUE KEY users_desktop_profile_id_unique', $migration);
+    }
+
+    public function testPremiumMigrationIsBooleanAndDefaultsToFree(): void
+    {
+        $migration = file_get_contents(dirname(__DIR__) . '/database/migrations/2026_10_21_000017_add_premium_entitlement_to_users.sql');
+
+        self::assertStringContainsString('is_premium TINYINT(1) NOT NULL DEFAULT 0', $migration);
+        self::assertStringNotContainsString('subscription', strtolower($migration));
+        self::assertStringNotContainsString('billing', strtolower($migration));
     }
 
     public function testAccountContextRequiresAuthenticationAndReturnsOnlyOpaqueProfile(): void
@@ -196,6 +218,7 @@ final class UserStorePdo extends PDO
             'email' => $params['email'],
             'password_hash' => $params['password_hash'],
             'desktop_profile_id' => null,
+            'is_premium' => 0,
             'created_at' => '2026-09-29 12:00:00.000',
             'updated_at' => '2026-09-29 12:00:00.000',
         ];

@@ -24,7 +24,7 @@ final class HomeViewTest extends TestCase
         self::assertStringContainsString('Criar sala', $html);
         self::assertStringContainsString('name="_token" value="csrf-token"', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/css/app.css?v=11h-b-browser-only', $html);
+        self::assertStringContainsString('/assets/css/app.css?v=11m-premium-badge', $html);
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
         self::assertStringContainsString('<strong>SEMYRA</strong>', $html);
         self::assertStringContainsString('tempo real', $html);
@@ -48,7 +48,7 @@ final class HomeViewTest extends TestCase
             'appName' => 'Semyra',
             'csrfField' => '<input type="hidden" name="_token" value="csrf-token">',
             'flashes' => [],
-            'currentUser' => ['id' => 4, 'display_name' => 'Josiel', 'email' => 'josiel@example.com'],
+            'currentUser' => ['id' => 4, 'display_name' => 'Josiel', 'email' => 'josiel@example.com', 'is_premium' => false],
         ]);
 
         self::assertStringContainsString('Olá, Josiel', $html);
@@ -61,5 +61,24 @@ final class HomeViewTest extends TestCase
         self::assertStringContainsString('[data-desktop-iptv-link][hidden] { display: none !important; }', $css);
         self::assertStringContainsString('As salas que você criar conectado ficam salvas.', $html);
         self::assertStringNotContainsString('Minhas Salas', $html);
+        self::assertStringNotContainsString('account-premium-badge', $html);
+    }
+
+    public function testAuthenticatedPremiumAccountShowsAccessibleBadgeInStandardHeader(): void
+    {
+        $view = new View(dirname(__DIR__) . '/resources/views');
+        $html = $view->render('pages/home', [
+            'title' => 'Semyra',
+            'appName' => 'Semyra',
+            'csrfField' => '<input type="hidden" name="_token" value="csrf-token">',
+            'flashes' => [],
+            'currentUser' => ['id' => 4, 'display_name' => '<Josiel>', 'email' => 'josiel@example.com', 'is_premium' => true],
+        ]);
+
+        self::assertStringContainsString('Olá, &lt;Josiel&gt;', $html);
+        self::assertStringContainsString('class="account-premium-badge"', $html);
+        self::assertStringContainsString('aria-label="Conta Premium"', $html);
+        self::assertStringContainsString('<span>Premium</span>', $html);
+        self::assertStringNotContainsString('Olá, <Josiel>', $html);
     }
 }

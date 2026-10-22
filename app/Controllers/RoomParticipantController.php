@@ -278,7 +278,7 @@ final class RoomParticipantController
         ]), 404);
     }
 
-    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    /** @return null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} */
     private function authenticatedUser(): ?array
     {
         $userId = $this->auth->userId();

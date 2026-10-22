@@ -135,7 +135,7 @@ final class RoomLiveKitController
             : null;
     }
 
-    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    /** @return null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} */
     private function authenticatedUser(): ?array
     {
         $userId = $this->auth->userId();
@@ -154,7 +154,7 @@ final class RoomLiveKitController
 
     /**
      * @param array{participant_key: string, display_name: string, user_id: null|int} $identity
-     * @param null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} $currentUser
+     * @param null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} $currentUser
      * @return null|array{participant_key: string, display_name: string, user_id: null|int}
      */
     private function identityForCurrentAccount(string $roomCode, array $identity, ?array $currentUser): ?array

@@ -10,11 +10,13 @@ use App\Core\Request;
 use App\Repositories\DesktopHostSessionRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
+use App\Repositories\UserRepository;
 use App\Services\DesktopHostSessionService;
 use App\Services\DesktopMediaIngressIdentity;
 use App\Services\DesktopMediaPublishService;
 use App\Services\LiveKitIngressGateway;
 use App\Services\LiveKitRoomContext;
+use App\Services\PremiumAccess;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\DesktopHostSessionPdo;
 
@@ -47,13 +49,14 @@ final class RoomDesktopMediaPublishControllerTest extends TestCase
         $instance = str_repeat('a', 32);
         $owner = str_repeat('b', 64);
         $pdo = new DesktopHostSessionPdo();
+        $pdo->seedUser(7);
         $pdo->transmission = ['room_id' => 7, 'instance_id' => $instance, 'revision' => 3,
-            'owner_user_id' => null, 'owner_participant_key_hash' => $owner,
+            'owner_user_id' => 7, 'owner_participant_key_hash' => $owner,
             'source_type' => 'iptv', 'media_mode' => 'live'];
         $database = new Database([]);
         (new \ReflectionProperty($database, 'connection'))->setValue($database, $pdo);
         $sessions = new DesktopHostSessionService(new DesktopHostSessionRepository($database), 600);
-        $issued = $sessions->issue(7, $instance, 3, null, $owner);
+        $issued = $sessions->issue(7, $instance, 3, 7, $owner);
         self::assertNotNull($issued);
         $payload = ['transmission_instance_id' => $instance, 'transmission_revision' => 3];
         if ($extraChannel) {
@@ -67,7 +70,7 @@ final class RoomDesktopMediaPublishControllerTest extends TestCase
         $gateway = new ControllerDesktopPublishGateway();
         $context = new LiveKitRoomContext('testing');
         $service = new DesktopMediaPublishService($sessions, new RoomTransmissionRepository($database), $gateway,
-            $context, new DesktopMediaIngressIdentity('testing'), true);
+            $context, new DesktopMediaIngressIdentity('testing'), new UserRepository($database), new PremiumAccess(), true);
         return [new RoomDesktopMediaPublishController($request, new RoomRepository($database), $service), $gateway];
     }
 }

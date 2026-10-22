@@ -16,11 +16,11 @@ final class UserRepository
     {
     }
 
-    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    /** @return null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} */
     public function findById(int $id): ?array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT id, display_name, email, created_at, updated_at FROM users WHERE id = :id LIMIT 1',
+            'SELECT id, display_name, email, is_premium, created_at, updated_at FROM users WHERE id = :id LIMIT 1',
         );
         $statement->execute(['id' => $id]);
 
@@ -118,7 +118,7 @@ final class UserRepository
         return strtolower(trim($email));
     }
 
-    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    /** @return null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} */
     private function publicUser(mixed $user): ?array
     {
         if (!is_array($user)) {
@@ -129,6 +129,7 @@ final class UserRepository
             'id' => (int) $user['id'],
             'display_name' => (string) $user['display_name'],
             'email' => (string) $user['email'],
+            'is_premium' => (bool) ($user['is_premium'] ?? false),
             'created_at' => (string) $user['created_at'],
             'updated_at' => (string) $user['updated_at'],
         ];

@@ -5,6 +5,7 @@ declare(strict_types=1);
 /** @var array $room */
 /** @var null|array{participant_key: string, display_name: string, user_id: null|int} $identity */
 /** @var null|array{id: int, display_name: string} $currentUser */
+/** @var bool $can_publish_iptv */
 /** @var list<array{name: string, is_you: bool}> $participants */
 /** @var null|array{source: string, instance_id: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool, media_mode: string, playback: array{state: string, position_ms: null|int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int, live_sync_position_ms: null|int, live_sync_delay_ms: null|int}} $transmission */
 /** @var bool $debug */
@@ -12,6 +13,7 @@ declare(strict_types=1);
 /** @var string $csrfField */
 /** @var string $csrfToken */
 $currentUser = $currentUser ?? null;
+$canPublishIptv = $can_publish_iptv ?? false;
 $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing';
 ?>
 <svg class="room-icon-sprite" aria-hidden="true" focusable="false">
@@ -70,6 +72,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         data-livekit-viewer-token-url="/room/<?= e($room['code']) ?>/livekit/viewer-token"
         data-desktop-host-session-url="/room/<?= e($room['code']) ?>/desktop/host-session"
         data-iptv-transmission-url="/room/<?= e($room['code']) ?>/transmission/iptv"
+        data-can-publish-iptv="<?= $canPublishIptv ? '1' : '0' ?>"
         data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"
         data-csrf-token="<?= e($csrfToken) ?>"
         data-initial-source="<?= e($transmission['source'] ?? '') ?>"
@@ -215,7 +218,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     <button type="button" class="room-close-button" data-close-transmission aria-label="Cancelar"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button>
                 </div>
                 <p class="room-replace-warning" data-replace-warning<?= $transmission === null ? ' hidden' : '' ?>><strong data-replace-owner><?= e($transmission['owner_name'] ?? 'Participante') ?></strong> está transmitindo. Iniciar sua transmissão substituirá a transmissão atual.</p>
-                <?php if (is_array($currentUser)): ?><div class="room-source-tabs" data-desktop-publish-tabs hidden><button type="button" class="room-secondary-button" data-source-tab="youtube">YouTube</button><button type="button" class="room-secondary-button" data-source-tab="iptv">IPTV local</button></div><?php endif; ?>
+                <?php if (is_array($currentUser)): ?><div class="room-source-tabs" data-desktop-publish-tabs hidden><button type="button" class="room-secondary-button" data-source-tab="youtube">YouTube</button><button type="button" class="room-secondary-button" data-source-tab="iptv"><?= $canPublishIptv ? 'IPTV local' : 'IPTV local · Premium' ?></button></div><?php endif; ?>
                 <div data-youtube-source-panel>
                 <label for="youtube-url">Link do YouTube</label>
                 <input id="youtube-url" name="youtube_url" type="url" maxlength="2048" placeholder="https://youtube.com/watch?v=..." required>
@@ -224,7 +227,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     <label><input type="radio" name="media_mode" value="vod" checked> <span>Vídeo</span></label>
                     <label><input type="radio" name="media_mode" value="live"> <span>Ao vivo</span></label>
                 </fieldset></div>
-                <?php if (is_array($currentUser)): ?><section class="room-iptv-publish" data-iptv-source-panel hidden><label for="room-iptv-source">Fonte IPTV</label><select id="room-iptv-source" data-room-iptv-source></select><label for="room-iptv-group">Grupo</label><select id="room-iptv-group" data-room-iptv-group><option value="">Todos</option></select><label for="room-iptv-search">Buscar canal</label><input id="room-iptv-search" type="search" maxlength="120" data-room-iptv-search><button type="button" class="room-secondary-button" data-room-iptv-find>Buscar</button><div class="room-iptv-results" data-room-iptv-results></div><p role="status" aria-live="polite" data-room-iptv-status></p></section><?php endif; ?>
+                <?php if (is_array($currentUser)): ?><section class="room-iptv-publish" data-iptv-source-panel hidden><?php if ($canPublishIptv): ?><label for="room-iptv-source">Fonte IPTV</label><select id="room-iptv-source" data-room-iptv-source></select><label for="room-iptv-group">Grupo</label><select id="room-iptv-group" data-room-iptv-group><option value="">Todos</option></select><label for="room-iptv-search">Buscar canal</label><input id="room-iptv-search" type="search" maxlength="120" data-room-iptv-search><button type="button" class="room-secondary-button" data-room-iptv-find>Buscar</button><div class="room-iptv-results" data-room-iptv-results></div><p role="status" aria-live="polite" data-room-iptv-status></p><?php else: ?><p class="room-premium-notice" role="status" data-room-iptv-status>Transmitir sua IPTV para a sala é um recurso Premium. Sua IPTV local continua disponível no Semyra Desktop.</p><?php endif; ?></section><?php endif; ?>
                 <div class="room-dialog-actions"><button type="button" class="room-secondary-button" data-close-transmission>Cancelar</button><button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg><span>Iniciar minha transmissão</span></button></div>
             </form>
         </dialog>
@@ -234,7 +237,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-livekit-player.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-desktop-host.js?v=11c-host-session" defer></script>
-    <script src="/assets/js/room-desktop-iptv.js?v=11g-account-isolation" defer></script>
+    <script src="/assets/js/room-desktop-iptv.js?v=11m-premium-gate" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
     <script src="/assets/js/room-playback.js?v=10b21-instance" defer></script>

@@ -10,7 +10,9 @@
     const group = document.querySelector('[data-room-iptv-group]');
     const results = document.querySelector('[data-room-iptv-results]');
     const status = document.querySelector('[data-room-iptv-status]');
-    if (!shell || !tabs || !youtube || !iptv || !source || !group || !search || !results || !status) return;
+    if (!shell || !tabs || !youtube || !iptv || !status) return;
+    const canPublishIptv = shell.dataset.canPublishIptv === '1';
+    let hostCapable = false;
     let enabled = false;
     let pendingChannelId = null;
     let generation = 0;
@@ -35,23 +37,25 @@
         youtube.querySelectorAll('input').forEach((input) => { input.disabled = isIptv; });
         document.querySelector('[data-transmission-kicker]').textContent = isIptv ? 'IPTV local' : 'YouTube';
         document.querySelector('.room-dialog-actions button[type="submit"]').hidden = isIptv;
-        if (isIptv) request({action: 'list'});
+        if (isIptv && enabled) request({action: 'list'});
     };
     tabs.addEventListener('click', (event) => {
         const button = event.target.closest('[data-source-tab]');
         if (button) show(button.dataset.sourceTab);
     });
-    document.querySelector('[data-room-iptv-find]').addEventListener('click', () => {
+    document.querySelector('[data-room-iptv-find]')?.addEventListener('click', () => {
+        if (!enabled) return;
         const sourceId = Number(source.value);
         if (sourceId > 0) request({action: 'search', sourceId, query: search.value, group: group.value || null, offset: 0, limit: 50});
     });
-    source.addEventListener('change', () => {
+    source?.addEventListener('change', () => {
+        if (!enabled) return;
         const sourceId = Number(source.value);
         if (sourceId > 0) request({action: 'groups', sourceId});
     });
-    results.addEventListener('click', async (event) => {
+    results?.addEventListener('click', async (event) => {
         const button = event.target.closest('[data-channel-id]');
-        if (!button || !enabled) return;
+        if (!button || !enabled || !canPublishIptv) return;
         const channelId = Number(button.dataset.channelId);
         const currentGeneration = ++generation;
         status.textContent = 'Preparando transmissão…';
@@ -62,37 +66,55 @@
                 body: new URLSearchParams({_token: shell.dataset.csrfToken}),
             });
             const payload = await response.json();
-            if (!response.ok || currentGeneration !== generation || !payload.transmission) throw new Error();
+            if (!response.ok || currentGeneration !== generation || !payload.transmission) {
+                if (payload?.error === 'premium_required') throw new Error('premium_required');
+                throw new Error();
+            }
             pendingChannelId = channelId;
             document.dispatchEvent(new CustomEvent('semyra:presence-updated', {detail: {transmission: payload.transmission}}));
             window.dispatchEvent(new CustomEvent('semyra:transmission-updated', {detail: payload.transmission}));
             status.textContent = 'Autorizando publicação…';
-        } catch { status.textContent = 'Não foi possível iniciar a transmissão.'; }
+        } catch (error) {
+            status.textContent = error?.message === 'premium_required'
+                ? 'Transmitir IPTV para uma sala requer Premium.'
+                : 'Não foi possível iniciar a transmissão.';
+        }
     });
     window.addEventListener('semyra:host-ready', (event) => {
         const caps = event.detail?.capabilities;
-        enabled = Array.isArray(caps) && caps.includes('livekit.publish') && caps.includes('iptv.catalog');
-        tabs.hidden = !enabled;
+        hostCapable = Array.isArray(caps) && caps.includes('livekit.publish') && caps.includes('iptv.catalog');
+        enabled = canPublishIptv && hostCapable;
+        tabs.hidden = !hostCapable;
         if (enabled) request({action: 'list'});
     });
     window.addEventListener('semyra:host-authorized', () => {
-        if (pendingChannelId !== null) request({action: 'publish-start', channelId: pendingChannelId});
+        if (enabled && pendingChannelId !== null) request({action: 'publish-start', channelId: pendingChannelId});
+    });
+    window.addEventListener('semyra:host-session-error', (event) => {
+        if (event.detail?.errorCode === 'premium_required') {
+            status.textContent = 'Transmitir IPTV para uma sala requer Premium.';
+        }
     });
     window.addEventListener('semyra:iptv-result', (event) => {
         const detail = event.detail;
-        if (detail.action === 'list' && detail.ok) {
+        if (!enabled) return;
+        if (detail.action === 'list' && detail.ok && source) {
             source.replaceChildren(...detail.sources.map((item) => Object.assign(document.createElement('option'), {value: item.id, textContent: item.name})));
             if (detail.sources.length > 0) request({action: 'groups', sourceId: detail.sources[0].id});
-        } else if (detail.action === 'groups' && detail.ok) {
+        } else if (detail.action === 'groups' && detail.ok && group) {
             group.replaceChildren(Object.assign(document.createElement('option'), {value: '', textContent: 'Todos'}),
                 ...detail.groups.map((name) => Object.assign(document.createElement('option'), {value: name, textContent: name})));
-        } else if (detail.action === 'search' && detail.ok) {
+        } else if (detail.action === 'search' && detail.ok && results) {
             results.replaceChildren(...detail.channels.map((channel) => {
                 const button = document.createElement('button');
                 button.type = 'button'; button.className = 'room-secondary-button'; button.dataset.channelId = channel.id;
                 button.textContent = `Transmitir ${channel.name}`; return button;
             }));
         } else if (detail.action === 'publish-start') {
+            if (!detail.ok && detail.errorCode === 'premium_required') {
+                status.textContent = 'Transmitir IPTV para uma sala requer Premium.';
+                return;
+            }
             status.textContent = publishStatus(detail);
         }
     });

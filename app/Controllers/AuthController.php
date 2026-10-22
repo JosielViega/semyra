@@ -131,6 +131,7 @@ final class AuthController
         return Response::redirect('/', 303);
     }
 
+    /** @return null|array{id: int, display_name: string, email: string, is_premium: bool} */
     private function currentUser(): ?array
     {
         $userId = $this->auth->userId();

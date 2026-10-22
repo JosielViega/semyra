@@ -16,6 +16,7 @@ use App\Repositories\UserRepository;
 use App\Services\AuthSession;
 use App\Services\DesktopHostSessionService;
 use App\Services\RoomParticipantSession;
+use App\Services\PremiumAccess;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\DesktopHostSessionPdo;
@@ -36,13 +37,21 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
         $this->assertError($response, 403, 'authentication_required');
     }
 
-    public function testAuthenticatedOwnerIsAccepted(): void
+    public function testPremiumDatabaseRowFlowsThroughRepositoryAndOwnerIsAccepted(): void
     {
         [$controller, $pdo] = $this->controller(authenticated: true);
         $response = $controller->issue('ROOM2345');
 
         self::assertSame(201, $response->status());
         self::assertSame(7, array_values($pdo->sessions)[0]['owner_user_id']);
+    }
+
+    public function testFreeDatabaseRowFlowsThroughRepositoryAndOwnerDoesNotReceiveHostSession(): void
+    {
+        [$controller, $pdo] = $this->controller(premium: false);
+
+        $this->assertError($controller->issue('ROOM2345'), 403, 'premium_required');
+        self::assertSame([], $pdo->sessions);
     }
 
     public function testNonOwnerIsRejected(): void
@@ -93,6 +102,7 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
         string $mediaMode = 'live',
         mixed $requestedInstance = self::INSTANCE,
         mixed $requestedRevision = '3',
+        bool $premium = true,
     ): array {
         $pdo = new DesktopHostSessionPdo();
         $database = new Database([]);
@@ -103,7 +113,7 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
         $auth = new AuthSession($session);
 
         if ($authenticated) {
-            $pdo->seedUser(7);
+            $pdo->seedUser(7, $premium);
             $auth->login(7);
             $identity = $participantSession->rememberAccount('ROOM2345', 7, 'Account Owner');
         } else {
@@ -143,6 +153,7 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
             new UserRepository($database),
             $auth,
             new DesktopHostSessionService($repository, 600),
+            new PremiumAccess(),
         );
 
         return [$controller, $pdo];

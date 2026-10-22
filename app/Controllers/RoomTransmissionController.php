@@ -13,6 +13,7 @@ use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
 use App\Services\AuthSession;
+use App\Services\PremiumAccess;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPlayback;
 use App\Services\RoomTransmissionPresenter;
@@ -35,6 +36,7 @@ final class RoomTransmissionController
         private readonly RoomTransmissionPresenter $transmissionPresenter,
         private readonly UserRepository $users,
         private readonly AuthSession $auth,
+        private readonly PremiumAccess $premiumAccess,
     ) {
     }
 
@@ -108,6 +110,9 @@ final class RoomTransmissionController
         $identity = $this->identityForCurrentAccount($room['code'], $identity, $currentUser);
         if ($identity === null) {
             return Response::json(['error' => 'join_required'], 403, ['Cache-Control' => 'no-store']);
+        }
+        if (!$this->premiumAccess->canPublishIptv($currentUser)) {
+            return Response::json(['error' => 'premium_required'], 403, ['Cache-Control' => 'no-store']);
         }
         $participantKeyHash = hash('sha256', $identity['participant_key']);
         $this->transmissions->startOrReplace(
@@ -286,7 +291,7 @@ final class RoomTransmissionController
         ]), $status);
     }
 
-    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    /** @return null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} */
     private function authenticatedUser(): ?array
     {
         $userId = $this->auth->userId();
@@ -305,7 +310,7 @@ final class RoomTransmissionController
 
     /**
      * @param array{participant_key: string, display_name: string, user_id: null|int} $identity
-     * @param null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} $currentUser
+     * @param null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} $currentUser
      * @return null|array{participant_key: string, display_name: string, user_id: null|int}
      */
     private function identityForCurrentAccount(string $roomCode, array $identity, ?array $currentUser): ?array

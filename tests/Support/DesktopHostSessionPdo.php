@@ -70,13 +70,14 @@ final class DesktopHostSessionPdo extends PDO
         return true;
     }
 
-    public function seedUser(int $id): void
+    public function seedUser(int $id, bool $isPremium = true): void
     {
         $this->users[$id] = [
             'id' => $id,
             'display_name' => 'Account Owner',
             'email' => 'owner@example.test',
             'password_hash' => 'not-used',
+            'is_premium' => $isPremium ? 1 : 0,
             'created_at' => '2026-10-06 12:00:00.000',
             'updated_at' => '2026-10-06 12:00:00.000',
         ];

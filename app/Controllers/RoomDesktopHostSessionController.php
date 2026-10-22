@@ -12,6 +12,7 @@ use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
 use App\Services\AuthSession;
 use App\Services\DesktopHostSessionService;
+use App\Services\PremiumAccess;
 use App\Services\RoomParticipantSession;
 use Throwable;
 
@@ -32,6 +33,7 @@ final class RoomDesktopHostSessionController
         private readonly UserRepository $users,
         private readonly AuthSession $auth,
         private readonly DesktopHostSessionService $hostSessions,
+        private readonly PremiumAccess $premiumAccess,
     ) {
     }
 
@@ -50,7 +52,6 @@ final class RoomDesktopHostSessionController
         if ($identity === null) {
             return $this->jsonError('join_required', 403);
         }
-
         $currentUser = $this->authenticatedUser();
         if ($currentUser === null) {
             return $this->jsonError('authentication_required', 403);
@@ -58,6 +59,9 @@ final class RoomDesktopHostSessionController
         $identity = $this->identityForCurrentAccount($room['code'], $identity, $currentUser);
         if ($identity === null) {
             return $this->jsonError('join_required', 403);
+        }
+        if (!$this->premiumAccess->canPublishIptv($currentUser)) {
+            return $this->jsonError('premium_required', 403);
         }
 
         $transmission = $this->transmissions->findByRoom((int) $room['id']);
@@ -120,7 +124,7 @@ final class RoomDesktopHostSessionController
         return Response::json(['error' => $error], $status, self::RESPONSE_HEADERS);
     }
 
-    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    /** @return null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} */
     private function authenticatedUser(): ?array
     {
         $userId = $this->auth->userId();
@@ -139,7 +143,7 @@ final class RoomDesktopHostSessionController
 
     /**
      * @param array{participant_key: string, display_name: string, user_id: null|int} $identity
-     * @param null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} $currentUser
+     * @param null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} $currentUser
      * @return null|array{participant_key: string, display_name: string, user_id: null|int}
      */
     private function identityForCurrentAccount(string $roomCode, array $identity, ?array $currentUser): ?array

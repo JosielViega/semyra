@@ -20,7 +20,10 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .account-link, .account-logout button { display: inline-flex; align-items: center; min-height: 40px; padding: 0 var(--space-3); border-radius: var(--radius-sm); color: var(--color-text-soft); background: transparent; font-size: .875rem; font-weight: 700; text-decoration: none; }
 .account-link:hover, .account-logout button:hover { color: var(--color-text); background: var(--color-surface-hover); }
 .account-link-primary { border: 1px solid var(--color-border-strong); }
+.account-identity { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .account-greeting { max-width: 220px; overflow: hidden; color: var(--color-text-soft); font-size: .9rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.account-premium-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: .3rem; padding: .18rem .48rem; border: 1px solid rgb(250 204 21 / 42%); border-radius: 999px; color: #fde68a; background: linear-gradient(135deg, rgb(126 34 206 / 42%), rgb(161 98 7 / 28%)); font-size: .68rem; font-weight: 800; letter-spacing: .02em; line-height: 1.2; }
+.account-premium-badge svg { width: .85rem; height: .85rem; fill: currentColor; }
 .account-logout { margin: 0; }
 .health-link { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-3); color: var(--color-text-soft); font-size: .875rem; font-weight: 650; text-decoration: none; }
 .health-link span { width: 8px; height: 8px; border-radius: 50%; background: var(--color-cyan); box-shadow: 0 0 12px rgb(22 199 255 / 48%); }
@@ -124,6 +127,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
     .site-brand img { width: 42px; height: 34px; }
     .site-brand strong { font-size: 1.18rem; }
     .account-greeting { max-width: 100px; }
+    .account-premium-badge span { display: none; }
+    .account-premium-badge { padding: .28rem; }
     .account-link, .account-logout button { padding: 0 var(--space-2); font-size: .8rem; }
     .site-brand strong { display: none; }
     .my-room-item { align-items: stretch; flex-direction: column; }
@@ -141,3 +146,4 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
     *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
 .room-source-tabs,.room-iptv-results{display:flex;flex-wrap:wrap;gap:.65rem;margin:.75rem 0}.room-iptv-publish{display:grid;gap:.65rem}.room-iptv-results{max-height:14rem;overflow:auto}.room-iptv-results button{max-width:100%;text-align:left}
+.room-premium-notice{margin:.25rem 0;padding:.9rem;border:1px solid rgb(168 85 247 / 35%);border-radius:var(--radius-md);color:#e9d5ff;background:rgb(88 28 135 / 20%)}

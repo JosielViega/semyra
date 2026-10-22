@@ -112,6 +112,11 @@
                 || payload.transmission_instance_id !== transmission.instanceId
                 || payload.transmission_revision !== transmission.revision
                 || typeof payload.expires_at !== 'string') {
+                if (payload?.error === 'premium_required') {
+                    window.dispatchEvent(new CustomEvent('semyra:host-session-error', {
+                        detail: {errorCode: 'premium_required'},
+                    }));
+                }
                 throw new Error('Invalid Host Session response.');
             }
 

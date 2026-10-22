@@ -26,6 +26,7 @@ use App\Repositories\UserRememberTokenRepository;
 use App\Repositories\UserRoomRepository;
 use App\Repositories\MediaBridgeJobRepository;
 use App\Services\AuthSession;
+use App\Services\PremiumAccess;
 use App\Services\DesktopHostSessionService;
 use App\Services\DesktopMediaIngressIdentity;
 use App\Services\DesktopMediaPublishService;
@@ -44,6 +45,7 @@ use App\Services\SdkLiveKitIngressGateway;
 
 $userRepository = new UserRepository($app['database']);
 $authSession = new AuthSession($app['session']);
+$premiumAccess = new PremiumAccess();
 $rememberMe = new RememberMeService(
     $app['request'],
     new UserRememberTokenRepository($app['database']),
@@ -101,6 +103,7 @@ $rooms = new RoomController(
     $userRepository,
     $authSession,
     $userRoomRepository,
+    $premiumAccess,
 );
 $myRooms = new MyRoomsController(
     $app['view'],
@@ -141,6 +144,7 @@ $roomTransmissions = new RoomTransmissionController(
     $transmissionPresenter,
     $userRepository,
     $authSession,
+    $premiumAccess,
 );
 $roomLiveKit = new RoomLiveKitController(
     $app['request'],
@@ -166,6 +170,7 @@ $roomDesktopHostSessions = new RoomDesktopHostSessionController(
     $userRepository,
     $authSession,
     $desktopHostSessions,
+    $premiumAccess,
 );
 $roomDesktopMediaPublish = new RoomDesktopMediaPublishController(
     $app['request'],
@@ -176,6 +181,8 @@ $roomDesktopMediaPublish = new RoomDesktopMediaPublishController(
         new SdkLiveKitIngressGateway($app['livekit']),
         new LiveKitRoomContext($app['livekit']['namespace']),
         new DesktopMediaIngressIdentity($app['livekit']['namespace']),
+        $userRepository,
+        $premiumAccess,
         ($app['livekit']['enabled'] ?? false) === true,
     ),
 );

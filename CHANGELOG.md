@@ -13,6 +13,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Entitlement Premium simples por conta, com badge, gate autoritativo e defesa em profundidade para publicação IPTV em sala, sem restringir IPTV local, YouTube ou viewers e sem adicionar billing. A fundação técnica WHIP/LiveKit permanece condicionada às capabilities nativas; a seleção IPTV reproduzível na UI principal ainda não está productizada nesta etapa.
+
 - Progresso VOD local persistente no Desktop, com retomada exata de filmes e episódios, “Continuar assistindo”, estados assistidos e navegação manual anterior/próximo entre temporadas, preservado por refresh Xtream via identidade estável.
 - “Continuar assistindo” de séries agora abre a temporada e destaca o episódio correto sem iniciar playback; progresso persistido atualiza o detalhe aberto, e EOF natural avança uma única vez ao próximo episódio preservando fullscreen, inclusive entre temporadas.
 - Filmes e séries podem ser removidos de “Continuar assistindo” sem apagar progresso ou episódios assistidos; nova atividade faz o item reaparecer automaticamente.

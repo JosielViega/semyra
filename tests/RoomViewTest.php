@@ -82,11 +82,30 @@ final class RoomViewTest extends TestCase
         $html = $this->renderRoom([
             'identity' => array_replace($this->identity(), ['user_id' => 7]),
             'currentUser' => ['id' => 7, 'display_name' => 'Josiel'],
+            'can_publish_iptv' => true,
         ]);
 
         self::assertStringContainsString('data-desktop-publish-tabs', $html);
         self::assertStringContainsString('data-iptv-source-panel', $html);
         self::assertStringContainsString('IPTV local', $html);
+        self::assertStringContainsString('data-can-publish-iptv="1"', $html);
+        self::assertStringContainsString('data-room-iptv-source', $html);
+        self::assertStringNotContainsString('recurso Premium', $html);
+    }
+
+    public function testFreeAccountSeesPremiumGateWithoutCatalogControls(): void
+    {
+        $html = $this->renderRoom([
+            'identity' => array_replace($this->identity(), ['user_id' => 7]),
+            'currentUser' => ['id' => 7, 'display_name' => 'Josiel'],
+            'can_publish_iptv' => false,
+        ]);
+
+        self::assertStringContainsString('IPTV local · Premium', $html);
+        self::assertStringContainsString('data-can-publish-iptv="0"', $html);
+        self::assertStringContainsString('Transmitir sua IPTV para a sala é um recurso Premium.', $html);
+        self::assertStringNotContainsString('data-room-iptv-source>', $html);
+        self::assertStringNotContainsString('data-room-iptv-find', $html);
     }
 
     public function testOwnerSeesActiveTransmissionHudAndEndAction(): void

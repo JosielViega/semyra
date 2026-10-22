@@ -19,6 +19,7 @@ use App\Services\AuthSession;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPresenter;
+use App\Services\PremiumAccess;
 use PDO;
 use PDOException;
 use PDOStatement;
@@ -100,6 +101,20 @@ final class RoomControllerTest extends TestCase
 
         self::assertSame(200, $controller->show('ROOM1234')->status());
         self::assertSame([[7, 12]], $pdo->recordedParticipations);
+    }
+
+    public function testShowMapsDatabasePremiumFlagToRoomDataset(): void
+    {
+        [$free, $freePdo, $freeAuth] = $this->controller(users: [7 => ['display_name' => 'Free', 'is_premium' => 0]]);
+        $freePdo->roomRow = $this->roomRow(createdBy: 7);
+        $freeAuth->login(7);
+        self::assertStringContainsString('data-can-publish-iptv="0"', $free->show('ROOM1234')->body());
+
+        $_SESSION = [];
+        [$premium, $premiumPdo, $premiumAuth] = $this->controller(users: [7 => ['display_name' => 'Premium', 'is_premium' => 1]]);
+        $premiumPdo->roomRow = $this->roomRow(createdBy: 7);
+        $premiumAuth->login(7);
+        self::assertStringContainsString('data-can-publish-iptv="1"', $premium->show('ROOM1234')->body());
     }
 
     public function testShowDoesNotRecordWithoutIdentityOrForGuest(): void
@@ -216,6 +231,7 @@ final class RoomControllerTest extends TestCase
             new UserRepository($database),
             $auth,
             new UserRoomRepository($database),
+            new PremiumAccess(),
         ), $pdo, $auth, $participantSession];
     }
 }
@@ -232,7 +248,7 @@ final class RoomControllerPdo extends PDO
     /** @var list<array{int, int}> */
     public array $existingParticipations = [];
 
-    /** @param array<int, string> $users */
+    /** @param array<int, string|array{display_name: string, is_premium: int}> $users */
     public function __construct(public array $users)
     {
     }
@@ -286,10 +302,12 @@ final class RoomControllerStatement extends PDOStatement
             if (!isset($this->pdo->users[$id])) {
                 return false;
             }
+            $stored = $this->pdo->users[$id];
             return [
                 'id' => $id,
-                'display_name' => $this->pdo->users[$id],
+                'display_name' => is_array($stored) ? $stored['display_name'] : $stored,
                 'email' => 'user' . $id . '@example.com',
+                'is_premium' => is_array($stored) ? $stored['is_premium'] : 0,
                 'created_at' => '2026-09-29 12:00:00.000',
                 'updated_at' => '2026-09-29 12:00:00.000',
             ];

@@ -15,6 +15,7 @@ use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\UserRoomRepository;
 use App\Services\AuthSession;
+use App\Services\PremiumAccess;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPresenter;
@@ -37,6 +38,7 @@ final class RoomController
         private readonly UserRepository $users,
         private readonly AuthSession $auth,
         private readonly UserRoomRepository $userRooms,
+        private readonly PremiumAccess $premiumAccess,
     ) {
     }
 
@@ -128,7 +130,11 @@ final class RoomController
             'title' => 'Sala ' . $room['code'] . ' — Semyra',
             'room' => $room,
             'identity' => $identity,
-            'currentUser' => $currentUser,
+            'currentUser' => $currentUser === null ? null : [
+                'id' => $currentUser['id'],
+                'display_name' => $currentUser['display_name'],
+            ],
+            'can_publish_iptv' => $currentUser !== null && $this->premiumAccess->canPublishIptv($currentUser),
             'participants' => $participants,
             'transmission' => $transmission,
             'debug' => $this->request->query('debug') === '1',
@@ -138,7 +144,7 @@ final class RoomController
         ], 'layouts/room'));
     }
 
-    /** @return null|array{id: int, display_name: string, email: string, created_at: string, updated_at: string} */
+    /** @return null|array{id: int, display_name: string, email: string, is_premium: bool, created_at: string, updated_at: string} */
     private function authenticatedUser(): ?array
     {
         $userId = $this->auth->userId();

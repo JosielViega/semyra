@@ -7,12 +7,14 @@ namespace Tests;
 use App\Core\Database;
 use App\Repositories\DesktopHostSessionRepository;
 use App\Repositories\RoomTransmissionRepository;
+use App\Repositories\UserRepository;
 use App\Services\DesktopHostSessionService;
 use App\Services\DesktopMediaIngressIdentity;
 use App\Services\DesktopMediaPublishException;
 use App\Services\DesktopMediaPublishService;
 use App\Services\LiveKitIngressGateway;
 use App\Services\LiveKitRoomContext;
+use App\Services\PremiumAccess;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\DesktopHostSessionPdo;
 
@@ -86,10 +88,30 @@ final class DesktopMediaPublishServiceTest extends TestCase
         self::assertNotContains('FOREIGN', $gateway->deleted);
     }
 
+    public function testDowngradeAfterIssuanceBlocksStartButStillAllowsStop(): void
+    {
+        [$service, $token, $gateway, $identity, $context, $pdo] = $this->fixture();
+        $gateway->items = [['id' => 'OWNED', 'room' => $context->roomName(7), 'name' => $identity->name(7)]];
+        $pdo->users[7]['is_premium'] = 0;
+
+        try {
+            $service->start($token, 7, self::INSTANCE, 3);
+            self::fail('Expected current entitlement to be enforced.');
+        } catch (DesktopMediaPublishException $exception) {
+            self::assertSame('premium_required', $exception->errorCode);
+            self::assertSame(403, $exception->status);
+        }
+        self::assertSame([], $gateway->created);
+
+        $service->stop($token, 7, self::INSTANCE, 3, 'OWNED');
+        self::assertSame(['OWNED'], $gateway->deleted);
+    }
+
     public function testUnavailableLiveKitFailsBeforeIngressCreation(): void
     {
         [$service, $token, $gateway, $identity, $context, $pdo, $sessions, $repository] = $this->fixture();
-        $unavailable = new DesktopMediaPublishService($sessions, $repository, $gateway, $context, $identity, false);
+        $unavailable = new DesktopMediaPublishService($sessions, $repository, $gateway, $context, $identity,
+            new UserRepository($this->database($pdo)), new PremiumAccess(), false);
         try {
             $unavailable->start($token, 7, self::INSTANCE, 3);
             self::fail('Expected unavailable LiveKit.');
@@ -102,20 +124,28 @@ final class DesktopMediaPublishServiceTest extends TestCase
     private function fixture(): array
     {
         $pdo = new DesktopHostSessionPdo();
+        $pdo->seedUser(7);
         $pdo->transmission = ['room_id' => 7, 'instance_id' => self::INSTANCE, 'revision' => 3,
-            'owner_user_id' => null, 'owner_participant_key_hash' => self::OWNER,
+            'owner_user_id' => 7, 'owner_participant_key_hash' => self::OWNER,
             'source_type' => 'iptv', 'media_mode' => 'live'];
-        $database = new Database([]);
-        (new \ReflectionProperty($database, 'connection'))->setValue($database, $pdo);
+        $database = $this->database($pdo);
         $sessions = new DesktopHostSessionService(new DesktopHostSessionRepository($database), 600);
-        $issued = $sessions->issue(7, self::INSTANCE, 3, null, self::OWNER);
+        $issued = $sessions->issue(7, self::INSTANCE, 3, 7, self::OWNER);
         self::assertNotNull($issued);
         $gateway = new DesktopPublishGateway();
         $context = new LiveKitRoomContext('testing');
         $identity = new DesktopMediaIngressIdentity('testing');
         $repository = new RoomTransmissionRepository($database);
-        return [new DesktopMediaPublishService($sessions, $repository, $gateway, $context, $identity, true),
+        return [new DesktopMediaPublishService($sessions, $repository, $gateway, $context, $identity,
+            new UserRepository($database), new PremiumAccess(), true),
             $issued['token'], $gateway, $identity, $context, $pdo, $sessions, $repository];
+    }
+
+    private function database(DesktopHostSessionPdo $pdo): Database
+    {
+        $database = new Database([]);
+        (new \ReflectionProperty($database, 'connection'))->setValue($database, $pdo);
+        return $database;
     }
 }
 

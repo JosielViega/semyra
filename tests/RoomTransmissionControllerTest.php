@@ -18,6 +18,7 @@ use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPlayback;
 use App\Services\RoomTransmissionPresenter;
 use App\Services\YouTubeUrlParser;
+use App\Services\PremiumAccess;
 use PDO;
 use PDOStatement;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -118,7 +119,7 @@ final class RoomTransmissionControllerTest extends TestCase
         self::assertSame('youtube', $pdo->transmission['source_type']);
     }
 
-    public function testAuthenticatedParticipantStartsAccountOwnedIptvTransmission(): void
+    public function testPremiumDatabaseRowFlowsThroughRepositoryAndStartsAccountOwnedIptvTransmission(): void
     {
         [$controller, $pdo] = $this->controller([], [], true);
 
@@ -130,8 +131,32 @@ final class RoomTransmissionControllerTest extends TestCase
         self::assertSame(9, $pdo->transmission['owner_user_id']);
     }
 
+    public function testFreeDatabaseRowFlowsThroughRepositoryAndCannotMutateCurrentTransmission(): void
+    {
+        [$controller, $pdo] = $this->controller([], [], true, false);
+        $before = $pdo->transmission;
+
+        $response = $controller->startIptv('ROOM1234');
+
+        self::assertSame(403, $response->status());
+        self::assertSame(['error' => 'premium_required'], json_decode($response->body(), true));
+        self::assertSame($before, $pdo->transmission);
+    }
+
+    public function testFreeParticipantCanStillStartYouTubeTransmission(): void
+    {
+        [$controller, $pdo] = $this->controller([
+            'youtube_url' => 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+            'media_mode' => 'vod',
+        ], [], true, false);
+
+        self::assertSame(303, $controller->start('ROOM1234')->status());
+        self::assertSame('youtube', $pdo->transmission['source_type']);
+        self::assertSame(9, $pdo->transmission['owner_user_id']);
+    }
+
     /** @return array{RoomTransmissionController, TransmissionControllerPdo} */
-    private function controller(array $body, array $transmissionOverrides = [], bool $authenticated = false): array
+    private function controller(array $body, array $transmissionOverrides = [], bool $authenticated = false, bool $premium = true): array
     {
         $session = new Session(false);
         $csrf = new Csrf($session);
@@ -160,7 +185,7 @@ final class RoomTransmissionControllerTest extends TestCase
             'started_at' => '2026-10-01 12:00:00.000',
             'updated_at' => '2026-10-01 12:00:00.000',
             'owner_name' => 'Pedro',
-        ], $transmissionOverrides));
+        ], $transmissionOverrides), $premium);
         $database = new Database([]);
         (new \ReflectionProperty($database, 'connection'))->setValue($database, $pdo);
         $playback = new RoomTransmissionPlayback();
@@ -178,6 +203,7 @@ final class RoomTransmissionControllerTest extends TestCase
             new RoomTransmissionPresenter($playback),
             new UserRepository($database),
             $auth,
+            new PremiumAccess(),
         ), $pdo];
     }
 
@@ -201,7 +227,7 @@ final class RoomTransmissionControllerTest extends TestCase
 
 final class TransmissionControllerPdo extends PDO
 {
-    public function __construct(public ?array $transmission)
+    public function __construct(public ?array $transmission, public bool $premium = true)
     {
     }
 
@@ -268,7 +294,7 @@ final class TransmissionControllerStatement extends PDOStatement
         }
         if (str_contains($this->query, 'FROM users')) {
             return (int) ($this->params['id'] ?? 0) === 9
-                ? ['id' => 9, 'display_name' => 'Pedro', 'email' => 'pedro@example.com', 'created_at' => '2026-10-01', 'updated_at' => '2026-10-01']
+                ? ['id' => 9, 'display_name' => 'Pedro', 'email' => 'pedro@example.com', 'is_premium' => $this->pdo->premium ? 1 : 0, 'created_at' => '2026-10-01', 'updated_at' => '2026-10-01']
                 : false;
         }
         if (str_contains($this->query, 'FROM room_transmissions transmission')) {

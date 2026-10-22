@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Repositories\RoomTransmissionRepository;
+use App\Repositories\UserRepository;
 use Throwable;
 
 final class DesktopMediaPublishService
@@ -15,6 +16,8 @@ final class DesktopMediaPublishService
         private readonly LiveKitIngressGateway $ingress,
         private readonly LiveKitRoomContext $context,
         private readonly DesktopMediaIngressIdentity $identity,
+        private readonly UserRepository $users,
+        private readonly PremiumAccess $premiumAccess,
         private readonly bool $liveKitAvailable,
     ) {
     }
@@ -22,7 +25,12 @@ final class DesktopMediaPublishService
     /** @return array{ingress_id:string,whip_endpoint:string,transmission_instance_id:string,transmission_revision:int} */
     public function start(string $token, int $roomId, string $instanceId, int $revision): array
     {
-        $this->authorize($token, $roomId, $instanceId, $revision);
+        $session = $this->authorize($token, $roomId, $instanceId, $revision);
+        $ownerUserId = $session['owner_user_id'];
+        $owner = $ownerUserId === null ? null : $this->users->findById($ownerUserId);
+        if ($owner === null || !$this->premiumAccess->canPublishIptv($owner)) {
+            throw new DesktopMediaPublishException('premium_required', 403);
+        }
         $current = $this->transmissions->findByRoom($roomId);
         if ($current === null
             || !hash_equals((string) ($current['instance_id'] ?? ''), $instanceId)
@@ -73,11 +81,14 @@ final class DesktopMediaPublishService
         }
     }
 
-    private function authorize(string $token, int $roomId, string $instanceId, int $revision): void
+    /** @return array{room_id: int, transmission_instance_id: string, transmission_revision: int, owner_user_id: null|int, owner_participant_key_hash: string, permission: string, expires_at: string} */
+    private function authorize(string $token, int $roomId, string $instanceId, int $revision): array
     {
         $validation = $this->sessions->validateResult($token, $roomId, $instanceId, $revision, DesktopHostSessionService::PERMISSION);
         if ($validation['session'] === null) {
             throw new DesktopMediaPublishException($validation['error'] ?? 'invalid_host_session', 401);
         }
+
+        return $validation['session'];
     }
 }
