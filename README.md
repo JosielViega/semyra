@@ -34,7 +34,7 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - correção contínua de drift e chat ainda não implementados;
 - compartilhamento de tela é uma fonte futura adicional; não substitui a integração permanente com YouTube e seu pipeline ainda não foi definido.
 
-- entitlement Premium persistido na conta e aplicado exclusivamente ao início da publicação IPTV em salas; YouTube, visualização e toda a experiência IPTV local continuam gratuitos. O pipeline WHIP/LiveKit existe como fundação técnica, mas a disponibilidade reproduzível da seleção IPTV na UI principal da sala ainda será consolidada em etapa posterior;
+- entitlement Premium persistido na conta e aplicado exclusivamente ao início da publicação IPTV em salas; YouTube, visualização e toda a experiência IPTV local continuam gratuitos. No Desktop, a seleção de canais Live usa o catálogo local e o pipeline GStreamer/WHIP/LiveKit existente, com estados explícitos quando Premium ou o runtime de publicação não estão disponíveis;
 
 ## Stack
 

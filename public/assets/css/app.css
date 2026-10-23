@@ -145,5 +145,5 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
-.room-source-tabs,.room-iptv-results{display:flex;flex-wrap:wrap;gap:.65rem;margin:.75rem 0}.room-iptv-publish{display:grid;gap:.65rem}.room-iptv-results{max-height:14rem;overflow:auto}.room-iptv-results button{max-width:100%;text-align:left}
+.room-source-tabs,.room-iptv-results{display:flex;flex-wrap:wrap;gap:.65rem;margin:.75rem 0}.room-iptv-publish,.room-iptv-publish-controls{display:grid;gap:.65rem}.room-iptv-results{max-height:14rem;overflow:auto}.room-iptv-results button{max-width:100%;text-align:left}.room-runtime-notice{display:grid;gap:.25rem;margin:.25rem 0;padding:.9rem;border:1px solid rgb(245 158 11 / 40%);border-radius:var(--radius-md);color:#fde68a;background:rgb(120 53 15 / 20%)}
 .room-premium-notice{margin:.25rem 0;padding:.9rem;border:1px solid rgb(168 85 247 / 35%);border-radius:var(--radius-md);color:#e9d5ff;background:rgb(88 28 135 / 20%)}

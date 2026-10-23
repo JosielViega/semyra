@@ -4,7 +4,7 @@
 
 Quando o runtime oficial do GStreamer também oferece `whipsink`, o Desktop anuncia `media.whip` e `livekit.publish`. O canal continua resolvido exclusivamente no catálogo SQLite local; a aplicação web envia somente o identificador opaco do canal. O Desktop provisiona um endpoint WHIP efêmero com sua Host Session, publica áudio/vídeo no LiveKit e remove o ingress ao parar ou trocar a autorização. URLs e credenciais da fonte IPTV nunca atravessam o JavaScript ou o backend PHP.
 
-Essa é uma fundação técnica condicionada às capabilities `livekit.publish` e `iptv.catalog`. A disponibilidade reproduzível da seleção IPTV na interface principal da sala ainda não está productizada; o gate Premium não força nem simula essas capabilities.
+A seleção IPTV da sala exige simultaneamente `iptv.catalog`, a capability nativa `livekit.publish` e o entitlement Premium validado pelo servidor. O Desktop apresenta separadamente o gate Premium e a indisponibilidade do runtime WHIP, sem forçar ou simular capabilities. Com o runtime disponível, a interface carrega somente fontes e canais Live sanitizados e reutiliza o pipeline de publicação existente.
 
 O player integrado (`iptv.local-view`) permanece independente de `whipsink`. Assistir localmente é gratuito, exige somente uma conta ativa no Desktop e não cria sala, Host Session, WHIP ou conexão LiveKit. Somente publicar IPTV em uma sala exige o entitlement Premium atual da conta; o backend valida essa regra antes de criar a transmissão, ao emitir a Host Session e novamente antes do ingress.
 

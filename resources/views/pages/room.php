@@ -218,7 +218,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     <button type="button" class="room-close-button" data-close-transmission aria-label="Cancelar"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button>
                 </div>
                 <p class="room-replace-warning" data-replace-warning<?= $transmission === null ? ' hidden' : '' ?>><strong data-replace-owner><?= e($transmission['owner_name'] ?? 'Participante') ?></strong> está transmitindo. Iniciar sua transmissão substituirá a transmissão atual.</p>
-                <?php if (is_array($currentUser)): ?><div class="room-source-tabs" data-desktop-publish-tabs hidden><button type="button" class="room-secondary-button" data-source-tab="youtube">YouTube</button><button type="button" class="room-secondary-button" data-source-tab="iptv"><?= $canPublishIptv ? 'IPTV local' : 'IPTV local · Premium' ?></button></div><?php endif; ?>
+                <?php if (is_array($currentUser)): ?><div class="room-source-tabs" data-desktop-publish-tabs hidden><button type="button" class="room-secondary-button" data-source-tab="youtube">YouTube</button><button type="button" class="room-secondary-button" data-source-tab="iptv"><?= $canPublishIptv ? 'IPTV' : 'IPTV · Premium' ?></button></div><?php endif; ?>
                 <div data-youtube-source-panel>
                 <label for="youtube-url">Link do YouTube</label>
                 <input id="youtube-url" name="youtube_url" type="url" maxlength="2048" placeholder="https://youtube.com/watch?v=..." required>
@@ -227,7 +227,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     <label><input type="radio" name="media_mode" value="vod" checked> <span>Vídeo</span></label>
                     <label><input type="radio" name="media_mode" value="live"> <span>Ao vivo</span></label>
                 </fieldset></div>
-                <?php if (is_array($currentUser)): ?><section class="room-iptv-publish" data-iptv-source-panel hidden><?php if ($canPublishIptv): ?><label for="room-iptv-source">Fonte IPTV</label><select id="room-iptv-source" data-room-iptv-source></select><label for="room-iptv-group">Grupo</label><select id="room-iptv-group" data-room-iptv-group><option value="">Todos</option></select><label for="room-iptv-search">Buscar canal</label><input id="room-iptv-search" type="search" maxlength="120" data-room-iptv-search><button type="button" class="room-secondary-button" data-room-iptv-find>Buscar</button><div class="room-iptv-results" data-room-iptv-results></div><p role="status" aria-live="polite" data-room-iptv-status></p><?php else: ?><p class="room-premium-notice" role="status" data-room-iptv-status>Transmitir sua IPTV para a sala é um recurso Premium. Sua IPTV local continua disponível no Semyra Desktop.</p><?php endif; ?></section><?php endif; ?>
+                <?php if (is_array($currentUser)): ?><section class="room-iptv-publish" data-iptv-source-panel hidden><?php if ($canPublishIptv): ?><div class="room-iptv-publish-controls" data-room-iptv-controls><label for="room-iptv-source">Fonte IPTV</label><select id="room-iptv-source" data-room-iptv-source></select><label for="room-iptv-group">Grupo</label><select id="room-iptv-group" data-room-iptv-group><option value="">Todos</option></select><label for="room-iptv-search">Buscar canal ao vivo</label><input id="room-iptv-search" type="search" maxlength="120" data-room-iptv-search><button type="button" class="room-secondary-button" data-room-iptv-find>Buscar</button><div class="room-iptv-results" data-room-iptv-results></div></div><div class="room-runtime-notice" data-room-iptv-unavailable hidden><strong>Publicação IPTV indisponível neste Desktop.</strong><span>O runtime de publicação WHIP não está disponível.</span></div><p role="status" aria-live="polite" data-room-iptv-status></p><?php else: ?><p class="room-premium-notice" role="status" data-room-iptv-status>Transmitir sua IPTV para a sala é um recurso Premium. Sua IPTV local continua disponível no Semyra Desktop.</p><?php endif; ?></section><?php endif; ?>
                 <div class="room-dialog-actions"><button type="button" class="room-secondary-button" data-close-transmission>Cancelar</button><button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg><span>Iniciar minha transmissão</span></button></div>
             </form>
         </dialog>
@@ -236,8 +236,8 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
     <script src="/assets/js/room-media.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-livekit-player.js?v=10b21-instance" defer></script>
-    <script src="/assets/js/room-desktop-host.js?v=11c-host-session" defer></script>
-    <script src="/assets/js/room-desktop-iptv.js?v=11m-premium-gate" defer></script>
+    <script src="/assets/js/room-desktop-host.js?v=11m-b-product-publish" defer></script>
+    <script src="/assets/js/room-desktop-iptv.js?v=11m-b-product-publish" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
     <script src="/assets/js/room-playback.js?v=10b21-instance" defer></script>

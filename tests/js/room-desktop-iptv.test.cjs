@@ -24,12 +24,15 @@ const harness = (premium) => {
     const tabs = element();
     const youtube = element();
     const iptv = element({hidden: true});
-    const status = element();
+    const controls = element();
+    const unavailable = element({hidden: true});
+    const status = element({textContent: premium ? '' : 'Transmitir sua IPTV para a sala é um recurso Premium.'});
     const kicker = element();
     const submit = element();
     for (const [selector, value] of [
         ['[data-room-shell]', shell], ['[data-desktop-publish-tabs]', tabs],
         ['[data-youtube-source-panel]', youtube], ['[data-iptv-source-panel]', iptv],
+        ['[data-room-iptv-controls]', controls], ['[data-room-iptv-unavailable]', unavailable],
         ['[data-room-iptv-status]', status], ['[data-transmission-kicker]', kicker],
         ['.room-dialog-actions button[type="submit"]', submit],
     ]) elements.set(selector, value);
@@ -51,11 +54,14 @@ const harness = (premium) => {
     const document = {
         querySelector: (selector) => elements.get(selector) || null,
         createElement: () => element(),
+        dispatchEvent() {},
     };
     vm.runInNewContext(sourceCode, {window, document, CustomEvent, URLSearchParams, console});
     return {
-        tabs, status, requests,
-        hostReady() { listeners.get('semyra:host-ready')({detail: {capabilities: ['livekit.publish', 'iptv.catalog']}}); },
+        tabs, controls, unavailable, status, requests,
+        hostReady(capabilities = ['iptv.catalog', 'livekit.publish']) {
+            listeners.get('semyra:host-ready')({detail: {state: 'ready', capabilities}});
+        },
         chooseIptv() { tabs.listeners.get('click')({target: {closest: () => ({dataset: {sourceTab: 'iptv'}})}}); },
         search() { find.listeners.get('click')(); },
         changeSource() { source.listeners.get('change')(); },
@@ -63,11 +69,11 @@ const harness = (premium) => {
         hostAuthorized() { listeners.get('semyra:host-authorized')(); },
         catalogResult() { listeners.get('semyra:iptv-result')({detail: {action: 'list', ok: true, sources: [{id: 7, name: 'Source'}]}}); },
         groupsResult() { listeners.get('semyra:iptv-result')({detail: {action: 'groups', ok: true, groups: ['Live']}}); },
-        premiumError() { listeners.get('semyra:host-session-error')({detail: {errorCode: 'premium_required'}}); },
+        hostSessionError(errorCode) { listeners.get('semyra:host-session-error')({detail: {errorCode}}); },
     };
 };
 
-test('free account sees the IPTV tab but never requests the native catalog', () => {
+test('free account sees the Premium IPTV tab but never requests the native catalog', () => {
     const page = harness(false);
     page.hostReady();
     page.chooseIptv();
@@ -78,19 +84,48 @@ test('free account sees the IPTV tab but never requests the native catalog', () 
     page.catalogResult();
 
     assert.equal(page.tabs.hidden, false);
+    assert.match(page.status.textContent, /recurso Premium/);
     assert.deepEqual(page.requests, []);
 });
 
-test('premium account requests the native catalog and premium errors are explicit', () => {
+test('premium account without publish capability sees a clear unavailable state and sends no IPTV request', () => {
+    const page = harness(true);
+    page.hostReady(['iptv.catalog']);
+    page.chooseIptv();
+    page.search();
+    page.changeSource();
+    page.chooseChannel();
+    page.hostAuthorized();
+
+    assert.equal(page.tabs.hidden, false);
+    assert.equal(page.controls.hidden, true);
+    assert.equal(page.unavailable.hidden, false);
+    assert.deepEqual(page.requests, []);
+});
+
+test('premium account with catalog and publish loads once and enables catalog actions', () => {
     const page = harness(true);
     page.hostReady();
-    assert.equal(page.requests.at(-1).action, 'list');
+    assert.equal(page.requests.filter((request) => request?.action === 'list').length, 1);
+
+    page.chooseIptv();
+    page.hostReady();
+    assert.equal(page.requests.filter((request) => request?.action === 'list').length, 1);
+    assert.equal(page.controls.hidden, false);
+    assert.equal(page.unavailable.hidden, true);
+
     page.catalogResult();
     assert.equal(page.requests.at(-1).action, 'groups');
     page.groupsResult();
     page.search();
     assert.equal(page.requests.at(-1).action, 'search');
+});
 
-    page.premiumError();
-    assert.equal(page.status.textContent, 'Transmitir IPTV para uma sala requer Premium.');
+test('sanitized publish and Host Session failures have understandable messages', () => {
+    const page = harness(true);
+    page.hostReady();
+    page.hostSessionError('transmission_changed');
+    assert.equal(page.status.textContent, 'A transmissão da sala mudou. Tente novamente.');
+    page.hostSessionError('livekit_unavailable');
+    assert.equal(page.status.textContent, 'O serviço de transmissão está temporariamente indisponível.');
 });

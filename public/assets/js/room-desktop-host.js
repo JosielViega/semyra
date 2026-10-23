@@ -23,6 +23,10 @@
     let renewalTimer = null;
     let retryCount = 0;
     let retryContext = null;
+    const safeHostSessionErrors = new Set([
+        'premium_required', 'livekit_unavailable', 'host_session_expired',
+        'transmission_changed', 'ingress_create_failed', 'publish_failed',
+    ]);
     const schedule = typeof window.setTimeout === 'function'
         ? (callback, delay) => window.setTimeout(callback, delay)
         : () => null;
@@ -112,9 +116,9 @@
                 || payload.transmission_instance_id !== transmission.instanceId
                 || payload.transmission_revision !== transmission.revision
                 || typeof payload.expires_at !== 'string') {
-                if (payload?.error === 'premium_required') {
+                if (safeHostSessionErrors.has(payload?.error)) {
                     window.dispatchEvent(new CustomEvent('semyra:host-session-error', {
-                        detail: {errorCode: 'premium_required'},
+                        detail: {errorCode: payload.error},
                     }));
                 }
                 throw new Error('Invalid Host Session response.');

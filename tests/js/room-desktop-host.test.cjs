@@ -18,7 +18,7 @@ const transmission = (overrides = {}) => ({
     ...overrides,
 });
 
-const createHarness = ({existingHost = false, expiresAt = '2099-10-06T12:00:00.000Z', timers = false, failRequests = 0} = {}) => {
+const createHarness = ({existingHost = false, expiresAt = '2099-10-06T12:00:00.000Z', timers = false, failRequests = 0, errorCode = null} = {}) => {
     const windowListeners = new Map();
     const documentListeners = new Map();
     const events = [];
@@ -57,6 +57,13 @@ const createHarness = ({existingHost = false, expiresAt = '2099-10-06T12:00:00.0
         requests.push({url, options, body});
         if (requests.length <= failRequests) {
             throw new Error('synthetic failure');
+        }
+        if (errorCode !== null) {
+            return {
+                ok: false,
+                status: 409,
+                json: async () => ({error: errorCode}),
+            };
         }
         return {
             ok: true,
@@ -180,4 +187,21 @@ test('owner loss and null transmission clear authorization', async () => {
         await flush();
         assert.equal(harness.events.some((event) => event.type === 'semyra:host-clear-request'), true);
     }
+});
+
+test('forwards only the sanitized Host Session error code to the room UI', async () => {
+    const harness = createHarness({errorCode: 'transmission_changed'});
+    harness.hostReady();
+    harness.presence(transmission());
+    await flush();
+
+    const error = harness.events.find((event) => event.type === 'semyra:host-session-error');
+    assert.equal(error.detail.errorCode, 'transmission_changed');
+    assert.equal(Object.keys(error.detail).length, 1);
+
+    const unsafe = createHarness({errorCode: 'internal detail must not cross the bridge'});
+    unsafe.hostReady();
+    unsafe.presence(transmission());
+    await flush();
+    assert.equal(unsafe.events.some((event) => event.type === 'semyra:host-session-error'), false);
 });
