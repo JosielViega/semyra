@@ -19,6 +19,7 @@ use App\Services\PremiumAccess;
 use App\Services\RoomCodeGenerator;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPresenter;
+use App\Services\RoomTransmissionLifecycle;
 
 final class RoomController
 {
@@ -39,6 +40,7 @@ final class RoomController
         private readonly AuthSession $auth,
         private readonly UserRoomRepository $userRooms,
         private readonly PremiumAccess $premiumAccess,
+        private readonly ?RoomTransmissionLifecycle $transmissionLifecycle = null,
     ) {
     }
 
@@ -77,6 +79,8 @@ final class RoomController
                 'path' => '/room/' . $code,
             ]), 404);
         }
+
+        $reconciledTransmission = $this->transmissionLifecycle?->reconcile((int) $room['id']);
 
         $identity = $this->participantSession->identityFor($room['code']);
         $currentUser = $this->authenticatedUser();
@@ -120,7 +124,9 @@ final class RoomController
                 $this->participants->activeForRoom((int) $room['id']),
             );
             $transmission = $this->transmissionPresenter->present(
-                $this->transmissions->findByRoom((int) $room['id']),
+                $this->transmissionLifecycle === null
+                    ? $this->transmissions->findByRoom((int) $room['id'])
+                    : $reconciledTransmission,
                 $participantKeyHash,
                 $userId,
             );

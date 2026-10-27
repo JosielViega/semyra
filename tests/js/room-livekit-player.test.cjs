@@ -22,7 +22,7 @@ const element = (tagName = 'div') => ({
     addEventListener() {},
 });
 
-const createHarness = ({status = 201, payload} = {}) => {
+const createHarness = ({status = 201, payload, debug = false} = {}) => {
     const listeners = new Map();
     const dispatched = [];
     const mount = element();
@@ -37,6 +37,7 @@ const createHarness = ({status = 201, payload} = {}) => {
         querySelector(selector) {
             if (selector === '[data-room-shell]') return shell;
             if (selector === '[data-livekit-player-mount]') return mount;
+            if (selector === '[data-room-telemetry]') return debug ? element('aside') : null;
             return null;
         },
         getElementById: (id) => id === 'livekit-player-status' ? statusElement : null,
@@ -111,18 +112,17 @@ const createHarness = ({status = 201, payload} = {}) => {
         },
     };
     const controller = createPlayer({window, document, fetch, loadSdk: async () => sdk});
-    return {controller, document, dispatched, mount, requests, statusElement, FakeRoom, sdk, storage};
+    return {controller, document, dispatched, mount, requests, statusElement, FakeRoom, sdk, storage, window};
 };
 
 const iptv = (revision = 4, instanceId = 'a'.repeat(32)) => ({
     source: 'iptv', mediaMode: 'live', instanceId, revision,
 });
 
-test('only IPTV Live requests a revision-bound token and connects subscribe-only', async () => {
+test('IPTV Live and VOD request revision-bound tokens and connect subscribe-only', async () => {
     const harness = createHarness();
     await harness.controller.applyTransmission(null);
     await harness.controller.applyTransmission({source: 'youtube', mediaMode: 'live', revision: 1});
-    await harness.controller.applyTransmission({source: 'iptv', mediaMode: 'vod', revision: 2});
     assert.equal(harness.requests.length, 0);
 
     await harness.controller.applyTransmission(iptv());
@@ -136,6 +136,11 @@ test('only IPTV Live requests a revision-bound token and connects subscribe-only
     assert.deepEqual(room.options, {adaptiveStream: true, disconnectOnPageLeave: true});
     assert.deepEqual(room.connectArgs.options, {autoSubscribe: false});
     assert.equal(harness.mount.hidden, false);
+
+    await harness.controller.applyTransmission({source: 'iptv', mediaMode: 'vod', instanceId: 'b'.repeat(32), revision: 5});
+    assert.equal(harness.requests.length, 2);
+    assert.equal(harness.requests[1].body.get('transmission_instance_id'), 'b'.repeat(32));
+    assert.equal(harness.requests[1].body.get('transmission_revision'), '5');
 });
 
 test('filters exact publisher and attaches one video and one muted audio track', async () => {
@@ -169,6 +174,7 @@ test('filters exact publisher and attaches one video and one muted audio track',
     const video = element('video');
     const videoTrack = {kind: 'video', attach: () => video, detach() {}};
     room.emit(harness.sdk.RoomEvent.TrackSubscribed, videoTrack, {kind: 'video'}, expected);
+    assert.equal(harness.statusElement.textContent, 'AO VIVO');
     const audio = element('audio');
     const audioTrack = {kind: 'audio', attach: () => audio, detach() {}};
     room.emit(harness.sdk.RoomEvent.TrackSubscribed, audioTrack, {kind: 'audio'}, expected);
@@ -187,6 +193,115 @@ test('filters exact publisher and attaches one video and one muted audio track',
 
     room.emit(harness.sdk.RoomEvent.TrackUnsubscribed, videoTrack);
     assert.equal(harness.mount.children.includes(video), false);
+});
+
+test('same transmission audio replacement preserves unmuted state and volume 70', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    const first = element('audio');
+    const firstTrack = {kind: 'audio', attach: () => first, detach() {}};
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, firstTrack, {kind: 'audio'}, expected);
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 70}}));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(first.muted, false);
+
+    room.emit(harness.sdk.RoomEvent.TrackUnpublished, {kind: 'audio'}, expected);
+    const replacement = element('audio');
+    let playCalls = 0;
+    replacement.play = async () => { ++playCalls; };
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => replacement, detach() {}},
+        {kind: 'audio'}, expected);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(replacement.muted, false);
+    assert.equal(replacement.volume, 0.7);
+    assert.equal(playCalls, 1);
+    assert.equal(harness.dispatched.filter((event) => event.type === 'semyra:player-audio-state').at(-1).detail.muted, false);
+});
+
+test('same transmission audio replacement preserves muted state', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => element('audio'), detach() {}}, {kind: 'audio'}, expected);
+    const replacement = element('audio');
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => replacement, detach() {}}, {kind: 'audio'}, expected);
+    assert.equal(replacement.muted, true);
+});
+
+test('same transmission replacement preserves volume 35 including zero-safe restore state', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    const first = element('audio');
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => first, detach() {}}, {kind: 'audio'}, expected);
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 35}}));
+    await new Promise((resolve) => setImmediate(resolve));
+    const replacement = element('audio');
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => replacement, detach() {}}, {kind: 'audio'}, expected);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(replacement.volume, 0.35);
+    assert.equal(replacement.muted, false);
+
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 0}}));
+    await new Promise((resolve) => setImmediate(resolve));
+    const zeroReplacement = element('audio');
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => zeroReplacement, detach() {}}, {kind: 'audio'}, expected);
+    assert.equal(zeroReplacement.volume, 0);
+    assert.equal(zeroReplacement.muted, true);
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-mute-toggle'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(zeroReplacement.volume, 0.35);
+    assert.equal(zeroReplacement.muted, false);
+});
+
+test('new transmission key resets audio to muted without erasing selected volume', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const firstRoom = harness.FakeRoom.instances[0];
+    const firstExpected = {identity: `smy_i_${'a'.repeat(32)}`};
+    firstRoom.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => element('audio'), detach() {}}, {kind: 'audio'}, firstExpected);
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 70}}));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await harness.controller.applyTransmission(iptv(4, 'b'.repeat(32)));
+    const nextRoom = harness.FakeRoom.instances[1];
+    const replacement = element('audio');
+    nextRoom.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => replacement, detach() {}},
+        {kind: 'audio'}, firstExpected);
+    assert.equal(replacement.muted, true);
+    assert.equal(replacement.volume, 0.7);
+});
+
+test('same-session autoplay failure falls back to muted and emits truthful state', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => element('audio'), detach() {}}, {kind: 'audio'}, expected);
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-mute-toggle'));
+    await new Promise((resolve) => setImmediate(resolve));
+    room.startAudio = async () => { throw new Error('blocked'); };
+    const replacement = element('audio');
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => replacement, detach() {}}, {kind: 'audio'}, expected);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(replacement.muted, true);
+    assert.match(harness.statusElement.textContent, /bloqueou/);
+    assert.equal(harness.dispatched.filter((event) => event.type === 'semyra:player-audio-state').at(-1).detail.muted, true);
 });
 
 test('revision replacement and transmission end disconnect and clear old media', async () => {
@@ -294,4 +409,63 @@ test('stale async SDK load cannot fetch, connect, or attach after transmission e
     resolveSdk(harness.sdk);
     await pending;
     assert.equal(harness.FakeRoom.instances.length, 0);
+});
+
+test('receiver stats helper is absent outside debug mode', () => {
+    const harness = createHarness();
+    assert.equal(harness.window.SemyraLiveKitDebug, undefined);
+});
+
+test('debug receiver stats expose only allowlisted video metrics and codec data', async () => {
+    const harness = createHarness({debug: true});
+    await harness.controller.applyTransmission(iptv());
+    const report = new Map([
+        ['inbound', {
+            id: 'inbound', type: 'inbound-rtp', kind: 'video', codecId: 'codec',
+            framesReceived: 720, framesDecoded: 718, framesDropped: 2,
+            framesPerSecond: 23.8, keyFramesDecoded: 15, packetsReceived: 8120,
+            packetsLost: 3, jitter: 0.004, bytesReceived: 1234567,
+            token: 'must-not-leak', url: 'wss://must-not-leak.test',
+        }],
+        ['codec', {
+            id: 'codec', type: 'codec', mimeType: 'video/H264',
+            sdpFmtpLine: 'profile-level-id=42e01f;packetization-mode=1',
+        }],
+    ]);
+    harness.FakeRoom.instances[0].emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'video', attach: () => element('video'), detach() {}, getRTCStatsReport: async () => report},
+        {kind: 'video'},
+        {identity: `smy_i_${'a'.repeat(32)}`});
+
+    const stats = await harness.window.SemyraLiveKitDebug.getVideoStats();
+    assert.deepEqual(stats, {
+        framesReceived: 720,
+        framesDecoded: 718,
+        framesDropped: 2,
+        framesPerSecond: 23.8,
+        keyFramesDecoded: 15,
+        packetsReceived: 8120,
+        packetsLost: 3,
+        jitter: 0.004,
+        bytesReceived: 1234567,
+        codec: {mimeType: 'video/H264', fmtp: 'profile-level-id=42e01f;packetization-mode=1'},
+    });
+    assert.equal(JSON.stringify(stats).includes('must-not-leak'), false);
+    assert.deepEqual(Object.keys(stats), [
+        'framesReceived', 'framesDecoded', 'framesDropped', 'framesPerSecond',
+        'keyFramesDecoded', 'packetsReceived', 'packetsLost', 'jitter',
+        'bytesReceived', 'codec',
+    ]);
+
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    room.emit(harness.sdk.RoomEvent.TrackUnpublished, {kind: 'video'}, expected);
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'video', attach: () => element('video'), detach() {}},
+        {kind: 'video'}, expected);
+    const timings = harness.window.SemyraLiveKitDebug.getTrackTimings();
+    assert.equal(timings.length, 1);
+    assert.equal(timings[0].phase, 'new_livekit_video_track_subscribed');
+    assert.equal(Number.isSafeInteger(timings[0].elapsedMs), true);
+    assert.deepEqual(Object.keys(timings[0]), ['phase', 'elapsedMs']);
 });

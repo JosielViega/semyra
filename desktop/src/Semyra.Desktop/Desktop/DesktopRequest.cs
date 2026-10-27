@@ -9,7 +9,10 @@ public sealed record DesktopRequest(
     IptvRequest? Iptv = null,
     MediaRequest? Media = null,
     AccountRequest? Account = null,
-    PlayerRequest? Player = null);
+    PlayerRequest? Player = null,
+    WindowRequest? Window = null);
+
+public sealed record WindowRequest(bool? Enabled = null);
 
 public sealed record AccountRequest(string? ProfileId = null);
 
@@ -34,7 +37,16 @@ public sealed record IptvRequest(
     long? MediaId = null,
     bool Refresh = false);
 
-public sealed record MediaRequest(long? ChannelId = null, string? AccountContextId = null, string? Kind = null, long? MediaId = null, string? Direction = null);
+public sealed record MediaRequest(
+    long? ChannelId = null,
+    string? AccountContextId = null,
+    string? Kind = null,
+    long? MediaId = null,
+    string? Direction = null,
+    string? Action = null,
+    long? PositionMs = null,
+    string? TransmissionInstanceId = null,
+    long? TransmissionRevision = null);
 
 public sealed record PlayerRequest(
     string AccountContextId,

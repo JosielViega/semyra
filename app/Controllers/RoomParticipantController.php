@@ -19,6 +19,7 @@ use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomTransmissionPresenter;
 use App\Services\RoomTransmissionPlayback;
+use App\Services\RoomTransmissionLifecycle;
 use App\Validation\Validator;
 
 final class RoomParticipantController
@@ -39,6 +40,7 @@ final class RoomParticipantController
         private readonly UserRepository $users,
         private readonly UserRoomRepository $userRooms,
         private readonly AuthSession $auth,
+        private readonly ?RoomTransmissionLifecycle $transmissionLifecycle = null,
     ) {
     }
 
@@ -202,6 +204,9 @@ final class RoomParticipantController
 
         $this->rooms->touchActivity((int) $room['id']);
 
+        $transmission = $this->transmissionLifecycle?->reconcile((int) $room['id'])
+            ?? $this->transmissions->findByRoom((int) $room['id']);
+
         return Response::json([
             'participants' => $this->playbackTelemetry->presentParticipants(
                 $this->participants->activeForRoom((int) $room['id']),
@@ -209,7 +214,7 @@ final class RoomParticipantController
                 $currentUser['id'] ?? null,
             ),
             'transmission' => $this->transmissionPresenter->present(
-                $this->transmissions->findByRoom((int) $room['id']),
+                $transmission,
                 $participantKeyHash,
                 $currentUser['id'] ?? null,
             ),

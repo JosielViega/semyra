@@ -19,6 +19,13 @@ public static partial class DesktopMessage
     public const string AccountActivateResultType = "semyra.desktop.account.activate-result";
     public const string AccountClearType = "semyra.desktop.account.clear";
     public const string AccountClearResultType = "semyra.desktop.account.clear-result";
+    public const string HostLeaveType = "semyra.desktop.host.leave";
+    public const string HostLeaveResultType = "semyra.desktop.host.leave-result";
+    public const string WindowFullscreenStatusType = "semyra.desktop.window.fullscreen.status";
+    public const string WindowFullscreenStatusResultType = "semyra.desktop.window.fullscreen.status-result";
+    public const string WindowFullscreenSetType = "semyra.desktop.window.fullscreen.set";
+    public const string WindowFullscreenSetResultType = "semyra.desktop.window.fullscreen.set-result";
+    public const string WindowFullscreenChangedType = "semyra.desktop.window.fullscreen.changed";
     public const string IptvSourcesListType = "semyra.desktop.iptv.sources.list";
     public const string IptvSourcesListResultType = "semyra.desktop.iptv.sources.list-result";
     public const string IptvSourcesAddType = "semyra.desktop.iptv.sources.add";
@@ -84,6 +91,8 @@ public static partial class DesktopMessage
     public const string IptvPublishStopResultType = "semyra.desktop.iptv.publish.stop-result";
     public const string IptvPublishStatusType = "semyra.desktop.iptv.publish.status";
     public const string IptvPublishStatusResultType = "semyra.desktop.iptv.publish.status-result";
+    public const string IptvPublishControlType = "semyra.desktop.media.publish-control";
+    public const string IptvPublishControlResultType = "semyra.desktop.media.publish-control-result";
     public const int ProtocolVersion = 1;
 
     public static bool TryReadPlayerControlsVisibility(string json, out bool hidden)
@@ -151,7 +160,8 @@ public static partial class DesktopMessage
                 return false;
             }
 
-            if (type is PingType or HostStatusType or HostClearType or AccountClearType)
+            if (type is PingType or HostStatusType or HostClearType or AccountClearType
+                or HostLeaveType or WindowFullscreenStatusType)
             {
                 if (properties.Count != 2)
                 {
@@ -159,6 +169,16 @@ public static partial class DesktopMessage
                 }
 
                 request = new DesktopRequest(type, requestId);
+                return true;
+            }
+
+            if (type == WindowFullscreenSetType)
+            {
+                if (properties.Count != 3 || !TryBoolean(properties, "enabled", out var enabled))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(type, requestId, Window: new WindowRequest(enabled));
                 return true;
             }
 
@@ -193,13 +213,45 @@ public static partial class DesktopMessage
                 return true;
             }
 
+            if (type == IptvPublishControlType)
+            {
+                if (!TryAccountContext(properties, out var contextId)
+                    || !TryString(properties, "action", out var action)
+                    || action is not ("play" or "pause" or "seek" or "snapshot")
+                    || !TryString(properties, "transmissionInstanceId", out var controlInstanceId)
+                    || !InstanceIdPattern().IsMatch(controlInstanceId)
+                    || !TryPositiveInt64(properties, "transmissionRevision", out var transmissionRevision)) return false;
+                long? positionMs = null;
+                if (action == "seek")
+                {
+                    if (properties.Count != 7 || !TryNonNegativeInt64(properties, "positionMs", out var position)) return false;
+                    positionMs = position;
+                }
+                else if (properties.Count != 6) return false;
+                request = new DesktopRequest(type, requestId, Media: new MediaRequest(
+                    AccountContextId: contextId,
+                    Action: action,
+                    PositionMs: positionMs,
+                    TransmissionInstanceId: controlInstanceId,
+                    TransmissionRevision: transmissionRevision));
+                return true;
+            }
+
             if (type is IptvPublishStartType or IptvViewStartType)
             {
-                if (properties.Count != 4 || !TryPositiveInt64(properties, "channelId", out var channelId) || !TryAccountContext(properties, out var contextId))
+                if (!TryAccountContext(properties, out var contextId))
                 {
                     return false;
                 }
-                request = new DesktopRequest(type, requestId, Media: new MediaRequest(channelId, contextId));
+                if (type == IptvPublishStartType && properties.Count == 5
+                    && TryString(properties, "kind", out var publishKind) && publishKind is "movie" or "episode"
+                    && TryPositiveInt64(properties, "mediaId", out var publishMediaId))
+                {
+                    request = new DesktopRequest(type, requestId, Media: new MediaRequest(AccountContextId: contextId, Kind: publishKind, MediaId: publishMediaId));
+                    return true;
+                }
+                if (properties.Count != 4 || !TryPositiveInt64(properties, "channelId", out var channelId)) return false;
+                request = new DesktopRequest(type, requestId, Media: new MediaRequest(ChannelId: channelId, AccountContextId: contextId));
                 return true;
             }
 
@@ -557,6 +609,16 @@ public static partial class DesktopMessage
 
         value = element.GetString() ?? string.Empty;
         return value.Length > 0;
+    }
+
+    private static bool TryNonNegativeInt64(IReadOnlyDictionary<string, JsonElement> properties, string name, out long value)
+    {
+        value = 0;
+        return properties.TryGetValue(name, out var element)
+            && element.ValueKind == JsonValueKind.Number
+            && element.TryGetInt64(out value)
+            && value >= 0
+            && value <= 315_576_000_000;
     }
 
     [GeneratedRegex("^[A-Za-z0-9._:-]{1,128}$", RegexOptions.CultureInvariant)]

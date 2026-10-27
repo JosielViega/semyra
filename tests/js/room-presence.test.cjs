@@ -172,7 +172,8 @@ const flush = async () => {
     scheduled.shift()();
     await flush();
     const vodEvent = dispatched.filter((event) => event.type === 'semyra:presence-updated').at(-1);
-    assert.equal(vodEvent.detail.transmission, null, 'IPTV VOD is not applicable in this stage');
+    assert.equal(vodEvent.detail.transmission.source, 'iptv');
+    assert.equal(vodEvent.detail.transmission.mediaMode, 'vod');
 
     assert.equal(source.includes('localStorage'), false);
     assert.equal(source.includes('sessionStorage'), false);

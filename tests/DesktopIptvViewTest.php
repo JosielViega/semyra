@@ -20,7 +20,7 @@ final class DesktopIptvViewTest extends TestCase
 
         self::assertStringContainsString('Abra esta página no Semyra Desktop', $html);
         self::assertStringContainsString('/assets/css/desktop-iptv.css?v=11l-b-dismiss-gate', $html);
-        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11l-b-dismiss-gate', $html);
+        self::assertStringContainsString('/assets/js/desktop-bridge.js?v=11m-c-round11', $html);
         self::assertStringContainsString('data-iptv-pick-file', $html);
         self::assertStringContainsString('data-iptv-url-form', $html);
         self::assertStringContainsString('data-iptv-settings', $html);

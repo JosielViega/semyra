@@ -37,7 +37,9 @@ public static class DesktopBridge
         string json,
         HostEngine hostEngine,
         Func<string?> pickM3uFile,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<bool>? getWindowFullscreen = null,
+        Action<bool>? setWindowFullscreen = null)
     {
         if (!DesktopMessage.TryReadRequest(json, out var request))
         {
@@ -47,6 +49,45 @@ public static class DesktopBridge
         if (request.Type == DesktopMessage.HostClearType)
         {
             return (true, await CreateHostClearResultAsync(request.RequestId, hostEngine));
+        }
+        if (request.Type == DesktopMessage.HostLeaveType)
+        {
+            hostEngine.ScheduleAuthorizationClear(TimeSpan.FromSeconds(5));
+            return (true, Success(DesktopMessage.HostLeaveResultType, request.RequestId, new { scheduled = true }));
+        }
+        if (request.Type is DesktopMessage.WindowFullscreenStatusType or DesktopMessage.WindowFullscreenSetType)
+        {
+            if (getWindowFullscreen is null || setWindowFullscreen is null)
+            {
+                return (true, Error(
+                    request.Type == DesktopMessage.WindowFullscreenSetType
+                        ? DesktopMessage.WindowFullscreenSetResultType
+                        : DesktopMessage.WindowFullscreenStatusResultType,
+                    request.RequestId,
+                    "window_fullscreen_unavailable"));
+            }
+            try
+            {
+                if (request.Type == DesktopMessage.WindowFullscreenSetType)
+                {
+                    setWindowFullscreen(request.Window!.Enabled!.Value);
+                }
+                return (true, Success(
+                    request.Type == DesktopMessage.WindowFullscreenSetType
+                        ? DesktopMessage.WindowFullscreenSetResultType
+                        : DesktopMessage.WindowFullscreenStatusResultType,
+                    request.RequestId,
+                    new { enabled = getWindowFullscreen() }));
+            }
+            catch
+            {
+                return (true, Error(
+                    request.Type == DesktopMessage.WindowFullscreenSetType
+                        ? DesktopMessage.WindowFullscreenSetResultType
+                        : DesktopMessage.WindowFullscreenStatusResultType,
+                    request.RequestId,
+                    "window_fullscreen_failed"));
+            }
         }
         if (request.Type == DesktopMessage.AccountActivateType)
         {
@@ -246,9 +287,12 @@ public static class DesktopBridge
             }
             var snapshot = request.Type switch
             {
-                DesktopMessage.IptvPublishStartType => await hostEngine.StartIptvPublishAsync(
-                    request.Media!.ChannelId!.Value,
-                    cancellationToken),
+                DesktopMessage.IptvPublishControlType => await hostEngine.ControlIptvVodPublishAsync(
+                    request.Media!.Action!, request.Media.PositionMs, request.Media.TransmissionInstanceId!,
+                    request.Media.TransmissionRevision!.Value, cancellationToken),
+                DesktopMessage.IptvPublishStartType => request.Media!.Kind is "movie" or "episode"
+                    ? await hostEngine.StartIptvVodPublishAsync(request.Media.Kind, request.Media.MediaId!.Value, cancellationToken)
+                    : await hostEngine.StartIptvPublishAsync(request.Media.ChannelId!.Value, cancellationToken),
                 DesktopMessage.IptvViewStopType => await hostEngine.StopIptvMediaAsync(),
                 DesktopMessage.IptvViewStatusType => hostEngine.IptvMediaSnapshot(),
                 DesktopMessage.IptvPublishStopType => await hostEngine.StopIptvMediaAsync(),
@@ -459,6 +503,13 @@ public static class DesktopBridge
         return JsonSerializer.Serialize(result, JsonOptions);
     }
 
+    public static string CreateWindowFullscreenChangedEvent(bool enabled) => JsonSerializer.Serialize(new
+    {
+        type = DesktopMessage.WindowFullscreenChangedType,
+        protocolVersion = DesktopMessage.ProtocolVersion,
+        enabled,
+    }, JsonOptions);
+
     private static string Error(string type, string requestId, string message)
     {
         return JsonSerializer.Serialize(new
@@ -573,6 +624,7 @@ public static class DesktopBridge
         DesktopMessage.IptvPublishStartType => DesktopMessage.IptvPublishStartResultType,
         DesktopMessage.IptvPublishStopType => DesktopMessage.IptvPublishStopResultType,
         DesktopMessage.IptvPublishStatusType => DesktopMessage.IptvPublishStatusResultType,
+        DesktopMessage.IptvPublishControlType => DesktopMessage.IptvPublishControlResultType,
         _ => "semyra.desktop.iptv.error",
     };
 }

@@ -69,7 +69,7 @@ final class RoomDesktopHostSessionController
             return $this->jsonError('transmission_not_found', 409);
         }
         if (($transmission['source_type'] ?? null) !== 'iptv'
-            || ($transmission['media_mode'] ?? null) !== 'live') {
+            || !in_array(($transmission['media_mode'] ?? null), ['live', 'vod'], true)) {
             return $this->jsonError('host_session_not_applicable', 409);
         }
         if (($transmission['owner_user_id'] ?? null) === null) {

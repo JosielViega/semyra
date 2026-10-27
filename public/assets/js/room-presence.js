@@ -75,7 +75,7 @@
             return null;
         }
         if (transmission.source === 'iptv') {
-            if (transmission.media_mode !== 'live'
+            if (!['live', 'vod'].includes(transmission.media_mode)
                 || (transmission.youtube_video_id !== null
                     && transmission.youtube_video_id !== undefined)) {
                 return null;
@@ -87,7 +87,7 @@
                 revision: transmission.revision,
                 ownerName: transmission.owner_name,
                 isOwner: transmission.is_owner,
-                mediaMode: 'live',
+                mediaMode: transmission.media_mode,
                 playback: {
                     state: ['playing', 'paused'].includes(playback?.state)
                         ? playback.state : 'playing',

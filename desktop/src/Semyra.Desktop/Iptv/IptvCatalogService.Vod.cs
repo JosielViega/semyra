@@ -104,7 +104,8 @@ public sealed partial class IptvCatalogService
 
     private IptvVodPlaybackTarget Target(IptvVodPlaybackItem item) => new(
         item.Id, item.SourceId, item.Name, ResolveVod(item), item.Kind == "movie" ? "movie" : "episode",
-        item.StableKey, item.SeriesStableKey, item.SeriesId, item.SeasonNumber, item.EpisodeNumber, _store.ResumePosition(item));
+        item.StableKey, item.SeriesStableKey, item.SeriesId, item.SeasonNumber, item.EpisodeNumber, _store.ResumePosition(item),
+        item.ContainerExtension);
 
     private Uri ResolveVod(IptvVodPlaybackItem item)
     { var config = GetXtreamConfiguration(item.SourceId); return new Uri(XtreamClient.BuildVodUrl(config, item.Kind, item.ExternalId, item.ContainerExtension)); }

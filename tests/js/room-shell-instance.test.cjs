@@ -51,6 +51,8 @@ const window = {
     matchMedia: () => ({matches: true}),
     setTimeout() { return 1; },
     clearTimeout() {},
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    dispatchEvent(event) { dispatched.push(event); listeners.get(event.type)?.(event); },
 };
 class CustomEvent {
     constructor(type, options) { this.type = type; this.detail = options?.detail; }

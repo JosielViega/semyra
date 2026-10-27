@@ -6,6 +6,9 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- Transmissões YouTube e IPTV agora são encerradas quando o owner fica sem instância ativa por 5 segundos; reloads e múltiplas abas sobrevivem pela mesma presença existente, e o `DELETE` é cercado atomicamente por sala, instância, revisão e identidade do owner.
+- O fullscreen da sala usa a Fullscreen API no navegador e a janela WPF no Semyra Desktop por capability allowlisted `window.fullscreen`, preservando monitor, bounds e estado maximizado sem reiniciar a mídia.
+- O catálogo de publicação IPTV separa poster, título, metadata e CTA em cards responsivos de Filmes/Séries; o seletor horizontal de temporadas permanece visível acima da lista rolável de episódios, sem regredir paginação ou layout de TV.
 - Minha IPTV agora separa corretamente os estados visuais, encerra a reprodução local ao sair da página, descarta respostas antigas do catálogo e mantém o refresh grande fora do contexto da UI.
 - Configurações IPTV agora bloqueiam operações concorrentes, importam novas fontes automaticamente, destacam a fonte em uso e exibem um loader contextual até o catálogo selecionado estar pronto.
 - Ingresses externos do bridge agora recebem uma geração por attempt, impedindo cleanup de lease expirada de atingir o recurso de uma lease posterior.
@@ -13,6 +16,11 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Controles compartilhados reais para o owner de IPTV VOD, com Play/Pause, seek, ±30 s e progresso consultado de um publisher GStreamer persistente e isolado no `Semyra.MediaHost`, cercado por Host Session, instância e revisão e sem URLs em argv, DOM ou respostas.
+- Pause de IPTV VOD congela somente a timeline de conteúdo; um pipeline de publicação separado mantém RTP/WHIP monotônico com o último frame e silêncio, evitando drift A/V cumulativo nos receivers. As transições aguardam os estados reais do GStreamer e seek continua republicando com posicionamento preciso.
+- A ponte de áudio da publicação VOD agora fixa PCM `S16LE`, 48 kHz, estéreo interleaved nos dois lados do `interaudio` e usa reserva coerente de 200/40/10 ms, eliminando renegociação implícita e saltos de amostra observados no gate técnico sem reiniciar Opus/RTP.
+- A transmissão IPTV da sala agora oferece catálogo cinematográfico com TV ao vivo, Filmes e Séries, detalhes lazy de temporadas/episódios e publicação VOD Premium por ID opaco. Filmes MP4/H.264/AAC usam proxy loopback efêmero e pipeline GStreamer/WHIP dedicado, sem expor URL ou credenciais do provider ao JavaScript ou ao backend.
+- O gate humano de publicação corrigiu os formulários IPTV independentes do YouTube, scroll/paginação do catálogo, UTF-8 e seleção real de temporadas; VOD preserva pacing pelo GstClock e TV ao vivo mantém o pacing da fonte. Nos dois casos, o vídeo H.264 é normalizado localmente por `x264enc` em constrained-baseline, sem B-frames e com GOP curto antes do WHIP, evitando depender da compatibilidade WebRTC variável do encoder do provider.
 - Publicação IPTV productizada na sala do Desktop: a aba distingue conta Free, runtime WHIP indisponível e publicação Premium pronta; o catálogo Live é carregado uma vez por contexto e o launcher local valida PHP, MySQL, MPV, GStreamer e `whipsink` antes do gate manual.
 - Entitlement Premium simples por conta, com badge, gate autoritativo e defesa em profundidade para publicação IPTV em sala, sem restringir IPTV local, YouTube ou viewers e sem adicionar billing. A fundação técnica WHIP/LiveKit permanece condicionada às capabilities nativas.
 

@@ -34,6 +34,7 @@ final class RoomParticipantRepositoryTest extends TestCase
         self::assertSame($instanceHash, $this->pdo->instanceHash());
         self::assertNotContains($nonce, $this->pdo->allParameterValues());
         self::assertSame(2, $this->pdo->registrationCount);
+        self::assertStringContainsString('player_left_at = NULL', $this->pdo->lastQuery);
     }
 
     public function testNewNonceHashReplacesInstanceAndNormalTouchDoesNotClearIt(): void
@@ -79,6 +80,7 @@ final class RoomParticipantRepositoryTest extends TestCase
         $this->pdo->put($instanceHash, true);
 
         self::assertTrue($this->repository->leavePlayerInstance(7, 'participant-hash', $instanceHash));
+        self::assertStringContainsString('player_left_at = CURRENT_TIMESTAMP(3)', $this->pdo->lastQuery);
         self::assertSame([], $this->repository->activeForRoom(7));
         self::assertSame($instanceHash, $this->pdo->instanceHash());
         self::assertFalse($this->pdo->hasTelemetry());
@@ -134,6 +136,20 @@ final class RoomParticipantRepositoryTest extends TestCase
             dirname(__DIR__) . '/database/migrations/2026_09_25_000004_extract_room_transmission.sql',
         ));
         self::assertStringNotContainsString('UNIQUE', $migration);
+    }
+
+    public function testLeaveGraceMigrationExtendsExistingPlayerInstanceModel(): void
+    {
+        $migration = file_get_contents(
+            dirname(__DIR__) . '/database/migrations/2026_10_27_000017_add_player_leave_grace.sql',
+        );
+
+        self::assertStringContainsString('ADD COLUMN player_left_at TIMESTAMP(3) NULL', $migration);
+        self::assertStringContainsString(
+            '(room_id, user_id, participant_key_hash, last_seen_at, player_left_at)',
+            $migration,
+        );
+        self::assertStringNotContainsString('CREATE TABLE', $migration);
     }
 }
 

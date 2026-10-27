@@ -26,6 +26,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private readonly TimeSpan _vodProgressInterval;
     private nint _nativeVideoHost;
     private bool _disposed;
+    private CancellationTokenSource? _authorizationClearCancellation;
 
     public HostEngine()
         : this(
@@ -211,12 +212,47 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         {
             return false;
         }
+        CancelScheduledAuthorizationClear();
         _authorization = authorization;
         return true;
     }
 
+    public void ScheduleAuthorizationClear(TimeSpan delay)
+    {
+        if (delay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(delay));
+        CancelScheduledAuthorizationClear();
+        var cancellation = new CancellationTokenSource();
+        _authorizationClearCancellation = cancellation;
+        _ = ClearAuthorizationAfterAsync(delay, cancellation);
+    }
+
+    private async Task ClearAuthorizationAfterAsync(TimeSpan delay, CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(delay, cancellation.Token);
+            if (ReferenceEquals(_authorizationClearCancellation, cancellation))
+            {
+                _authorizationClearCancellation = null;
+                await ClearAuthorizationAsync();
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private void CancelScheduledAuthorizationClear()
+    {
+        var cancellation = Interlocked.Exchange(ref _authorizationClearCancellation, null);
+        cancellation?.Cancel();
+    }
+
     public async Task ClearAuthorizationAsync()
     {
+        CancelScheduledAuthorizationClear();
         var media = _media?.Snapshot().Mode == "publish" ? _media : null;
         _authorization = null;
         if (media is not null)
@@ -231,7 +267,8 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         _authorization,
         _accountContextId is not null,
         _media?.Runtime.IsWhipAvailable == true,
-        MpvReady);
+        MpvReady,
+        _media?.Runtime.IsVodPublishAvailable == true);
 
     public IReadOnlyList<IptvSourceSummary> ListIptvSources() => Catalog().ListSources();
     public IptvSourceSummary AddIptvUrl(string name, string location) => Catalog().AddUrlSource(name, location);
@@ -322,6 +359,19 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         return await Media().StartPublishAsync(channelId, () => _authorization, cancellationToken);
     }
 
+    public async Task<MediaSnapshot> StartIptvVodPublishAsync(string kind, long mediaId, CancellationToken cancellationToken)
+    {
+        if (_authorization is null || _authorization.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            throw new MediaEngineException("host_authorization_required");
+        }
+        if (kind is not ("movie" or "episode")) throw new MediaEngineException("invalid_media_kind");
+        FlushVodProgress();
+        CancelVodProgressLoop();
+        if (_mpvPlayer is not null && _mpvPlayer.Snapshot().State != "idle") await _mpvPlayer.StopAsync();
+        return await Media().StartVodPublishAsync(kind, mediaId, () => _authorization, cancellationToken);
+    }
+
     public async Task<MediaSnapshot> StopIptvMediaAsync()
     {
         if (_mpvPlayer is not null && _mpvPlayer.Snapshot().State != "idle")
@@ -334,6 +384,22 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         _mpvPlayer is not null && _mpvPlayer.Snapshot().State != "idle"
             ? _mpvPlayer.Snapshot()
             : _media?.Snapshot() ?? MediaSnapshot.Idle);
+
+    public Task<MediaSnapshot> ControlIptvVodPublishAsync(
+        string action,
+        long? positionMs,
+        string transmissionInstanceId,
+        long transmissionRevision,
+        CancellationToken cancellationToken)
+    {
+        var authorization = _authorization;
+        if (authorization is null || authorization.ExpiresAt <= DateTimeOffset.UtcNow)
+            throw new MediaEngineException("host_authorization_required");
+        if (!string.Equals(authorization.TransmissionInstanceId, transmissionInstanceId, StringComparison.Ordinal)
+            || authorization.TransmissionRevision != transmissionRevision)
+            throw new MediaEngineException("transmission_changed");
+        return Media().ControlVodPublishAsync(action, positionMs, authorization, cancellationToken);
+    }
 
     internal async Task<MediaSnapshot> ControlMpvAsync(string sessionId, string command, double? value, CancellationToken cancellationToken)
     {
@@ -495,6 +561,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
             return;
         }
         _disposed = true;
+        CancelScheduledAuthorizationClear();
         try
         {
             await StopAsync();

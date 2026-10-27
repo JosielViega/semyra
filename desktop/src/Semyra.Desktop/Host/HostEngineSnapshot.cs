@@ -14,19 +14,20 @@ public sealed record HostEngineSnapshot(
     HostAuthorizationSnapshot Authorization)
 {
     private static readonly ReadOnlyCollection<string> SupportedCapabilities =
-        Array.AsReadOnly(["host.status", "host.authorize", "iptv.sources", "iptv.catalog"]);
+        Array.AsReadOnly(["host.status", "host.authorize", "window.fullscreen", "iptv.sources", "iptv.catalog"]);
 
     public static HostEngineSnapshot Create(
         HostEngineState state,
         HostAuthorization? authorization,
         bool accountActive = false,
         bool whipAvailable = false,
-        bool localViewAvailable = false)
+        bool localViewAvailable = false,
+        bool vodPublishAvailable = false)
     {
         IReadOnlyList<string> capabilities;
         if (!accountActive)
         {
-            capabilities = Array.AsReadOnly(["host.status", "host.authorize"]);
+            capabilities = Array.AsReadOnly(["host.status", "host.authorize", "window.fullscreen"]);
         }
         else
         {
@@ -36,6 +37,7 @@ public sealed record HostEngineSnapshot(
             {
                 available.Add("media.whip");
                 available.Add("livekit.publish");
+                if (vodPublishAvailable) available.Add("livekit.publish-vod");
             }
             capabilities = available.AsReadOnly();
         }

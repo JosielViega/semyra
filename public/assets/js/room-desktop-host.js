@@ -43,7 +43,7 @@
 
     const contextKey = (value) => `${value.instanceId}:${value.revision}`;
     const eligible = (value) => value?.source === 'iptv'
-        && value?.mediaMode === 'live'
+        && ['live', 'vod'].includes(value?.mediaMode)
         && value?.isOwner === true
         && typeof value?.instanceId === 'string'
         && /^[a-f0-9]{32}$/.test(value.instanceId)
@@ -173,5 +173,10 @@
     window.addEventListener('semyra:transmission-updated', (event) => {
         transmission = event.detail ?? null;
         void apply();
+    });
+    window.addEventListener('pagehide', () => {
+        if (eligible(transmission)) {
+            window.dispatchEvent(new CustomEvent('semyra:host-leave-request'));
+        }
     });
 })();

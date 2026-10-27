@@ -37,6 +37,7 @@ use App\Services\RoomParticipantSession;
 use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomTransmissionPresenter;
 use App\Services\RoomTransmissionPlayback;
+use App\Services\RoomTransmissionLifecycle;
 use App\Services\YouTubeUrlParser;
 use App\Services\MediaBridgeCoordinator;
 use App\Services\MediaBridgeWorkerAuthenticator;
@@ -89,6 +90,7 @@ $participantSession = new RoomParticipantSession($app['session']);
 $playbackTelemetry = new RoomPlaybackTelemetry();
 $transmissionPresenter = new RoomTransmissionPresenter();
 $transmissionPlayback = new RoomTransmissionPlayback();
+$transmissionLifecycle = new RoomTransmissionLifecycle($transmissionRepository);
 $rooms = new RoomController(
     $app['request'],
     $app['view'],
@@ -104,6 +106,7 @@ $rooms = new RoomController(
     $authSession,
     $userRoomRepository,
     $premiumAccess,
+    $transmissionLifecycle,
 );
 $myRooms = new MyRoomsController(
     $app['view'],
@@ -130,6 +133,7 @@ $roomParticipants = new RoomParticipantController(
     $userRepository,
     $userRoomRepository,
     $authSession,
+    $transmissionLifecycle,
 );
 $roomTransmissions = new RoomTransmissionController(
     $app['request'],

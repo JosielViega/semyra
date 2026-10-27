@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semyra.Desktop", "src\Semyr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semyra.Desktop.Tests", "tests\Semyra.Desktop.Tests\Semyra.Desktop.Tests.csproj", "{4DAE4B89-A91B-41F2-BDF1-792CD36E0AC0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Semyra.MediaHost", "src\Semyra.MediaHost\Semyra.MediaHost.csproj", "{34CC4D6F-CA59-4C52-AF3C-4C2627DFF427}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -20,5 +22,9 @@ Global
 		{4DAE4B89-A91B-41F2-BDF1-792CD36E0AC0}.Debug|x64.Build.0 = Debug|x64
 		{4DAE4B89-A91B-41F2-BDF1-792CD36E0AC0}.Release|x64.ActiveCfg = Release|x64
 		{4DAE4B89-A91B-41F2-BDF1-792CD36E0AC0}.Release|x64.Build.0 = Release|x64
+		{34CC4D6F-CA59-4C52-AF3C-4C2627DFF427}.Debug|x64.ActiveCfg = Debug|x64
+		{34CC4D6F-CA59-4C52-AF3C-4C2627DFF427}.Debug|x64.Build.0 = Debug|x64
+		{34CC4D6F-CA59-4C52-AF3C-4C2627DFF427}.Release|x64.ActiveCfg = Release|x64
+		{34CC4D6F-CA59-4C52-AF3C-4C2627DFF427}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 EndGlobal

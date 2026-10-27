@@ -125,11 +125,17 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     <span class="room-player-status" id="livekit-player-status" role="status" aria-live="polite" hidden></span>
                 </div>
                 <div class="room-player-bar">
-                <div class="room-shared-playback" data-shared-playback-controls<?= ($transmission['source'] ?? null) !== 'youtube' ? ' hidden' : '' ?>>
+                <?php $showSharedPlayback = ($transmission['source'] ?? null) === 'youtube'
+                    || (($transmission['source'] ?? null) === 'iptv'
+                        && ($transmission['media_mode'] ?? null) === 'vod'
+                        && ($transmission['is_owner'] ?? false)); ?>
+                <div class="room-shared-playback" data-shared-playback-controls<?= !$showSharedPlayback ? ' hidden' : '' ?>>
                     <button type="button" class="room-icon-button" data-playback-sync aria-label="Sincronizar reprodução" hidden><svg class="room-icon" aria-hidden="true"><use href="#room-icon-sync"></use></svg></button>
                     <button type="button" class="room-icon-button" data-playback-toggle aria-label="<?= $initialPlaying ? 'Pausar' : 'Reproduzir' ?> transmissão" data-state="<?= $initialPlaying ? 'playing' : 'paused' ?>"><svg class="room-icon" data-icon-play aria-hidden="true"<?= $initialPlaying ? ' hidden' : '' ?>><use href="#room-icon-play"></use></svg><svg class="room-icon" data-icon-pause aria-hidden="true"<?= $initialPlaying ? '' : ' hidden' ?>><use href="#room-icon-pause"></use></svg></button>
+                    <button type="button" class="room-icon-button" data-playback-relative="-30000" aria-label="Voltar 30 segundos">−30</button>
                     <label class="room-visually-hidden" for="room-playback-seek">Posição da transmissão</label>
                     <input id="room-playback-seek" data-playback-seek type="range" min="0" max="0" step="1" value="0">
+                    <button type="button" class="room-icon-button" data-playback-relative="30000" aria-label="Avançar 30 segundos">+30</button>
                     <output class="room-playback-time"><span data-playback-current>00:00</span><span data-playback-separator> / </span><span data-playback-duration>00:00</span></output>
                     <button type="button" class="room-live-button" data-playback-live hidden>AO VIVO</button>
                     <span class="room-playback-feedback" data-playback-status role="status" aria-live="polite"></span>
@@ -211,37 +217,40 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         </div>
 
         <dialog id="room-transmission-dialog" class="room-dialog" aria-labelledby="transmission-dialog-title">
-            <form method="post" action="/room/<?= e($room['code']) ?>/transmission">
-                <?= $csrfField ?>
+            <div class="room-dialog-frame">
                 <div class="room-dialog-heading">
                     <div><p class="room-kicker" data-transmission-kicker>YouTube</p><h2 id="transmission-dialog-title">Iniciar transmissão</h2></div>
                     <button type="button" class="room-close-button" data-close-transmission aria-label="Cancelar"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button>
                 </div>
                 <p class="room-replace-warning" data-replace-warning<?= $transmission === null ? ' hidden' : '' ?>><strong data-replace-owner><?= e($transmission['owner_name'] ?? 'Participante') ?></strong> está transmitindo. Iniciar sua transmissão substituirá a transmissão atual.</p>
-                <?php if (is_array($currentUser)): ?><div class="room-source-tabs" data-desktop-publish-tabs hidden><button type="button" class="room-secondary-button" data-source-tab="youtube">YouTube</button><button type="button" class="room-secondary-button" data-source-tab="iptv"><?= $canPublishIptv ? 'IPTV' : 'IPTV · Premium' ?></button></div><?php endif; ?>
-                <div data-youtube-source-panel>
-                <label for="youtube-url">Link do YouTube</label>
-                <input id="youtube-url" name="youtube_url" type="url" maxlength="2048" placeholder="https://youtube.com/watch?v=..." required>
-                <fieldset class="room-media-mode">
-                    <legend>Tipo de conteúdo</legend>
-                    <label><input type="radio" name="media_mode" value="vod" checked> <span>Vídeo</span></label>
-                    <label><input type="radio" name="media_mode" value="live"> <span>Ao vivo</span></label>
-                </fieldset></div>
-                <?php if (is_array($currentUser)): ?><section class="room-iptv-publish" data-iptv-source-panel hidden><?php if ($canPublishIptv): ?><div class="room-iptv-publish-controls" data-room-iptv-controls><label for="room-iptv-source">Fonte IPTV</label><select id="room-iptv-source" data-room-iptv-source></select><label for="room-iptv-group">Grupo</label><select id="room-iptv-group" data-room-iptv-group><option value="">Todos</option></select><label for="room-iptv-search">Buscar canal ao vivo</label><input id="room-iptv-search" type="search" maxlength="120" data-room-iptv-search><button type="button" class="room-secondary-button" data-room-iptv-find>Buscar</button><div class="room-iptv-results" data-room-iptv-results></div></div><div class="room-runtime-notice" data-room-iptv-unavailable hidden><strong>Publicação IPTV indisponível neste Desktop.</strong><span>O runtime de publicação WHIP não está disponível.</span></div><p role="status" aria-live="polite" data-room-iptv-status></p><?php else: ?><p class="room-premium-notice" role="status" data-room-iptv-status>Transmitir sua IPTV para a sala é um recurso Premium. Sua IPTV local continua disponível no Semyra Desktop.</p><?php endif; ?></section><?php endif; ?>
-                <div class="room-dialog-actions"><button type="button" class="room-secondary-button" data-close-transmission>Cancelar</button><button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg><span>Iniciar minha transmissão</span></button></div>
-            </form>
+                <?php if (is_array($currentUser)): ?><div class="room-source-tabs" data-desktop-publish-tabs role="tablist" aria-label="Fonte da transmissão" hidden><button type="button" class="room-secondary-button" role="tab" aria-selected="true" data-source-tab="youtube">YouTube</button><button type="button" class="room-secondary-button" role="tab" aria-selected="false" data-source-tab="iptv"><?= $canPublishIptv ? 'IPTV' : 'IPTV · Premium' ?></button></div><?php endif; ?>
+                <section class="room-youtube-source-panel" data-youtube-source-panel>
+                    <form id="room-youtube-transmission-form" data-youtube-transmission-form method="post" action="/room/<?= e($room['code']) ?>/transmission">
+                        <?= $csrfField ?>
+                        <label for="youtube-url">Link do YouTube</label>
+                        <input id="youtube-url" name="youtube_url" type="url" maxlength="2048" placeholder="https://youtube.com/watch?v=..." required>
+                        <fieldset class="room-media-mode">
+                            <legend>Tipo de conteúdo</legend>
+                            <label><input type="radio" name="media_mode" value="vod" checked> <span>Vídeo</span></label>
+                            <label><input type="radio" name="media_mode" value="live"> <span>Ao vivo</span></label>
+                        </fieldset>
+                        <div class="room-dialog-actions"><button type="button" class="room-secondary-button" data-close-transmission>Cancelar</button><button type="submit" class="room-text-button"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg><span>Iniciar minha transmissão</span></button></div>
+                    </form>
+                </section>
+                <?php if (is_array($currentUser)): ?><?php require __DIR__ . '/../partials/room-iptv-publish.php'; ?><?php endif; ?>
+            </div>
         </dialog>
     </main>
 
     <script src="/assets/js/room-media.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
-    <script src="/assets/js/room-livekit-player.js?v=10b21-instance" defer></script>
-    <script src="/assets/js/room-desktop-host.js?v=11m-b-product-publish" defer></script>
-    <script src="/assets/js/room-desktop-iptv.js?v=11m-b-product-publish" defer></script>
+    <script src="/assets/js/room-livekit-player.js?v=11m-c-audio-republish" defer></script>
+    <script src="/assets/js/room-desktop-host.js?v=11m-c-round11" defer></script>
+    <script src="/assets/js/room-desktop-iptv.js?v=11m-c-vod-controls" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
-    <script src="/assets/js/room-playback.js?v=10b21-instance" defer></script>
-    <script src="/assets/js/room-shell.js?v=10b21-instance" defer></script>
+    <script src="/assets/js/room-playback.js?v=11m-c-vod-controls-r7" defer></script>
+    <script src="/assets/js/room-shell.js?v=11m-c-round11" defer></script>
     <script src="/assets/js/room-wake-lock.js?v=8b-identity" defer></script>
-    <script src="/assets/js/room-presence.js?v=10b21-instance" defer></script>
+    <script src="/assets/js/room-presence.js?v=11m-c-round11" defer></script>
 <?php endif; ?>

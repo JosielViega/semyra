@@ -38,6 +38,9 @@
     let hasAppliedTransmission = false;
     let playbackInteraction = false;
     let localControlInteraction = false;
+    let desktopDetected = false;
+    let nativeFullscreenAvailable = false;
+    let nativeFullscreen = false;
 
     const anyInteractionOpen = () => (dialog instanceof HTMLDialogElement && dialog.open)
         || panels.some((panel) => !panel.hidden)
@@ -124,7 +127,25 @@
 
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
+            if (nativeFullscreenAvailable && nativeFullscreen) {
+                window.dispatchEvent(new CustomEvent('semyra:window-fullscreen-request', {
+                    detail: {enabled: false},
+                }));
+            }
             closePanels();
+        } else if (event.key?.toLowerCase() === 'f'
+            && nativeFullscreenAvailable
+            && !event.repeat
+            && !event.ctrlKey
+            && !event.altKey
+            && !event.metaKey
+            && !(dialog instanceof HTMLDialogElement && dialog.open)
+            && !(event.target instanceof Element
+                && event.target.closest('input, textarea, select, button, a, [contenteditable="true"], dialog'))) {
+            event.preventDefault();
+            window.dispatchEvent(new CustomEvent('semyra:window-fullscreen-request', {
+                detail: {enabled: !nativeFullscreen},
+            }));
         }
         revealHud();
     });
@@ -176,7 +197,29 @@
         }
     });
 
+    const updateFullscreenUi = (fullscreen) => {
+        fullscreenButton?.setAttribute('data-state', fullscreen ? 'fullscreen' : 'windowed');
+        fullscreenButton?.setAttribute(
+            'aria-label',
+            fullscreen ? 'Sair da tela cheia' : 'Entrar em tela cheia',
+        );
+        if (maximizeIcon) maximizeIcon.toggleAttribute('hidden', fullscreen);
+        if (minimizeIcon) minimizeIcon.toggleAttribute('hidden', !fullscreen);
+    };
+
     fullscreenButton?.addEventListener('click', async () => {
+        if (desktopDetected) {
+            if (nativeFullscreenAvailable) {
+                window.dispatchEvent(new CustomEvent('semyra:window-fullscreen-request', {
+                    detail: {enabled: !nativeFullscreen},
+                }));
+            } else {
+                fullscreenButton.dataset.error = 'unavailable';
+                fullscreenButton.setAttribute('aria-label', 'Tela cheia indisponível no Desktop');
+            }
+            revealHud();
+            return;
+        }
         try {
             if (document.fullscreenElement) {
                 await document.exitFullscreen();
@@ -190,19 +233,43 @@
     });
 
     document.addEventListener('fullscreenchange', () => {
+        if (nativeFullscreenAvailable) return;
         const fullscreen = document.fullscreenElement !== null;
-        fullscreenButton?.setAttribute('data-state', fullscreen ? 'fullscreen' : 'windowed');
-        fullscreenButton?.setAttribute(
-            'aria-label',
-            fullscreen ? 'Sair da tela cheia' : 'Entrar em tela cheia',
-        );
-        if (maximizeIcon) {
-            maximizeIcon.toggleAttribute('hidden', fullscreen);
-        }
-        if (minimizeIcon) {
-            minimizeIcon.toggleAttribute('hidden', !fullscreen);
+        updateFullscreenUi(fullscreen);
+    });
+
+    window.addEventListener('semyra:desktop-ready', () => {
+        desktopDetected = true;
+    });
+    window.addEventListener('semyra:host-ready', (event) => {
+        desktopDetected = true;
+        nativeFullscreenAvailable = Array.isArray(event.detail?.capabilities)
+            && event.detail.capabilities.includes('window.fullscreen');
+        if (nativeFullscreenAvailable) {
+            window.dispatchEvent(new CustomEvent('semyra:window-fullscreen-request'));
         }
     });
+    window.addEventListener('semyra:window-fullscreen-state', (event) => {
+        if (!nativeFullscreenAvailable) return;
+        if (event.detail?.ok !== true) {
+            fullscreenButton?.setAttribute('aria-label', 'Não foi possível alterar a tela cheia');
+            return;
+        }
+        nativeFullscreen = event.detail.enabled === true;
+        if (fullscreenButton) delete fullscreenButton.dataset.error;
+        updateFullscreenUi(nativeFullscreen);
+    });
+
+    const initialHostSnapshot = window.SemyraDesktopBridge?.getHostSnapshot?.();
+    if (window.SemyraDesktopBridge?.isReady?.() === true) {
+        desktopDetected = true;
+    }
+    if (Array.isArray(initialHostSnapshot?.capabilities)
+        && initialHostSnapshot.capabilities.includes('window.fullscreen')) {
+        desktopDetected = true;
+        nativeFullscreenAvailable = true;
+        window.dispatchEvent(new CustomEvent('semyra:window-fullscreen-request'));
+    }
 
     document.addEventListener('semyra:hud-interaction-start', () => {
         playbackInteraction = true;

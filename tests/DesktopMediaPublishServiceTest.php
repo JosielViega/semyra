@@ -41,6 +41,17 @@ final class DesktopMediaPublishServiceTest extends TestCase
         self::assertNotContains('BRIDGE', $gateway->deleted);
     }
 
+    public function testVodTransmissionCanCreateWhipIngress(): void
+    {
+        [$service, $token, $gateway, , , $pdo] = $this->fixture();
+        $pdo->transmission['media_mode'] = 'vod';
+
+        $result = $service->start($token, 7, self::INSTANCE, 3);
+
+        self::assertSame('INGRESS_NEW', $result['ingress_id']);
+        self::assertCount(1, $gateway->created);
+    }
+
     public function testChangedTransmissionAndInvalidTokenAreRejectedBeforeProvisioning(): void
     {
         [$service, $token, $gateway] = $this->fixture();

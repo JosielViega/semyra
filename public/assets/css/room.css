@@ -131,7 +131,8 @@ label { display: block; margin-bottom: .45rem; font-weight: 700; }
 
 .room-dialog { width: min(calc(100vw - 2rem), 31rem); max-height: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--room-border); border-radius: var(--radius-xl); color: var(--color-text); background: var(--color-surface); box-shadow: 0 2rem 6rem rgb(0 0 0 / 65%); }
 .room-dialog::backdrop { background: rgb(0 0 0 / 72%); backdrop-filter: blur(5px); }
-.room-dialog form { padding: clamp(1.25rem, 5vw, 2rem); }
+.room-dialog-frame { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 2rem); overflow: hidden; padding: clamp(1.25rem, 5vw, 2rem); }
+.room-youtube-source-panel form { padding: 0; }
 .room-dialog .room-kicker { margin: 0 0 .25rem; }
 .room-dialog label { margin-top: 1.25rem; }
 .room-replace-warning { margin: 1rem 0 0; padding: .8rem; border: 1px solid rgb(250 204 21 / 22%); border-radius: var(--radius-md); color: #fde68a; background: rgb(113 63 18 / 22%); }
@@ -184,4 +185,119 @@ label { display: block; margin-bottom: .45rem; font-weight: 700; }
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+
+/* 11M-C: cinematic room IPTV catalog */
+.room-dialog:has(.room-iptv-publish-modern:not([hidden])) { width: min(1080px, calc(100vw - 32px)); max-width: none; max-height: 90dvh; padding: 0; overflow: hidden; }
+.room-dialog:has(.room-iptv-publish-modern:not([hidden])) .room-dialog-frame { max-height: 90dvh; padding: 0; }
+.room-dialog:has(.room-iptv-publish-modern:not([hidden])) .room-dialog-heading, .room-dialog:has(.room-iptv-publish-modern:not([hidden])) .room-replace-warning, .room-dialog:has(.room-iptv-publish-modern:not([hidden])) .room-source-tabs { margin-inline: clamp(18px, 3vw, 34px); }
+.room-dialog:has(.room-iptv-publish-modern:not([hidden])) .room-dialog-heading { margin-top: clamp(18px, 3vw, 30px); }
+.room-source-tabs { display: flex; gap: .65rem; margin-block: .75rem; padding: 4px; border: 1px solid rgb(148 163 184 / 16%); border-radius: 14px; background: rgb(3 9 22 / 72%); }
+.room-source-tabs button { min-height: 40px; padding: 8px 18px; border: 0; border-radius: 10px; color: #9fb0ca; background: transparent; font-weight: 800; }
+.room-source-tabs button.is-active { color: #fff; background: linear-gradient(135deg, rgb(12 167 224 / 28%), rgb(124 58 237 / 28%)); box-shadow: inset 0 0 0 1px rgb(34 211 238 / 24%); }
+.room-iptv-publish-modern { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; padding: 0 clamp(18px, 3vw, 34px) 24px; }
+.room-iptv-publish-modern:focus-visible { outline: 2px solid #22d3ee; outline-offset: -2px; }
+.room-iptv-publish-modern::-webkit-scrollbar { width: 10px; }
+.room-iptv-publish-modern::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: rgb(71 100 140 / 75%); background-clip: padding-box; }
+.room-iptv-publish-controls { display: flex; flex: 1 1 auto; flex-direction: column; gap: 16px; min-height: 0; }
+.room-iptv-header { position: sticky; top: 0; z-index: 4; display: flex; align-items: end; justify-content: space-between; gap: 20px; padding: 18px 0 12px; background: linear-gradient(#081120 78%, transparent); }
+.room-iptv-header > div { display: grid; gap: 3px; }
+.room-iptv-header strong { font-size: 1.15rem; }
+.room-iptv-header label { display: grid; gap: 6px; min-width: min(320px, 42vw); margin: 0; color: #91a4c0; font-size: .78rem; font-weight: 700; }
+.room-iptv-header select, .room-iptv-toolbar select, .room-iptv-toolbar input { width: 100%; min-width: 0; min-height: 44px; border: 1px solid rgb(148 163 184 / 20%); border-radius: 11px; color: #eef6ff; background: #0b1629; padding: 9px 12px; outline: none; }
+.room-iptv-header select:focus-visible, .room-iptv-toolbar select:focus-visible, .room-iptv-toolbar input:focus-visible { border-color: #22d3ee; box-shadow: 0 0 0 3px rgb(34 211 238 / 14%); }
+.room-iptv-tabs { position: sticky; top: 78px; z-index: 3; display: flex; gap: 6px; padding: 5px; border: 1px solid rgb(148 163 184 / 15%); border-radius: 14px; background: rgb(6 14 28 / 94%); backdrop-filter: blur(14px); }
+.room-iptv-tab { flex: 1; min-height: 42px; border: 0; border-radius: 10px; color: #8fa2be; background: transparent; font-weight: 850; }
+.room-iptv-tab.is-active { color: #fff; background: linear-gradient(120deg, rgb(0 180 235 / 24%), rgb(146 46 220 / 24%)); box-shadow: inset 0 0 0 1px rgb(34 211 238 / 25%); }
+.room-iptv-tab:focus-visible, .room-iptv-poster-card button:focus-visible, .room-iptv-live-card button:focus-visible, .room-iptv-back:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+.room-iptv-catalog { display: flex; flex: 1 1 auto; flex-direction: column; gap: 15px; min-height: 0; padding-top: 4px; }
+.room-iptv-toolbar { display: grid; grid-template-columns: minmax(220px, 1.45fr) minmax(180px, 1fr) auto; gap: 10px; align-items: end; padding: 14px; border: 1px solid rgb(148 163 184 / 14%); border-radius: 15px; background: rgb(11 22 41 / 68%); }
+.room-iptv-toolbar label { display: grid; gap: 6px; margin: 0; color: #91a4c0; font-size: .76rem; font-weight: 750; }
+.room-iptv-toolbar button { min-height: 44px; }
+.room-iptv-catalog-scroller { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 0 2px 16px; touch-action: pan-y; scrollbar-color: rgb(71 100 140 / 75%) transparent; scrollbar-width: thin; }
+.room-iptv-catalog-scroller:focus-visible { outline: 2px solid #22d3ee; outline-offset: -2px; }
+.room-iptv-catalog-scroller::-webkit-scrollbar { width: 10px; }
+.room-iptv-catalog-scroller::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: rgb(71 100 140 / 75%); background-clip: padding-box; }
+.room-iptv-grid { display: grid; grid-auto-rows: max-content; gap: 12px; min-width: 0; overflow: visible; }
+.room-iptv-grid-live { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.room-iptv-grid-posters { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.room-iptv-live-card { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 11px; align-items: center; min-width: 0; padding: 11px; border: 1px solid rgb(148 163 184 / 15%); border-radius: 15px; background: linear-gradient(145deg, rgb(16 30 52 / 94%), rgb(6 13 27 / 98%)); transition: transform .18s ease, border-color .18s ease; }
+.room-iptv-live-card:hover { transform: translateY(-2px); border-color: rgb(34 211 238 / 38%); }
+.room-iptv-channel-art { display: grid; width: 56px; height: 56px; overflow: hidden; place-items: center; border-radius: 13px; background: radial-gradient(circle at 25% 20%, rgb(34 211 238 / 24%), transparent 48%), #0a162b; }
+.room-iptv-channel-art img, .room-iptv-detail-poster img { width: 100%; height: 100%; object-fit: contain; }
+.room-iptv-image-fallback { color: #67e8f9; font-size: 1.35rem; font-weight: 900; }
+.room-iptv-card-copy { display: grid; gap: 4px; min-width: 0; }
+.room-iptv-card-copy strong, .room-iptv-card-copy span { overflow: hidden; text-overflow: ellipsis; }
+.room-iptv-live-card .room-iptv-card-copy strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
+.room-iptv-card-copy span { color: #8da0bb; font-size: .76rem; }
+.room-iptv-live-card .room-text-button { min-width: 0; padding: 9px 12px; font-size: .76rem; }
+.room-iptv-poster-card { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; overflow: hidden; border: 1px solid rgb(148 163 184 / 15%); border-radius: 15px; color: inherit; background: linear-gradient(145deg, rgb(16 30 52 / 94%), rgb(6 13 27 / 98%)); text-align: left; transition: transform .2s ease, border-color .2s ease; }
+.room-iptv-poster-card:hover { transform: translateY(-4px); border-color: rgb(139 92 246 / 56%); }
+.room-iptv-poster { display: grid; aspect-ratio: 2 / 3; overflow: hidden; place-items: center; border-radius: 14px 14px 0 0; background: radial-gradient(circle at 28% 18%, rgb(34 211 238 / 20%), transparent 42%), radial-gradient(circle at 80% 85%, rgb(168 85 247 / 22%), transparent 45%), #071225; }
+.room-iptv-poster img { width: 100%; height: 100%; object-fit: cover; }
+.room-iptv-poster .room-iptv-image-fallback { font-size: 2.7rem; }
+.room-iptv-poster-content { display: grid; grid-template-rows: auto auto 1fr; gap: 7px; min-width: 0; padding: 12px; }
+.room-iptv-poster-title { display: -webkit-box; min-height: 2.7em; margin: 0; overflow: hidden; color: #f4f8ff; font-size: .9rem; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.room-iptv-poster-meta { align-self: start; margin: 0; overflow: hidden; color: #8da0bb; font-size: .74rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.room-iptv-card-action { align-self: end; width: 100%; min-height: 38px; margin-top: 3px; padding: 8px 10px; font-size: .76rem; }
+.room-iptv-pagination { position: relative; z-index: 1; display: flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 12px; min-height: 58px; padding: 8px; border-top: 1px solid rgb(148 163 184 / 14%); color: #8da0bb; background: rgb(6 14 28 / 96%); font-size: .78rem; }
+.room-iptv-pagination button, .room-iptv-back { min-height: 38px; padding: 7px 12px; border: 1px solid rgb(148 163 184 / 17%); border-radius: 10px; color: #dbeafe; background: #0b1629; }
+.room-iptv-pagination button:disabled { opacity: .38; }
+.room-iptv-empty { grid-column: 1 / -1; display: grid; align-content: center; justify-items: center; gap: 6px; min-height: 210px; padding: 24px; border: 1px dashed rgb(148 163 184 / 21%); border-radius: 16px; color: #8da0bb; text-align: center; }
+.room-iptv-empty strong { color: #e8f1ff; font-size: 1.05rem; }
+.room-iptv-skeleton { min-height: 82px; border-radius: 15px; background: linear-gradient(100deg, rgb(18 33 57 / 72%) 20%, rgb(40 63 93 / 74%) 42%, rgb(18 33 57 / 72%) 64%); background-size: 240% 100%; animation: room-iptv-shimmer 1.3s linear infinite; }
+.room-iptv-skeleton.is-poster { min-height: 260px; }
+.room-iptv-skeleton.is-detail { min-height: 360px; }
+@keyframes room-iptv-shimmer { to { background-position: -200% 0; } }
+.room-iptv-series-detail { display: flex; flex: 1 1 auto; flex-direction: column; gap: 18px; min-height: 0; overflow: visible; padding-bottom: 4px; }
+.room-iptv-series-hero { display: grid; flex: 0 0 auto; grid-template-columns: 180px minmax(0, 1fr); gap: 24px; padding: 18px; border: 1px solid rgb(148 163 184 / 15%); border-radius: 17px; background: linear-gradient(140deg, rgb(13 28 49 / 90%), rgb(8 13 28 / 95%)); }
+.room-iptv-detail-poster { display: grid; aspect-ratio: 2 / 3; overflow: hidden; place-items: center; border-radius: 13px; background: #081326; }
+.room-iptv-detail-poster img { object-fit: cover; }
+.room-iptv-series-copy { display: grid; align-content: center; gap: 9px; }
+.room-iptv-series-copy h3 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.8rem); }
+.room-iptv-series-copy p { margin: 0; color: #a8b7cc; line-height: 1.55; }
+.room-iptv-meta { color: #67e8f9 !important; font-size: .82rem; }
+.room-iptv-season-tabs { position: relative; z-index: 1; display: flex; flex: 0 0 auto; align-items: center; gap: 8px; width: 100%; max-width: 100%; min-height: 58px; overflow-x: auto; overflow-y: visible; padding: 8px 2px 10px; scrollbar-width: thin; }
+.room-iptv-season-tab { flex: 0 0 auto; min-height: 40px; padding: 7px 14px; border: 1px solid rgb(148 163 184 / 18%); border-radius: 999px; color: #a9b8cc; background: #0b1629; font-weight: 800; }
+.room-iptv-season-tab[aria-selected="true"] { border-color: rgb(34 211 238 / 45%); color: #fff; background: linear-gradient(120deg, rgb(0 180 235 / 24%), rgb(146 46 220 / 24%)); }
+.room-iptv-season-tab:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+.room-iptv-season { display: flex; flex: 1 1 auto; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden; }
+.room-iptv-season h4 { margin: 0; }
+.room-iptv-episode-list { display: grid; flex: 1 1 auto; gap: 8px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 2px 16px; }
+.room-iptv-episode { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid rgb(148 163 184 / 13%); border-radius: 13px; background: rgb(8 18 35 / 78%); }
+.room-iptv-episode > div { display: grid; gap: 4px; }
+.room-iptv-episode span { color: #8da0bb; font-size: .76rem; }
+.room-iptv-status { min-height: 1.4em; margin: 0; color: #a5f3fc; }
+.room-iptv-dialog-actions { position: relative; z-index: 1; display: flex; flex: 0 0 auto; justify-content: flex-end; margin: 0 -1px; padding: 14px 0 0; background: linear-gradient(transparent, #07101f 35%); }
+.room-iptv-dialog-actions button { min-width: 9rem; }
+[data-playback-relative] { width: auto; min-width: 48px; padding-inline: 8px; font-size: .72rem; font-weight: 850; }
+[data-iptv-series-browser] { display: flex; flex: 1 1 auto; flex-direction: column; gap: 15px; min-height: 0; }
+
+@media (max-width: 860px) {
+    .room-iptv-grid-live { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .room-iptv-grid-posters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+    .room-iptv-grid-posters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+    .room-dialog:has(.room-iptv-publish-modern:not([hidden])) { width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
+    .room-dialog:has(.room-iptv-publish-modern:not([hidden])) .room-dialog-frame { max-height: 100dvh; }
+    .room-iptv-publish-modern { padding-inline: 14px; }
+    .room-iptv-header { align-items: stretch; flex-direction: column; }
+    .room-iptv-header label { min-width: 0; }
+    .room-iptv-tabs { top: 126px; overflow-x: auto; }
+    .room-iptv-tab { min-width: 110px; }
+    .room-iptv-toolbar { grid-template-columns: 1fr; }
+    .room-iptv-grid-live { grid-template-columns: 1fr; }
+    .room-iptv-grid-posters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .room-iptv-live-card { grid-template-columns: 48px minmax(0, 1fr) auto; }
+    .room-iptv-channel-art { width: 48px; height: 48px; }
+    .room-iptv-series-hero { grid-template-columns: 96px minmax(0, 1fr); gap: 14px; padding: 13px; }
+    .room-iptv-series-copy h3 { font-size: 1.35rem; }
+    .room-iptv-episode { grid-template-columns: 1fr; }
+    .room-iptv-episode button { width: 100%; }
+    .room-iptv-skeleton.is-poster { min-height: 220px; }
 }

@@ -46,7 +46,8 @@ public sealed record IptvSeriesDetails(long SeriesId, IReadOnlyList<IptvEpisodeS
 internal sealed record IptvVodPlaybackItem(long Id, long SourceId, string Name, string ExternalId, string? ContainerExtension,
     string Kind, string StableKey, string? SeriesStableKey = null, long? SeriesId = null, int? SeasonNumber = null, int? EpisodeNumber = null);
 internal sealed record IptvVodPlaybackTarget(long Id, long SourceId, string Name, Uri StreamUri, string Kind,
-    string StableKey, string? SeriesStableKey, long? SeriesId, int? SeasonNumber, int? EpisodeNumber, double ResumePosition);
+    string StableKey, string? SeriesStableKey, long? SeriesId, int? SeasonNumber, int? EpisodeNumber, double ResumePosition,
+    string? ContainerExtension = null);
 public sealed record IptvContinueMovie(long Id, string Name, string? PosterUrl, string? Year, double Position,
     double Duration, double ProgressPercent, DateTimeOffset LastWatchedAt);
 public sealed record IptvContinueSeries(long SeriesId, string Name, string? PosterUrl, long EpisodeId,

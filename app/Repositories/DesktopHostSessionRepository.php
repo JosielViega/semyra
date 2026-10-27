@@ -34,7 +34,7 @@ final class DesktopHostSessionRepository
             . 'WHERE transmission.room_id = :room_id '
             . 'AND transmission.instance_id = :transmission_instance_id '
             . 'AND transmission.revision = :transmission_revision '
-            . "AND transmission.source_type = 'iptv' AND transmission.media_mode = 'live' "
+            . "AND transmission.source_type = 'iptv' AND transmission.media_mode IN ('live', 'vod') "
             . 'AND ((transmission.owner_user_id IS NOT NULL AND transmission.owner_user_id = :owner_user_id) '
             . 'OR (transmission.owner_user_id IS NULL '
             . 'AND transmission.owner_participant_key_hash = :owner_participant_key_hash))',

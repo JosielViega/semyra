@@ -6,5 +6,6 @@ public enum MediaState
     Preparing,
     Streaming,
     Reconnecting,
+    Ended,
     Failed,
 }

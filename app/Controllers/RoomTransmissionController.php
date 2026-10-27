@@ -114,13 +114,17 @@ final class RoomTransmissionController
         if (!$this->premiumAccess->canPublishIptv($currentUser)) {
             return Response::json(['error' => 'premium_required'], 403, ['Cache-Control' => 'no-store']);
         }
+        $requestedMode = $this->request->input('media_mode');
+        if (!is_string($requestedMode) || !in_array($requestedMode, ['live', 'vod'], true)) {
+            return Response::json(['error' => 'invalid_request'], 422, ['Cache-Control' => 'no-store']);
+        }
         $participantKeyHash = hash('sha256', $identity['participant_key']);
         $this->transmissions->startOrReplace(
             (int) $room['id'],
             $participantKeyHash,
             'iptv',
             null,
-            'live',
+            $requestedMode,
             $currentUser['id'] ?? null,
         );
         $current = $this->transmissions->findByRoom((int) $room['id']);
@@ -234,6 +238,12 @@ final class RoomTransmissionController
             return Response::json(['error' => 'owner_required'], 403);
         }
 
+        $source = (string) ($transmission['source'] ?? $transmission['source_type'] ?? '');
+        $mediaMode = (string) ($transmission['media_mode'] ?? '');
+        if (!($source === 'youtube' || ($source === 'iptv' && $mediaMode === 'vod'))) {
+            return Response::json(['error' => 'playback_control_unavailable'], 422);
+        }
+
         try {
             $command = $this->playback->normalizeCommand([
                 'action' => $this->request->input('action'),
@@ -243,7 +253,7 @@ final class RoomTransmissionController
                 'playback_revision' => $this->request->input('playback_revision'),
             ],
                 (string) $transmission['playback_state'],
-                (string) $transmission['media_mode'],
+                $mediaMode,
                 (int) $transmission['playback_position_ms'],
             );
         } catch (\InvalidArgumentException) {

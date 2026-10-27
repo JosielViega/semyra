@@ -33,6 +33,49 @@ public sealed class GStreamerRuntimeTests : IDisposable
     }
 
     [Fact]
+    public void VodPublishingRequiresDiscovererAndEveryVodElement()
+    {
+        CreateExecutables(includeDiscoverer: true);
+        var runner = new RecordingRunner();
+
+        var runtime = GStreamerRuntime.Discover(_directory, runner);
+
+        Assert.True(runtime.IsVodPublishAvailable);
+        Assert.EndsWith("gst-discoverer-1.0.exe", runtime.DiscovererPath, StringComparison.OrdinalIgnoreCase);
+        Assert.All(GStreamerRuntime.RequiredVodElements, element => Assert.Contains(element, runner.Inspected));
+    }
+
+    [Fact]
+    public void MissingVodElementPreservesLivePublishingButDisablesVodPublishing()
+    {
+        CreateExecutables(includeDiscoverer: true);
+        var runtime = GStreamerRuntime.Discover(_directory, new RecordingRunner("qtdemux"));
+
+        Assert.True(runtime.IsWhipAvailable);
+        Assert.False(runtime.IsVodPublishAvailable);
+    }
+
+    [Fact]
+    public void MissingSingleSegmentIdentityPreservesLiveButDisablesVodPublishing()
+    {
+        CreateExecutables(includeDiscoverer: true);
+        var runtime = GStreamerRuntime.Discover(_directory, new RecordingRunner("identity"));
+
+        Assert.True(runtime.IsWhipAvailable);
+        Assert.False(runtime.IsVodPublishAvailable);
+    }
+
+    [Fact]
+    public void MissingSharedEncoderDisablesLiveAndVodPublishing()
+    {
+        CreateExecutables(includeDiscoverer: true);
+        var runtime = GStreamerRuntime.Discover(_directory, new RecordingRunner("x264enc"));
+
+        Assert.False(runtime.IsWhipAvailable);
+        Assert.False(runtime.IsVodPublishAvailable);
+    }
+
+    [Fact]
     public void PublishRuntimeDoesNotRequireLegacyHlsElements()
     {
         CreateExecutables();
@@ -60,12 +103,13 @@ public sealed class GStreamerRuntimeTests : IDisposable
         if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
     }
 
-    private string CreateExecutables()
+    private string CreateExecutables(bool includeDiscoverer = false)
     {
         var binaryDirectory = Path.Combine(_directory, "runtime", "gstreamer", "bin");
         Directory.CreateDirectory(binaryDirectory);
         File.WriteAllBytes(Path.Combine(binaryDirectory, "gst-launch-1.0.exe"), []);
         File.WriteAllBytes(Path.Combine(binaryDirectory, "gst-inspect-1.0.exe"), []);
+        if (includeDiscoverer) File.WriteAllBytes(Path.Combine(binaryDirectory, "gst-discoverer-1.0.exe"), []);
         return binaryDirectory;
     }
 

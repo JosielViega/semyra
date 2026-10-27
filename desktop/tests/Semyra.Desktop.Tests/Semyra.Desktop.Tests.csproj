@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Semyra.Desktop\Semyra.Desktop.csproj" />
+    <ProjectReference Include="..\..\src\Semyra.MediaHost\Semyra.MediaHost.csproj" />
   </ItemGroup>
 
   <ItemGroup>

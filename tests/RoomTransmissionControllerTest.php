@@ -108,6 +108,23 @@ final class RoomTransmissionControllerTest extends TestCase
         self::assertSame(self::INSTANCE_A, $body['transmission']['instance_id']);
     }
 
+    public function testPlaybackAllowsOwnerIptvVodAndRejectsIptvLive(): void
+    {
+        [$vod, $vodPdo] = $this->controller(
+            $this->playbackBody(self::INSTANCE_A, 1),
+            ['source_type' => 'iptv', 'youtube_video_id' => null, 'media_mode' => 'vod'],
+        );
+        self::assertSame(200, $vod->playback('ROOM1234')->status());
+        self::assertSame('paused', $vodPdo->transmission['playback_state']);
+
+        [$live, $livePdo] = $this->controller(
+            $this->playbackBody(self::INSTANCE_A, 1),
+            ['source_type' => 'iptv', 'youtube_video_id' => null, 'media_mode' => 'live'],
+        );
+        self::assertPlaybackError($live->playback('ROOM1234'), 422, 'playback_control_unavailable');
+        self::assertSame('playing', $livePdo->transmission['playback_state']);
+    }
+
     public function testGuestCannotStartIptvTransmission(): void
     {
         [$controller, $pdo] = $this->controller([]);
@@ -121,7 +138,7 @@ final class RoomTransmissionControllerTest extends TestCase
 
     public function testPremiumDatabaseRowFlowsThroughRepositoryAndStartsAccountOwnedIptvTransmission(): void
     {
-        [$controller, $pdo] = $this->controller([], [], true);
+        [$controller, $pdo] = $this->controller(['media_mode' => 'live'], [], true);
 
         $response = $controller->startIptv('ROOM1234');
 
@@ -129,6 +146,35 @@ final class RoomTransmissionControllerTest extends TestCase
         self::assertSame('iptv', $pdo->transmission['source_type']);
         self::assertSame('live', $pdo->transmission['media_mode']);
         self::assertSame(9, $pdo->transmission['owner_user_id']);
+    }
+
+    public function testPremiumMovieStartsIptvVodTransmission(): void
+    {
+        [$controller, $pdo] = $this->controller(['media_mode' => 'vod'], [], true);
+
+        self::assertSame(201, $controller->startIptv('ROOM1234')->status());
+        self::assertSame('iptv', $pdo->transmission['source_type']);
+        self::assertSame('vod', $pdo->transmission['media_mode']);
+    }
+
+    public function testPremiumEpisodeUsesTheSameStrictVodMode(): void
+    {
+        [$controller, $pdo] = $this->controller(['media_mode' => 'vod'], [], true);
+
+        self::assertSame(201, $controller->startIptv('ROOM1234')->status());
+        self::assertSame('vod', $pdo->transmission['media_mode']);
+    }
+
+    public function testInvalidIptvModeIsRejectedWithoutMutation(): void
+    {
+        [$controller, $pdo] = $this->controller(['media_mode' => 'arbitrary'], [], true);
+        $before = $pdo->transmission;
+
+        $response = $controller->startIptv('ROOM1234');
+
+        self::assertSame(422, $response->status());
+        self::assertSame(['error' => 'invalid_request'], json_decode($response->body(), true));
+        self::assertSame($before, $pdo->transmission);
     }
 
     public function testFreeDatabaseRowFlowsThroughRepositoryAndCannotMutateCurrentTransmission(): void

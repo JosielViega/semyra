@@ -71,10 +71,10 @@ final class RoomLiveKitControllerTest extends TestCase
         $this->assertError($controller->viewerToken('ROOM1234'), 409, 'livekit_not_applicable');
     }
 
-    public function testNonLiveIptvTransmissionIsNotApplicable(): void
+    public function testVodIptvTransmissionCanIssueViewerToken(): void
     {
         [$controller] = $this->controller(transmission: $this->transmission(mediaMode: 'vod'));
-        $this->assertError($controller->viewerToken('ROOM1234'), 409, 'livekit_not_applicable');
+        self::assertSame(201, $controller->viewerToken('ROOM1234')->status());
     }
 
     #[DataProvider('invalidRevisions')]

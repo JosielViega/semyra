@@ -4,6 +4,7 @@ namespace Tests;
 
 use App\Core\Database;
 use App\Repositories\RoomTransmissionRepository;
+use App\Services\RoomTransmissionLifecycle;
 use PDO;
 use PDOStatement;
 use PHPUnit\Framework\TestCase;
@@ -45,6 +46,83 @@ final class RoomTransmissionRepositoryTest extends TestCase
         self::assertFalse($this->repository->end(7, 'old-key', self::INSTANCE_A, 1, 99));
         self::assertTrue($this->repository->end(7, 'new-key', self::INSTANCE_A, 1, 42));
         self::assertFalse($this->pdo->has(7));
+    }
+
+    public function testInactiveGuestOwnerTransmissionIsRemovedWithFullFence(): void
+    {
+        $this->pdo->put(7, 'guest-owner', 4, instanceId: self::INSTANCE_A);
+
+        self::assertTrue($this->repository->endIfOwnerInactive(
+            7, 'guest-owner', null, self::INSTANCE_A, 4, 5,
+        ));
+        self::assertFalse($this->pdo->has(7));
+        self::assertStringContainsString('NOT EXISTS (SELECT 1 FROM room_participants active_owner', $this->pdo->lastQuery);
+        self::assertStringContainsString('active_owner.player_instance_key_hash IS NOT NULL', $this->pdo->lastQuery);
+        self::assertStringContainsString('INTERVAL 5 SECOND', $this->pdo->lastQuery);
+    }
+
+    public function testActiveGuestOwnerOrReloadedInstancePreservesTransmission(): void
+    {
+        $this->pdo->put(7, 'guest-owner', 4, instanceId: self::INSTANCE_A);
+        $this->pdo->setOwnerActive(true);
+
+        self::assertFalse($this->repository->endIfOwnerInactive(
+            7, 'guest-owner', null, self::INSTANCE_A, 4, 5,
+        ));
+        self::assertTrue($this->pdo->has(7));
+    }
+
+    public function testAuthenticatedOwnerActivityUsesUserIdentityAcrossParticipantKeys(): void
+    {
+        $this->pdo->put(7, 'old-key', 2, ownerUserId: 42, instanceId: self::INSTANCE_A);
+        $this->pdo->setOwnerActive(true);
+        self::assertFalse($this->repository->endIfOwnerInactive(
+            7, 'new-key', 42, self::INSTANCE_A, 2, 5,
+        ));
+
+        $this->pdo->setOwnerActive(false);
+        self::assertTrue($this->repository->endIfOwnerInactive(
+            7, 'new-key', 42, self::INSTANCE_A, 2, 5,
+        ));
+    }
+
+    public function testStaleCleanupFromOwnerADoesNotDeleteReplacementFromOwnerB(): void
+    {
+        $this->pdo->put(7, 'owner-b', 1, instanceId: self::INSTANCE_B);
+
+        self::assertFalse($this->repository->endIfOwnerInactive(
+            7, 'owner-a', null, self::INSTANCE_A, 1, 5,
+        ));
+        self::assertSame(self::INSTANCE_B, $this->pdo->transmissionFor(7)['instance_id']);
+    }
+
+    public function testNonOwnerActivityCannotKeepInactiveOwnerTransmissionAlive(): void
+    {
+        $this->pdo->put(7, 'owner-a', instanceId: self::INSTANCE_A);
+        $this->pdo->setNonOwnerActive(true);
+
+        self::assertTrue($this->repository->endIfOwnerInactive(
+            7, 'owner-a', null, self::INSTANCE_A, 1, 5,
+        ));
+    }
+
+    public function testLifecycleReturnsNullAfterRemovingAnOrphanedTransmission(): void
+    {
+        $this->pdo->put(7, 'owner-a', instanceId: self::INSTANCE_A);
+
+        self::assertNull((new RoomTransmissionLifecycle($this->repository))->reconcile(7));
+        self::assertFalse($this->pdo->has(7));
+    }
+
+    public function testLifecycleReturnsCurrentTransmissionWhileOwnerIsActive(): void
+    {
+        $this->pdo->put(7, 'owner-a', instanceId: self::INSTANCE_A);
+        $this->pdo->setOwnerActive(true);
+
+        $current = (new RoomTransmissionLifecycle($this->repository))->reconcile(7);
+
+        self::assertSame(self::INSTANCE_A, $current['instance_id']);
+        self::assertTrue($this->pdo->has(7));
     }
 
     public function testPlaybackUpdateRequiresOwnerAndBothCurrentRevisions(): void
@@ -189,6 +267,8 @@ final class TransmissionPdo extends PDO
     private array $transmissions = [];
     public string $lastQuery = '';
     public array $lastParams = [];
+    private bool $ownerActive = false;
+    private bool $nonOwnerActive = false;
     public function __construct() {}
     public function prepare(string $query, array $options = []): PDOStatement|false
     {
@@ -205,6 +285,8 @@ final class TransmissionPdo extends PDO
     public function has(int $roomId): bool { return isset($this->transmissions[$roomId]); }
     public function ownerFor(int $roomId): ?string { return $this->transmissions[$roomId]['owner'] ?? null; }
     public function transmissionFor(int $roomId): ?array { return $this->transmissions[$roomId] ?? null; }
+    public function setOwnerActive(bool $active): void { $this->ownerActive = $active; }
+    public function setNonOwnerActive(bool $active): void { $this->nonOwnerActive = $active; }
     public function rowForFind(int $roomId): ?array
     {
         $current = $this->transmissions[$roomId] ?? null;
@@ -244,6 +326,8 @@ final class TransmissionPdo extends PDO
             ? $current['owner_user_id'] === ($params['owner_user_id'] ?? null)
             : $current['owner'] === ($params['owner_participant_key_hash'] ?? null));
         if (str_starts_with($query, 'DELETE')) {
+            if (str_contains($query, 'NOT EXISTS (SELECT 1 FROM room_participants active_owner')
+                && $this->ownerActive) return 0;
             if (!$authorized
                 || $current['instance_id'] !== ($params['transmission_instance_id'] ?? null)
                 || $current['transmission_revision'] !== (int) ($params['transmission_revision'] ?? 0)) return 0;

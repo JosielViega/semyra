@@ -8,7 +8,9 @@ O pipeline WHIP/LiveKit exige simultaneamente `livekit.publish` e `iptv.catalog`
 
 O fluxo Desktop é `catálogo local → Media Engine → GStreamer/whipsink → WHIP ingress → LiveKit → viewer da sala`. O backend aceita apenas uma Host Session curta vinculada a sala, permissão, `transmission_instance_id` e `revision`; ele nunca recebe `channelId`, URL do provedor ou credenciais IPTV. Cada sala usa um nome de ingress Desktop determinístico e opaco com prefixo `smy_d_`. A limpeza lista e remove somente esse nome exato, mantendo isolados os ingressos do worker `smy_b_*`.
 
-O processo GStreamer recebe o endpoint WHIP efêmero por `ArgumentList`. A URL privada do provedor entra apenas no `HttpClient` nativo e os bytes MPEG-TS seguem por stdin. Snapshots, eventos e logs expõem somente estado, tentativa, modo e códigos de erro sanitizados.
+Na publicação Live, o processo GStreamer recebe o endpoint WHIP efêmero por `ArgumentList`; a URL privada do provedor entra apenas no `HttpClient` nativo e os bytes MPEG-TS seguem por stdin. Na publicação VOD, o processo isolado `Semyra.MediaHost` recebe a URL loopback e o endpoint WHIP exclusivamente por JSON Lines em stdin e controla um pipeline persistente pela API nativa mínima do GStreamer. Nenhuma URL entra no argv do helper. Snapshots, eventos e logs expõem somente estado, posição/duração sanitizadas, tentativa, modo e códigos de erro.
+
+Para Filmes e episódios, o contrato WebView/native troca o `channelId` por `kind + mediaId`, ainda sem URL. O native resolve o item Xtream no SQLite protegido e abre um proxy HTTP efêmero em `127.0.0.1` com token aleatório. GStreamer recebe somente essa URL loopback e publica MP4/QuickTime com transcode local H.264 (`qtdemux → h264parse → decode → videoconvert → x264enc → h264parse → clocksync → rtph264pay`) para constrained-baseline, 2,8 Mbps, zero B-frames e GOP máximo de 48 frames; AAC é convertido para Opus e sincronizado pelo GstClock do pipeline publicador antes do payload RTP. Live mantém um pipeline distinto: MPEG-TS contínuo por stdin, decode H.264, `videoconvert`, `x264enc` a 3,5 Mbps, constrained-baseline/zero B-frames/GOP máximo 48 e RTP sem `clocksync`, preservando resolução, frame rate e pacing da fonte. Como não há classificador determinístico suficiente para garantir compatibilidade WebRTC do encoder do provider, todo Live é normalizado. `livekit.publish-vod` acrescenta `gst-discoverer`, `souphttpsrc`, `qtdemux`, `clocksync` e os elementos `inter*` de áudio/vídeo aos requisitos comuns de decode/x264/WHIP. O backend persiste apenas `media_mode=vod`; nunca recebe o ID local, URL ou credencial. Viewers continuam gratuitos e usam o mesmo LiveKit subscribe-only cercado por instância/revisão. WHIP com bypass de transcoding encaminha a mídia recebida sem normalizá-la; por isso a compatibilidade é garantida no Desktop antes do ingresso.
 
 O projeto usa uma arquitetura em camadas pequena. Cada classe deve existir por uma responsabilidade concreta; Services e Models não são obrigatórios para fluxos simples.
 
@@ -90,13 +92,13 @@ bridge privado futuro
     media ingest plane: provider → H.264/Opus
 ```
 
-`source_type` descreve o conteúdo (`youtube` ou `iptv`); LiveKit é transporte, nunca `source_type`. O backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv`/`live`, `instance_id` e revisão atuais antes de emitir uma credencial com dez minutos de validade.
+`source_type` descreve o conteúdo (`youtube` ou `iptv`); LiveKit é transporte, nunca `source_type`. O backend carrega configuração opcional, produz nomes/identidades opacos e expõe `POST /room/{code}/livekit/viewer-token`. A rota exige participante vigente, transmissão `iptv` com `media_mode=live|vod`, `instance_id` e revisão atuais antes de emitir uma credencial com dez minutos de validade.
 
 Na Etapa 10B.2, o polling continua sendo o plano de controle e o browser passa a ser consumidor do plano de mídia:
 
 ```text
 room-presence.js
-    → transmission iptv/live + instance_id + revision
+    → transmission iptv/(live|vod) + instance_id + revision
 POST /room/{code}/livekit/viewer-token
     → URL + JWT efêmero + publisher esperado
 room-livekit-player.js
@@ -104,9 +106,15 @@ room-livekit-player.js
 tracks somente do publisher esperado
 ```
 
-O SDK `livekit-client` 2.22.3 é distribuído localmente e carregado apenas para `iptv`/`live`. YouTube e LiveKit possuem mounts e status independentes. Mudança de fonte, `instance_id`, revisão ou encerramento incrementa uma geração local, desconecta a room anterior e descarta token, publisher e tracks antigos. IPTV Live não participa de Play/Pause/Seek, DVR, live edge ou resync compartilhado nesta etapa; volume, mute e fullscreen permanecem locais.
+O SDK `livekit-client` 2.22.3 é distribuído localmente e carregado apenas para transmissões `iptv` (`live` ou `vod`). YouTube e LiveKit possuem mounts e status independentes. Mudança de fonte, `instance_id`, revisão ou encerramento incrementa uma geração local, desconecta a room anterior e descarta token, publisher e tracks antigos. IPTV Live não participa de Play/Pause/Seek, DVR, live edge ou resync compartilhado. IPTV VOD permite ao owner controlar o publisher real; viewers continuam recebendo a mídia pelo LiveKit e mantêm volume, mute e fullscreen locais.
 
 O nome da room LiveKit deriva deterministicamente de namespace e ID interno da sala. A publisher identity é vinculada à instância da transmissão e deriva de namespace, room ID e `instance_id`; `started_at` continua somente como timestamp observacional. Isso impede reuso após `end` seguido de novo `start`, mesmo quando a nova linha reinicia em revision 1. Viewer identities são aleatórias por emissão para permitir duas abas independentes. Nenhum desses identificadores cria owner, host, moderator ou hierarquia no Semyra. A autoridade temporária de playback continua pertencendo exclusivamente à transmissão vigente.
+
+O caminho Live continua em `gst-launch-1.0` com start/pump/stop. O caminho VOD usa `Semyra.MediaHost`, processo separado com protocolo JSON Lines allowlisted e wrapper P/Invoke mínimo para `gst_element_set_state`, `gst_element_seek_simple` e consultas reais de posição/duração. O Desktop cerca cada comando por conta, Host Session ativa, sala, instância, revisão e tipo VOD; o backend preserva o estado canônico e a optimistic concurrency já existentes. O helper não recebe URL por argv e não devolve URL, credencial ou token em snapshots. IPTV Live continua mostrando `AO VIVO` sem pause/seek.
+
+O MediaHost separa a timeline seekable de conteúdo da timeline contínua de publicação. `intervideosink/src` conserva o último frame e `interaudiosink/src` produz silêncio quando o conteúdo está `PAUSED`; assim RTP/WHIP continua `PLAYING`, monotônico e com os mesmos SSRCs durante Pause. A posição canônica vem exclusivamente do pipeline de conteúdo congelado. Cada transição espera `gst_element_get_state` confirmar `PAUSED` ou `PLAYING`; seek continua cercado por republicação, encerramento `NULL` confirmado e posição precisa antes da confirmação nativa.
+
+Na ponte de áudio, ambos os lados negociam explicitamente PCM `S16LE`, 48 kHz, estéreo interleaved. O `interaudiosrc` usa `buffer-time=200 ms`, `latency-time=40 ms` e `period-time=10 ms`; a fila upstream continua limitada e observável, mas não é duplicada por outro segundo completo de reserva na fonte. Opus e RTP não reiniciam em Pause/Play. O runtime contém `livesync`, porém o A/B PCM não demonstrou benefício sobre a ponte com caps e reserva corrigidas, portanto ele não integra o pipeline de produção.
 
 O SDK PHP permanece resolvido em `agence104/livekit-server-sdk` 1.3.5. A auditoria da distribuição registra a inconsistência sem interpretação jurídica: Composer metadata declares MIT; distributed LICENSE file is Apache-2.0. O arquivo `LICENSE` acompanha o runtime no mirror de produção.
 
@@ -228,6 +236,8 @@ O player permanece 16:9 e usa `contain`, centralizado sobre fundo preto; portant
 
 `room-wake-lock.js` é uma melhoria progressiva separada. Ele observa apenas a presença de transmissão, o estado oficial playing/paused e o ciclo de visibilidade/fullscreen; solicita `navigator.wakeLock` quando a transmissão está reproduzindo em uma página visível e libera em pausa, fim, ocultação ou `pagehide`. A API não participa da autoridade, revisão, polling, telemetria ou correção de drift, e sua ausência ou recusa não afeta o playback.
 
+O botão fullscreen da sala conserva duas autoridades explícitas. Em navegador comum, `room-shell.js` usa a Fullscreen API do DOM. No Desktop, o handshake existente anuncia `window.fullscreen`; mensagens allowlisted consultam ou definem apenas um booleano, e a janela WPF ocupa o monitor atual sem borda, preservando estado maximizado ou bounds windowed para restauração. O estado nativo volta ao JavaScript para atualizar ícone e acessibilidade; Escape sai e `F` alterna fullscreen fora de inputs, controles e dialogs, sem tocar transmissão, player, LiveKit ou MediaHost. Não existe detecção por user agent nem um segundo bridge.
+
 A identidade visual da sala depende somente de assets públicos: a logo oficial fica em `public/assets/images/` e a view fornece um sprite SVG inline, sem CDN ou pacote de ícones. O JavaScript alterna visibilidade e atributos dos ícones já renderizados; o `YT.Player` e o estado compartilhado permanecem encapsulados e independentes dessa camada visual.
 
 O compartilhamento permanece exclusivamente no frontend e reutiliza a rota pública existente:
@@ -270,7 +280,9 @@ touch da identidade + participantes vistos nos últimos 45 s
 JSON { participants, transmission }
 ```
 
-Na saída real da página, `room-presence.js` envia um leave best-effort no evento `pagehide`, preferindo `sendBeacon` e usando `fetch keepalive` como fallback. O `UPDATE` exige sala, participante e hash da instância atual; assim um leave atrasado da instância anterior não inativa a página nova após reload. O leave apenas antecipa `last_seen_at` e limpa a telemetria correspondente, sem apagar a identidade da sessão, encerrar transmissão ou alterar ownership. A janela de 45 segundos permanece como fallback obrigatório. Troca de aba não envia leave, e uma restauração via BFCache registra novamente a mesma instância do documento.
+Na saída real da página, `room-presence.js` envia um leave best-effort no evento `pagehide`, preferindo `sendBeacon` e usando `fetch keepalive` como fallback. O `UPDATE` exige sala, participante e hash da instância atual; assim um leave atrasado da instância anterior não inativa a página nova após reload. O leave apenas antecipa `last_seen_at`, registra `player_left_at` e limpa a telemetria correspondente; ele não apaga a identidade da sessão nem encerra diretamente a transmissão. A janela de 45 segundos permanece para a lista de presença, enquanto a transmissão usa uma janela de atividade de 5 segundos porque o polling ativo ocorre a cada segundo. Troca de aba não envia leave, e uma restauração via BFCache registra novamente a mesma instância do documento.
+
+Depois do touch de cada presence e antes de renderizar `RoomController::show()`, `RoomTransmissionLifecycle` reconcilia a transmissão observada. Um único `DELETE ... NOT EXISTS` verifica a ausência de instância ativa do owner usando `owner_user_id` para contas ou `owner_participant_key_hash` para guests e cerca a remoção por `room_id`, `instance_id`, `revision` e a identidade observada. Portanto reload ou outra aba que reapareça dentro dos 5 segundos preserva a transmissão; timeout sem beacon também é coberto; e cleanup atrasado de A nunca remove uma substituição de B. A resposta do polling já retorna `transmission=null`, fazendo shell, viewer LiveKit e autorização/publisher nativo executarem seus cleanups existentes.
 
 A resposta pública não contém IDs internos, hashes, tokens de sessão ou timestamps. Contas recebem `public_id` opaco estável derivado com namespace interno do `user_id`; guests continuam derivados do hash da chave. `playback_instance_id` identifica a geração física atual do documento/player. Nenhum desses IDs autentica ou autoriza. `is_you` compara `user_id` para contas e hash somente para guests. `transmission` contém o `instance_id` público opaco, fonte, video ID, revisão, nome do owner, `is_owner`, `media_mode` e playback oficial.
 

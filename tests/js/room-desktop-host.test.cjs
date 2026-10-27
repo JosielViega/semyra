@@ -95,6 +95,9 @@ const createHarness = ({existingHost = false, expiresAt = '2099-10-06T12:00:00.0
                 detail: {transmission: value},
             }));
         },
+        pagehide() {
+            window.dispatchEvent(new CustomEvent('pagehide'));
+        },
     };
 };
 
@@ -142,6 +145,16 @@ test('IPTV Live owner requests once per instance and revision', async () => {
     assert.equal(authorize.detail.hostSessionToken, token);
 });
 
+test('IPTV VOD owner receives the same fenced Host Session flow', async () => {
+    const harness = createHarness();
+    harness.hostReady();
+    harness.presence(transmission({mediaMode: 'vod'}));
+    await flush();
+
+    assert.equal(harness.requests.length, 1);
+    assert.equal(harness.requests[0].body.get('transmission_revision'), '3');
+});
+
 test('uses an already-ready Host snapshot when the event happened before script load', async () => {
     const harness = createHarness({existingHost: true});
     harness.presence(transmission());
@@ -187,6 +200,21 @@ test('owner loss and null transmission clear authorization', async () => {
         await flush();
         assert.equal(harness.events.some((event) => event.type === 'semyra:host-clear-request'), true);
     }
+});
+
+test('page leave schedules native publisher cleanup only for an eligible IPTV owner', async () => {
+    const harness = createHarness();
+    harness.hostReady();
+    harness.presence(transmission());
+    await flush();
+    harness.pagehide();
+    assert.equal(harness.events.at(-1).type, 'semyra:host-leave-request');
+
+    const viewer = createHarness();
+    viewer.hostReady();
+    viewer.presence(transmission({isOwner: false}));
+    viewer.pagehide();
+    assert.equal(viewer.events.some((event) => event.type === 'semyra:host-leave-request'), false);
 });
 
 test('forwards only the sanitized Host Session error code to the room UI', async () => {

@@ -28,7 +28,7 @@ final class RoomParticipantRepository
             . 'ON DUPLICATE KEY UPDATE '
             . 'display_name = IF(user_id IS NULL OR user_id = VALUES(user_id), VALUES(display_name), display_name), '
             . 'user_id = IF(user_id IS NULL, VALUES(user_id), user_id), last_seen_at = CURRENT_TIMESTAMP, '
-            . 'player_instance_key_hash = VALUES(player_instance_key_hash)',
+            . 'player_instance_key_hash = VALUES(player_instance_key_hash), player_left_at = NULL',
         );
         $statement->execute([
             'room_id' => $roomId,
@@ -48,6 +48,7 @@ final class RoomParticipantRepository
         $statement = $this->database->connection()->prepare(
             'UPDATE room_participants SET '
             . 'last_seen_at = CURRENT_TIMESTAMP - INTERVAL ' . $inactiveSeconds . ' SECOND, '
+            . 'player_left_at = CURRENT_TIMESTAMP(3), '
             . 'player_state = NULL, player_position_ms = NULL, player_duration_ms = NULL, '
             . 'player_sampled_at = NULL '
             . 'WHERE room_id = :room_id '
@@ -83,6 +84,7 @@ final class RoomParticipantRepository
                 . 'ON DUPLICATE KEY UPDATE '
                 . 'display_name = IF(user_id IS NULL OR user_id = VALUES(user_id), VALUES(display_name), display_name), '
                 . 'user_id = IF(user_id IS NULL, VALUES(user_id), user_id), last_seen_at = CURRENT_TIMESTAMP, '
+                . 'player_left_at = NULL, '
                 . 'player_state = VALUES(player_state), player_position_ms = VALUES(player_position_ms), '
                 . 'player_duration_ms = VALUES(player_duration_ms), player_sampled_at = CURRENT_TIMESTAMP(3)',
             );
@@ -103,7 +105,8 @@ final class RoomParticipantRepository
             . 'VALUES (:room_id, :user_id, :participant_key_hash, :display_name) '
             . 'ON DUPLICATE KEY UPDATE '
             . 'display_name = IF(user_id IS NULL OR user_id = VALUES(user_id), VALUES(display_name), display_name), '
-            . 'user_id = IF(user_id IS NULL, VALUES(user_id), user_id), last_seen_at = CURRENT_TIMESTAMP',
+            . 'user_id = IF(user_id IS NULL, VALUES(user_id), user_id), last_seen_at = CURRENT_TIMESTAMP, '
+            . 'player_left_at = NULL',
         );
         $statement->execute([
             'room_id' => $roomId,

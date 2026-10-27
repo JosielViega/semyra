@@ -22,6 +22,12 @@
     const HOST_AUTHORIZE_RESULT_TYPE = 'semyra.desktop.host.authorize-result';
     const HOST_CLEAR_TYPE = 'semyra.desktop.host.clear';
     const HOST_CLEAR_RESULT_TYPE = 'semyra.desktop.host.clear-result';
+    const HOST_LEAVE_TYPE = 'semyra.desktop.host.leave';
+    const WINDOW_FULLSCREEN_STATUS_TYPE = 'semyra.desktop.window.fullscreen.status';
+    const WINDOW_FULLSCREEN_STATUS_RESULT_TYPE = 'semyra.desktop.window.fullscreen.status-result';
+    const WINDOW_FULLSCREEN_SET_TYPE = 'semyra.desktop.window.fullscreen.set';
+    const WINDOW_FULLSCREEN_SET_RESULT_TYPE = 'semyra.desktop.window.fullscreen.set-result';
+    const WINDOW_FULLSCREEN_CHANGED_TYPE = 'semyra.desktop.window.fullscreen.changed';
     const ACCOUNT_ACTIVATE_TYPE = 'semyra.desktop.account.activate';
     const ACCOUNT_ACTIVATE_RESULT_TYPE = 'semyra.desktop.account.activate-result';
     const ACCOUNT_CLEAR_TYPE = 'semyra.desktop.account.clear';
@@ -59,6 +65,7 @@
         'publish-start': ['semyra.desktop.iptv.publish.start', 'semyra.desktop.iptv.publish.start-result'],
         'publish-stop': ['semyra.desktop.iptv.publish.stop', 'semyra.desktop.iptv.publish.stop-result'],
         'publish-status': ['semyra.desktop.iptv.publish.status', 'semyra.desktop.iptv.publish.status-result'],
+        'publish-control': ['semyra.desktop.media.publish-control', 'semyra.desktop.media.publish-control-result'],
     });
     const IPTV_MEDIA_STATE_TYPE = 'semyra.desktop.iptv.media.state';
     const IPTV_VOD_PROGRESS_CHANGED_TYPE = 'semyra.desktop.iptv.vod.progress-changed';
@@ -73,11 +80,16 @@
             || capabilities[0] !== 'host.status' || capabilities[1] !== 'host.authorize') {
             return false;
         }
-        if (capabilities.length === 2) return true;
-        if (capabilities[2] !== 'iptv.sources' || capabilities[3] !== 'iptv.catalog') return false;
-        let index = 4;
+        let index = 2;
+        if (capabilities[index] === 'window.fullscreen') index += 1;
+        if (capabilities.length === index) return true;
+        if (capabilities[index] !== 'iptv.sources' || capabilities[index + 1] !== 'iptv.catalog') return false;
+        index += 2;
         if (capabilities[index] === 'iptv.local-view') index += 1;
-        if (capabilities[index] === 'media.whip' && capabilities[index + 1] === 'livekit.publish') index += 2;
+        if (capabilities[index] === 'media.whip' && capabilities[index + 1] === 'livekit.publish') {
+            index += 2;
+            if (capabilities[index] === 'livekit.publish-vod') index += 1;
+        }
         return index === capabilities.length;
     }
 
@@ -101,6 +113,7 @@
         let accountRequestId = null;
         let accountAction = null;
         let accountContextId = null;
+        let windowFullscreenRequestId = null;
         let webview = null;
         let listening = false;
         let rememberControl = null;
@@ -387,6 +400,39 @@
             webview.postMessage({type: HOST_CLEAR_TYPE, requestId: clearRequestId});
         }
 
+        function requestHostLeave() {
+            if (!ready || !webview) return;
+            webview.postMessage({type: HOST_LEAVE_TYPE, requestId: createRequestId(target)});
+        }
+
+        function requestWindowFullscreen(event) {
+            if (!ready || !webview || !hostSnapshot
+                || !hostSnapshot.capabilities.includes('window.fullscreen')) return;
+            const enabled = event?.detail?.enabled;
+            if (enabled !== undefined && typeof enabled !== 'boolean') return;
+            windowFullscreenRequestId = createRequestId(target);
+            webview.postMessage(enabled === undefined
+                ? {type: WINDOW_FULLSCREEN_STATUS_TYPE, requestId: windowFullscreenRequestId}
+                : {type: WINDOW_FULLSCREEN_SET_TYPE, requestId: windowFullscreenRequestId, enabled});
+        }
+
+        function receiveWindowFullscreen(message) {
+            const changed = message.type === WINDOW_FULLSCREEN_CHANGED_TYPE;
+            const result = message.type === WINDOW_FULLSCREEN_STATUS_RESULT_TYPE
+                || message.type === WINDOW_FULLSCREEN_SET_RESULT_TYPE;
+            if (!ready || message.protocolVersion !== PROTOCOL_VERSION
+                || (!changed && (!result || message.requestId !== windowFullscreenRequestId))) return;
+            if (result) windowFullscreenRequestId = null;
+            const ok = changed || message.ok === true;
+            const detail = Object.freeze({
+                ok,
+                enabled: ok && message.enabled === true,
+                error: ok ? null : (typeof message.error === 'string'
+                    ? message.error.slice(0, 64) : 'window_fullscreen_failed'),
+            });
+            target.dispatchEvent(new target.CustomEvent('semyra:window-fullscreen-state', {detail}));
+        }
+
         function receiveHostAuthorize(message) {
             if (message.requestId !== authorizationRequestId
                 || message.protocolVersion !== PROTOCOL_VERSION
@@ -521,14 +567,33 @@
                 request.favorite = detail.favorite === true;
                 if (request.channelId === null || typeof detail.favorite !== 'boolean') return;
             } else if (action === 'publish-start' || action === 'view-start') {
-                const capability = action === 'publish-start' ? 'livekit.publish'
-                    : 'iptv.local-view';
+                const vodPublish = action === 'publish-start' && ['movie', 'episode'].includes(detail.kind);
+                const capability = vodPublish ? 'livekit.publish-vod'
+                    : (action === 'publish-start' ? 'livekit.publish' : 'iptv.local-view');
                 if (!hostSnapshot.capabilities.includes(capability)) {
                     return;
                 }
-                request.channelId = positiveId(detail.channelId);
-                if (request.channelId === null) {
-                    return;
+                if (vodPublish) {
+                    request.kind = detail.kind;
+                    request.mediaId = positiveId(detail.mediaId);
+                    if (request.mediaId === null) return;
+                } else {
+                    request.channelId = positiveId(detail.channelId);
+                    if (request.channelId === null) return;
+                }
+            } else if (action === 'publish-control') {
+                if (!hostSnapshot.capabilities.includes('livekit.publish-vod')
+                    || !['play', 'pause', 'seek', 'snapshot'].includes(detail.command)
+                    || typeof detail.transmissionInstanceId !== 'string'
+                    || !/^[a-f0-9]{32}$/.test(detail.transmissionInstanceId)
+                    || !Number.isSafeInteger(detail.transmissionRevision)
+                    || detail.transmissionRevision < 1) return;
+                request.action = detail.command;
+                request.transmissionInstanceId = detail.transmissionInstanceId;
+                request.transmissionRevision = detail.transmissionRevision;
+                if (detail.command === 'seek') {
+                    if (!Number.isSafeInteger(detail.positionMs) || detail.positionMs < 0 || detail.positionMs > 315576000000) return;
+                    request.positionMs = detail.positionMs;
                 }
             } else if (action === 'vod-view-start') {
                 if (!hostSnapshot.capabilities.includes('iptv.local-view')) return;
@@ -565,7 +630,7 @@
 
             const clientRequestId = typeof detail.clientRequestId === 'string' && /^[a-z0-9-]{1,64}$/.test(detail.clientRequestId)
                 ? detail.clientRequestId : null;
-            const timeoutId = ['favorites', 'recents', 'favorite-set', 'recent-remove', 'recents-clear'].includes(action)
+            const timeoutId = ['favorites', 'recents', 'favorite-set', 'recent-remove', 'recents-clear', 'publish-control'].includes(action)
                 && typeof target.setTimeout === 'function'
                 ? target.setTimeout(function () { expireIptvRequest(request.requestId); }, IPTV_RESPONSE_TIMEOUT_MS)
                 : null;
@@ -665,7 +730,7 @@
                 detail.sourceId = positiveId(message.sourceId);
                 detail.removedCount = Number.isSafeInteger(message.removedCount) && message.removedCount >= 0
                     ? message.removedCount : null;
-            } else if (['view-start', 'vod-view-start', 'vod-navigate', 'view-stop', 'view-status', 'player-control', 'player-geometry', 'player-fullscreen', 'publish-start', 'publish-stop', 'publish-status'].includes(pending.action)) {
+            } else if (['view-start', 'vod-view-start', 'vod-navigate', 'view-stop', 'view-status', 'player-control', 'player-geometry', 'player-fullscreen', 'publish-start', 'publish-stop', 'publish-status', 'publish-control'].includes(pending.action)) {
                 Object.assign(detail, safeMediaState(message));
                 if (['view-start', 'vod-view-start'].includes(pending.action)
                     && message.playbackKind === 'native-mpv'
@@ -803,6 +868,11 @@
                 case HOST_CLEAR_RESULT_TYPE:
                     receiveHostClear(message);
                     break;
+                case WINDOW_FULLSCREEN_STATUS_RESULT_TYPE:
+                case WINDOW_FULLSCREEN_SET_RESULT_TYPE:
+                case WINDOW_FULLSCREEN_CHANGED_TYPE:
+                    receiveWindowFullscreen(message);
+                    break;
                 case ACCOUNT_ACTIVATE_RESULT_TYPE:
                 case ACCOUNT_CLEAR_RESULT_TYPE:
                     receiveAccountResult(message);
@@ -837,6 +907,8 @@
             if (typeof target.addEventListener === 'function') {
                 target.addEventListener('semyra:host-authorization-request', requestAuthorization);
                 target.addEventListener('semyra:host-clear-request', requestClear);
+                target.addEventListener('semyra:host-leave-request', requestHostLeave);
+                target.addEventListener('semyra:window-fullscreen-request', requestWindowFullscreen);
                 target.addEventListener('semyra:iptv-request', requestIptv);
                 target.addEventListener('semyra:player-controls-visibility', reportPlayerControlsVisibility);
             }
@@ -870,6 +942,12 @@
         HOST_AUTHORIZE_RESULT_TYPE,
         HOST_CLEAR_TYPE,
         HOST_CLEAR_RESULT_TYPE,
+        HOST_LEAVE_TYPE,
+        WINDOW_FULLSCREEN_STATUS_TYPE,
+        WINDOW_FULLSCREEN_STATUS_RESULT_TYPE,
+        WINDOW_FULLSCREEN_SET_TYPE,
+        WINDOW_FULLSCREEN_SET_RESULT_TYPE,
+        WINDOW_FULLSCREEN_CHANGED_TYPE,
         ACCOUNT_ACTIVATE_TYPE,
         ACCOUNT_ACTIVATE_RESULT_TYPE,
         ACCOUNT_CLEAR_TYPE,

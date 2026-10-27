@@ -42,22 +42,32 @@ public sealed class GStreamerRuntime
 {
     internal static readonly string[] RequiredElements =
     [
-        "fdsrc", "queue", "tsdemux", "h264parse", "rtph264pay", "aacparse",
+        "fdsrc", "queue", "tsdemux", "h264parse", "avdec_h264", "videoconvert", "x264enc", "rtph264pay", "aacparse",
         "avdec_aac", "audioconvert", "audioresample", "opusenc", "rtpopuspay",
     ];
+    internal static readonly string[] RequiredVodElements =
+    [
+        "souphttpsrc", "qtdemux", "h264parse", "avdec_h264", "videoconvert", "x264enc", "clocksync", "identity", "rtph264pay", "aacparse",
+        "avdec_aac", "audioconvert", "audioresample", "opusenc", "rtpopuspay",
+        "intervideosink", "intervideosrc", "interaudiosink", "interaudiosrc",
+    ];
 
-    private GStreamerRuntime(string? launchPath, string? inspectPath, GStreamerRuntimeSnapshot snapshot)
+    private GStreamerRuntime(string? launchPath, string? inspectPath, string? discovererPath, bool vodPublishAvailable, GStreamerRuntimeSnapshot snapshot)
     {
         LaunchPath = launchPath;
         InspectPath = inspectPath;
+        DiscovererPath = discovererPath;
+        IsVodPublishAvailable = vodPublishAvailable;
         Snapshot = snapshot;
     }
 
     public string? LaunchPath { get; }
     public string? InspectPath { get; }
+    public string? DiscovererPath { get; }
     public GStreamerRuntimeSnapshot Snapshot { get; }
     public bool IsAvailable => Snapshot.Available;
     public bool IsWhipAvailable => Snapshot.Available && Snapshot.WhipAvailable;
+    public bool IsVodPublishAvailable { get; }
 
     public static GStreamerRuntime DiscoverDefault()
     {
@@ -70,6 +80,7 @@ public sealed class GStreamerRuntime
         {
             var launch = Path.Combine(directory, "gst-launch-1.0.exe");
             var inspect = Path.Combine(directory, "gst-inspect-1.0.exe");
+            var discoverer = Path.Combine(directory, "gst-discoverer-1.0.exe");
             if (!File.Exists(launch) || !File.Exists(inspect))
             {
                 continue;
@@ -85,31 +96,33 @@ public sealed class GStreamerRuntime
                 {
                     if (runner.Run(inspect, [element]).ExitCode != 0)
                     {
-                        return new GStreamerRuntime(launch, inspect,
+                        return new GStreamerRuntime(launch, inspect, null, false,
                             new GStreamerRuntimeSnapshot(false, false, SafeVersion(versionResult.Output), "media_runtime_unavailable"));
                     }
                 }
                 var whipAvailable = runner.Run(inspect, ["whipsink"]).ExitCode == 0;
-                return new GStreamerRuntime(launch, inspect,
+                var vodAvailable = whipAvailable && File.Exists(discoverer)
+                    && RequiredVodElements.All(element => runner.Run(inspect, [element]).ExitCode == 0);
+                return new GStreamerRuntime(launch, inspect, File.Exists(discoverer) ? discoverer : null, vodAvailable,
                     new GStreamerRuntimeSnapshot(true, whipAvailable, SafeVersion(versionResult.Output), null));
             }
             catch
             {
-                return new GStreamerRuntime(null, null,
+                return new GStreamerRuntime(null, null, null, false,
                     new GStreamerRuntimeSnapshot(false, false, null, "media_runtime_unavailable"));
             }
         }
-        return new GStreamerRuntime(null, null,
+        return new GStreamerRuntime(null, null, null, false,
             new GStreamerRuntimeSnapshot(false, false, null, "media_runtime_unavailable"));
     }
 
     internal static GStreamerRuntime AvailableForTests(string launchPath = "gst-launch-1.0.exe", bool whipAvailable = true)
     {
-        return new GStreamerRuntime(launchPath, "gst-inspect-1.0.exe", new GStreamerRuntimeSnapshot(true, whipAvailable, "test", null));
+        return new GStreamerRuntime(launchPath, "gst-inspect-1.0.exe", "gst-discoverer-1.0.exe", whipAvailable, new GStreamerRuntimeSnapshot(true, whipAvailable, "test", null));
     }
 
     internal static GStreamerRuntime UnavailableForTests() =>
-        new(null, null, new GStreamerRuntimeSnapshot(false, false, null, "media_runtime_unavailable"));
+        new(null, null, null, false, new GStreamerRuntimeSnapshot(false, false, null, "media_runtime_unavailable"));
 
     internal static void ConfigureProcessEnvironment(ProcessStartInfo startInfo, string executable)
     {

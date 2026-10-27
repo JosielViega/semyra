@@ -108,6 +108,48 @@ final class RoomTransmissionRepository
         return $statement->rowCount() === 1;
     }
 
+    public function endIfOwnerInactive(
+        int $roomId,
+        string $ownerParticipantKeyHash,
+        ?int $ownerUserId,
+        string $instanceId,
+        int $transmissionRevision,
+        int $activityWindowSeconds,
+    ): bool {
+        if ($activityWindowSeconds < 1 || $activityWindowSeconds > 300) {
+            throw new \InvalidArgumentException('Owner activity window is invalid.');
+        }
+        $statement = $this->database->connection()->prepare(
+            'DELETE transmission FROM room_transmissions transmission '
+            . 'WHERE transmission.room_id = :room_id '
+            . 'AND transmission.instance_id = :transmission_instance_id '
+            . 'AND transmission.revision = :transmission_revision '
+            . 'AND ((transmission.owner_user_id IS NOT NULL AND transmission.owner_user_id = :owner_user_id) '
+            . 'OR (transmission.owner_user_id IS NULL '
+            . 'AND transmission.owner_participant_key_hash = :owner_participant_key_hash)) '
+            . 'AND NOT EXISTS (SELECT 1 FROM room_participants active_owner '
+            . 'WHERE active_owner.room_id = transmission.room_id '
+            . 'AND active_owner.player_instance_key_hash IS NOT NULL '
+            . 'AND ((transmission.owner_user_id IS NOT NULL '
+            . 'AND active_owner.user_id = transmission.owner_user_id) '
+            . 'OR (transmission.owner_user_id IS NULL '
+            . 'AND active_owner.participant_key_hash = transmission.owner_participant_key_hash)) '
+            . 'AND (active_owner.last_seen_at >= CURRENT_TIMESTAMP(3) - INTERVAL '
+            . $activityWindowSeconds . ' SECOND '
+            . 'OR active_owner.player_left_at >= CURRENT_TIMESTAMP(3) - INTERVAL '
+            . $activityWindowSeconds . ' SECOND))',
+        );
+        $statement->execute([
+            'room_id' => $roomId,
+            'transmission_instance_id' => $instanceId,
+            'transmission_revision' => $transmissionRevision,
+            'owner_user_id' => $ownerUserId,
+            'owner_participant_key_hash' => $ownerParticipantKeyHash,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
     public function updatePlayback(
         int $roomId,
         string $ownerParticipantKeyHash,

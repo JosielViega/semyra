@@ -36,6 +36,100 @@ public sealed class MediaEngineTests
     }
 
     [Fact]
+    public void LivePipelineAlwaysNormalizesVideoForWebRtcWithoutVodClockSync()
+    {
+        var endpoint = new Uri("https://whip.example/ephemeral");
+        var arguments = MediaPipeline.PublishArguments(endpoint);
+
+        Assert.Contains("avdec_h264", arguments);
+        Assert.Contains("videoconvert", arguments);
+        Assert.Contains("x264enc", arguments);
+        Assert.Contains("bitrate=3500", arguments);
+        Assert.Contains("tune=zerolatency", arguments);
+        Assert.Contains("bframes=0", arguments);
+        Assert.Contains("key-int-max=48", arguments);
+        Assert.Contains("cabac=false", arguments);
+        Assert.Contains("video/x-h264,stream-format=byte-stream,alignment=au,profile=constrained-baseline", arguments);
+        Assert.Contains("aggregate-mode=zero-latency", arguments);
+        Assert.DoesNotContain("clocksync", arguments);
+    }
+
+    [Fact]
+    public void DiagnosticLiveModeIsAllowlistedAndPassthroughRemainsExplicit()
+    {
+        Assert.Equal(LivePublishVideoMode.Transcode, LivePublishVideoModeResolver.Parse(null));
+        Assert.Equal(LivePublishVideoMode.Transcode, LivePublishVideoModeResolver.Parse("transcode"));
+        Assert.Equal(LivePublishVideoMode.Passthrough, LivePublishVideoModeResolver.Parse("passthrough"));
+        Assert.Equal(LivePublishVideoMode.Transcode, LivePublishVideoModeResolver.Parse("arbitrary"));
+
+        var passthrough = MediaPipeline.LivePublishPassthroughArguments(new Uri("https://whip.example/ephemeral"));
+        Assert.DoesNotContain("x264enc", passthrough);
+        Assert.DoesNotContain("avdec_h264", passthrough);
+        Assert.Contains("h264parse", passthrough);
+        Assert.Contains("rtph264pay", passthrough);
+    }
+
+    [Fact]
+    public void VodPipelineUsesOnlyOpaqueLoopbackSourceAndWebRtcCompatibleTranscode()
+    {
+        var local = new Uri("http://127.0.0.1:49152/" + new string('a', 64) + "/media");
+        var endpoint = new Uri("https://whip.example/ephemeral");
+        var arguments = MediaPipeline.VodPublishArguments(local, endpoint);
+
+        Assert.Contains("souphttpsrc", arguments);
+        Assert.Contains("qtdemux", arguments);
+        Assert.Contains("h264parse", arguments);
+        Assert.Contains("avdec_h264", arguments);
+        Assert.Contains("videoconvert", arguments);
+        Assert.Contains("x264enc", arguments);
+        Assert.Contains("rtph264pay", arguments);
+        Assert.Contains("aacparse", arguments);
+        Assert.Contains("opusenc", arguments);
+        Assert.Equal(2, arguments.Count(value => value == "clocksync"));
+        Assert.Contains("whipsink", arguments);
+        Assert.Contains("location=" + local.AbsoluteUri, arguments);
+        Assert.DoesNotContain(arguments, value => value.Contains("provider.example", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("tune=zerolatency", arguments);
+        Assert.Contains("bframes=0", arguments);
+        Assert.Contains("key-int-max=48", arguments);
+        Assert.Contains("bitrate=2800", arguments);
+        Assert.Contains("cabac=false", arguments);
+        Assert.Contains("video/x-h264,stream-format=byte-stream,alignment=au,profile=constrained-baseline", arguments);
+        Assert.True(IndexAfter(arguments, "clocksync", "x264enc") < IndexAfter(arguments, "rtph264pay", "clocksync"));
+        var pipeline = arguments.ToArray();
+        var opus = Array.IndexOf(pipeline, "opusenc");
+        var audioClock = Array.IndexOf(pipeline, "clocksync", opus + 1);
+        Assert.True(opus < audioClock && audioClock < Array.IndexOf(pipeline, "rtpopuspay", audioClock + 1));
+        Assert.DoesNotContain("clocksync", MediaPipeline.PublishArguments(endpoint));
+        Assert.Contains("x264enc", MediaPipeline.PublishArguments(endpoint));
+    }
+
+    [Fact]
+    public void DiagnosticVodModeIsAllowlistedAndPassthroughRemainsExplicit()
+    {
+        Assert.Equal(VodPublishVideoMode.Transcode, VodPublishVideoModeResolver.Parse(null));
+        Assert.Equal(VodPublishVideoMode.Transcode, VodPublishVideoModeResolver.Parse("transcode"));
+        Assert.Equal(VodPublishVideoMode.Passthrough, VodPublishVideoModeResolver.Parse("passthrough"));
+        Assert.Equal(VodPublishVideoMode.Transcode, VodPublishVideoModeResolver.Parse("arbitrary"));
+
+        var local = new Uri("http://127.0.0.1:49152/" + new string('a', 64) + "/media");
+        var endpoint = new Uri("https://whip.example/ephemeral");
+        var passthrough = MediaPipeline.VodPublishPassthroughArguments(local, endpoint);
+        Assert.DoesNotContain("x264enc", passthrough);
+        Assert.Contains("h264parse", passthrough);
+        Assert.Contains("rtph264pay", passthrough);
+        Assert.Contains("location=" + local.AbsoluteUri, passthrough);
+        Assert.DoesNotContain(passthrough, value => value.Contains("provider.example", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int IndexAfter(IReadOnlyList<string> arguments, string value, string after)
+    {
+        var values = arguments.ToArray();
+        var start = Array.IndexOf(values, after);
+        return Array.IndexOf(values, value, start + 1);
+    }
+
+    [Fact]
     public async Task PublishModeProvisionsAndCleansIngressWhileRenewedAuthorizationIsReadFromMemory()
     {
         var provider = new FakeProvider();
@@ -67,6 +161,34 @@ public sealed class MediaEngineTests
         await host.StartIptvPublishAsync(10, default);
 
         await host.ClearAuthorizationAsync();
+
+        Assert.Equal("idle", host.IptvMediaSnapshot().State);
+        Assert.False(host.Snapshot().Authorization.Authorized);
+        Assert.Single(publish.Stops);
+    }
+
+    [Fact]
+    public async Task ScheduledRoomLeaveStopsNativePublisherAfterGrace()
+    {
+        var publish = new FakePublishClient();
+        var media = new MediaEngine(
+            Resolve,
+            GStreamerRuntime.AvailableForTests(),
+            new FakeProvider(),
+            new FakePipelineFactory(),
+            publishClient: publish);
+        await using var host = new HostEngine(media);
+        host.Start();
+        Assert.True(host.Authorize(Authorization("a")));
+        await host.StartIptvPublishAsync(10, default);
+
+        host.ScheduleAuthorizationClear(TimeSpan.FromMilliseconds(20));
+        for (var index = 0; index < 50
+            && (host.IptvMediaSnapshot().State != "idle" || host.Snapshot().Authorization.Authorized);
+            index++)
+        {
+            await Task.Delay(10);
+        }
 
         Assert.Equal("idle", host.IptvMediaSnapshot().State);
         Assert.False(host.Snapshot().Authorization.Authorized);

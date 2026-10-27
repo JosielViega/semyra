@@ -38,13 +38,80 @@
     let selectedVolume = media.readStoredPlayerVolume(volumeStorage);
     let restoreVolume = selectedVolume > 0 ? selectedVolume : media.DEFAULT_PLAYER_VOLUME;
     let locallyMuted = true;
+    let audioSessionKey = null;
+    const debugEnabled = document.querySelector('[data-room-telemetry]') !== null;
+    const trackReplacementStartedAt = {video: null, audio: null};
+    const trackTimings = [];
 
-    const isLiveTransmission = (transmission) => transmission?.source === 'iptv'
-        && transmission?.mediaMode === 'live'
+    const debugNow = () => Number(window.performance?.now?.() ?? Date.now());
+
+    const recordTrackTiming = (role) => {
+        const startedAt = trackReplacementStartedAt[role];
+        if (!debugEnabled || startedAt === null) return;
+        trackTimings.push(Object.freeze({
+            phase: `new_livekit_${role}_track_subscribed`,
+            elapsedMs: Math.max(0, Math.round(debugNow() - startedAt)),
+        }));
+        trackReplacementStartedAt[role] = null;
+    };
+
+    const finiteNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+
+    const videoStats = async () => {
+        if (!videoTrack || typeof videoTrack.getRTCStatsReport !== 'function') {
+            return null;
+        }
+        const report = await videoTrack.getRTCStatsReport();
+        const entries = [];
+        if (report && typeof report.forEach === 'function') {
+            report.forEach((entry) => entries.push(entry));
+        } else if (report && typeof report[Symbol.iterator] === 'function') {
+            entries.push(...report);
+        }
+        const inbound = entries.find((entry) => entry?.type === 'inbound-rtp'
+            && (entry.kind === 'video' || entry.mediaType === 'video'));
+        if (!inbound) {
+            return null;
+        }
+        const codec = entries.find((entry) => entry?.type === 'codec' && entry.id === inbound.codecId);
+        const mimeType = typeof codec?.mimeType === 'string' && /^video\/[a-z0-9.+-]+$/i.test(codec.mimeType)
+            ? codec.mimeType
+            : null;
+        const fmtp = typeof codec?.sdpFmtpLine === 'string'
+            && /^[a-z0-9=;,_ .-]{0,512}$/i.test(codec.sdpFmtpLine)
+            ? codec.sdpFmtpLine
+            : null;
+        return Object.freeze({
+            framesReceived: finiteNumber(inbound.framesReceived),
+            framesDecoded: finiteNumber(inbound.framesDecoded),
+            framesDropped: finiteNumber(inbound.framesDropped),
+            framesPerSecond: finiteNumber(inbound.framesPerSecond),
+            keyFramesDecoded: finiteNumber(inbound.keyFramesDecoded),
+            packetsReceived: finiteNumber(inbound.packetsReceived),
+            packetsLost: finiteNumber(inbound.packetsLost),
+            jitter: finiteNumber(inbound.jitter),
+            bytesReceived: finiteNumber(inbound.bytesReceived),
+            codec: Object.freeze({mimeType, fmtp}),
+        });
+    };
+
+    if (debugEnabled) {
+        window.SemyraLiveKitDebug = Object.freeze({
+            getVideoStats: videoStats,
+            getTrackTimings: () => trackTimings.slice(),
+        });
+    }
+
+    const isLiveKitTransmission = (transmission) => transmission?.source === 'iptv'
+        && ['live', 'vod'].includes(transmission?.mediaMode)
         && typeof transmission?.instanceId === 'string'
         && instancePattern.test(transmission.instanceId)
         && Number.isSafeInteger(transmission?.revision)
         && transmission.revision > 0;
+
+    const transmissionAudioSessionKey = (transmission) => isLiveKitTransmission(transmission)
+        ? `${transmission.instanceId}:${transmission.revision}`
+        : null;
 
     const updateStatus = (message, isError = false) => {
         statusElement.hidden = message === '';
@@ -53,7 +120,7 @@
     };
 
     const emitAudioState = () => {
-        if (!isLiveTransmission(activeTransmission)) {
+        if (!isLiveKitTransmission(activeTransmission)) {
             return;
         }
         document.dispatchEvent(new CustomEvent('semyra:player-audio-state', {
@@ -103,6 +170,8 @@
     const deactivate = async () => {
         ++generation;
         activeTransmission = null;
+        audioSessionKey = null;
+        locallyMuted = true;
         await disconnectRoom();
         mount.replaceChildren();
         mount.hidden = true;
@@ -184,6 +253,21 @@
         }
     };
 
+    const preserveAudiblePlayback = async (element, capturedGeneration) => {
+        if (locallyMuted) return;
+        try {
+            await room?.startAudio?.();
+            if (capturedGeneration !== generation || element !== audioElement) return;
+            if (typeof element.play === 'function') await element.play();
+        } catch {
+            if (capturedGeneration !== generation || element !== audioElement) return;
+            locallyMuted = true;
+            element.muted = true;
+            updateStatus('O navegador bloqueou o áudio. Ative o som novamente.', true);
+            emitAudioState();
+        }
+    };
+
     const attachTrack = (track, publication, participant, sdk, capturedGeneration) => {
         if (capturedGeneration !== generation
             || participant?.identity !== expectedPublisherIdentity) {
@@ -214,16 +298,19 @@
         } else {
             element.autoplay = true;
             element.controls = false;
-            element.muted = true;
             element.volume = Math.min(1, Math.max(0, selectedVolume / 100));
+            element.muted = locallyMuted;
             element.classList.add('room-livekit-audio');
             audioTrack = track;
             audioElement = element;
-            locallyMuted = true;
             emitAudioState();
+            if (!locallyMuted) void preserveAudiblePlayback(element, capturedGeneration);
         }
+        recordTrackTiming(role);
         mount.append(element);
-        updateStatus(role === 'video' ? 'Transmissão conectada.' : 'Áudio conectado. Ative o som quando quiser.');
+        updateStatus(role === 'video'
+            ? (activeTransmission?.mediaMode === 'live' ? 'AO VIVO' : 'Transmissão conectada.')
+            : (locallyMuted ? 'Áudio conectado. Ative o som quando quiser.' : 'Áudio conectado.'));
     };
 
     const registerRoomEvents = (nextRoom, sdk, capturedGeneration) => {
@@ -243,8 +330,14 @@
         on(sdk.RoomEvent.TrackUnpublished, (publication, participant) => {
             if (participant?.identity !== expectedPublisherIdentity) return;
             const kind = publicationKind(publication, sdk);
-            if (kind === sdk.Track.Kind.Video) removeAttached('video');
-            if (kind === sdk.Track.Kind.Audio) removeAttached('audio');
+            if (kind === sdk.Track.Kind.Video) {
+                if (debugEnabled) trackReplacementStartedAt.video = debugNow();
+                removeAttached('video');
+            }
+            if (kind === sdk.Track.Kind.Audio) {
+                if (debugEnabled) trackReplacementStartedAt.audio = debugNow();
+                removeAttached('audio');
+            }
             if (capturedGeneration === generation) updateStatus('Aguardando transmissão…');
         });
         on(sdk.RoomEvent.Reconnecting, () => updateStatus('Reconectando…'));
@@ -280,7 +373,7 @@
     };
 
     const applyTransmission = async (transmission) => {
-        if (!isLiveTransmission(transmission)) {
+        if (!isLiveKitTransmission(transmission)) {
             await deactivate();
             return;
         }
@@ -288,6 +381,12 @@
             && activeTransmission?.revision === transmission.revision
             && room !== null) {
             return;
+        }
+
+        const nextAudioSessionKey = transmissionAudioSessionKey(transmission);
+        if (audioSessionKey !== nextAudioSessionKey) {
+            audioSessionKey = nextAudioSessionKey;
+            locallyMuted = true;
         }
 
         const capturedGeneration = ++generation;
@@ -356,7 +455,7 @@
         void applyTransmission(event.detail?.transmission ?? null);
     });
     document.addEventListener('semyra:player-mute-toggle', async () => {
-        if (!isLiveTransmission(activeTransmission)) return;
+        if (!isLiveKitTransmission(activeTransmission)) return;
         if (locallyMuted) {
             try {
                 await room?.startAudio?.();
@@ -380,7 +479,7 @@
         emitAudioState();
     });
     document.addEventListener('semyra:player-volume-change', async (event) => {
-        if (!isLiveTransmission(activeTransmission)) return;
+        if (!isLiveKitTransmission(activeTransmission)) return;
         const selection = media.playerVolumeSelection(event.detail?.volume, restoreVolume);
         selectedVolume = selection.volume;
         restoreVolume = selection.restoreVolume;

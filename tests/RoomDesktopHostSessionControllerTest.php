@@ -46,6 +46,14 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
         self::assertSame(7, array_values($pdo->sessions)[0]['owner_user_id']);
     }
 
+    public function testPremiumOwnerCanIssueHostSessionForVod(): void
+    {
+        [$controller, $pdo] = $this->controller(authenticated: true, mediaMode: 'vod');
+
+        self::assertSame(201, $controller->issue('ROOM2345')->status());
+        self::assertCount(1, $pdo->sessions);
+    }
+
     public function testFreeDatabaseRowFlowsThroughRepositoryAndOwnerDoesNotReceiveHostSession(): void
     {
         [$controller, $pdo] = $this->controller(premium: false);
@@ -61,7 +69,7 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
     }
 
     #[DataProvider('inapplicableTransmissions')]
-    public function testOnlyIptvLiveIsApplicable(string $source, string $mediaMode): void
+    public function testOnlySupportedIptvMediaModesAreApplicable(string $source, string $mediaMode): void
     {
         [$controller] = $this->controller(source: $source, mediaMode: $mediaMode);
         $this->assertError($controller->issue('ROOM2345'), 409, 'host_session_not_applicable');
@@ -69,7 +77,7 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
 
     public static function inapplicableTransmissions(): array
     {
-        return [['youtube', 'live'], ['iptv', 'vod']];
+        return [['youtube', 'live'], ['iptv', 'unknown']];
     }
 
     public function testStaleRequestAndAtomicTransmissionChangeAreRejected(): void

@@ -52,7 +52,7 @@ public sealed class IptvAccountIsolationTests : IDisposable
         Assert.Equal("Source A", Assert.Single(engine.ListIptvSources()).Name);
         await engine.ClearAccountAsync();
         await engine.ClearAccountAsync();
-        Assert.Equal(["host.status", "host.authorize"], engine.Snapshot().Capabilities);
+        Assert.Equal(["host.status", "host.authorize", "window.fullscreen"], engine.Snapshot().Capabilities);
     }
 
     [Fact]

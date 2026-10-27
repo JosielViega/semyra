@@ -42,7 +42,7 @@ public sealed class HostEngineTests
         var snapshot = engine.Snapshot();
 
         Assert.Equal("ready", snapshot.State);
-        Assert.Equal(["host.status", "host.authorize"], snapshot.Capabilities);
+        Assert.Equal(["host.status", "host.authorize", "window.fullscreen"], snapshot.Capabilities);
         Assert.False(snapshot.Authorization.Authorized);
     }
 
@@ -70,8 +70,19 @@ public sealed class HostEngineTests
             whipAvailable: true, localViewAvailable: true);
 
         Assert.Equal(
-            ["host.status", "host.authorize", "iptv.sources", "iptv.catalog", "iptv.local-view", "media.whip", "livekit.publish"],
+            ["host.status", "host.authorize", "window.fullscreen", "iptv.sources", "iptv.catalog", "iptv.local-view", "media.whip", "livekit.publish"],
             snapshot.Capabilities);
+    }
+
+    [Fact]
+    public void VodPublishingIsAdvertisedSeparatelyFromLivePublishing()
+    {
+        var liveOnly = HostEngineSnapshot.Create(HostEngineState.Ready, null, true, true, false, false);
+        var liveAndVod = HostEngineSnapshot.Create(HostEngineState.Ready, null, true, true, false, true);
+
+        Assert.DoesNotContain("livekit.publish-vod", liveOnly.Capabilities);
+        Assert.Equal("livekit.publish-vod", liveAndVod.Capabilities[^1]);
+        Assert.Contains("livekit.publish", liveAndVod.Capabilities);
     }
 
     [Fact]
@@ -117,6 +128,34 @@ public sealed class HostEngineTests
 
         Assert.Equal(HostEngineState.Stopped, engine.State);
         Assert.False(engine.Snapshot().Authorization.Authorized);
+    }
+
+    [Fact]
+    public async Task ScheduledRoomLeaveClearsAuthorizationAfterGrace()
+    {
+        var engine = new HostEngine();
+        engine.Start();
+        engine.Authorize(Authorization("a", 1));
+
+        engine.ScheduleAuthorizationClear(TimeSpan.FromMilliseconds(20));
+        await Task.Delay(80);
+
+        Assert.False(engine.Snapshot().Authorization.Authorized);
+    }
+
+    [Fact]
+    public async Task ReloadAuthorizationCancelsScheduledRoomLeave()
+    {
+        var engine = new HostEngine();
+        engine.Start();
+        engine.Authorize(Authorization("a", 1));
+        engine.ScheduleAuthorizationClear(TimeSpan.FromMilliseconds(40));
+        await Task.Delay(10);
+
+        engine.Authorize(Authorization("a", 1));
+        await Task.Delay(80);
+
+        Assert.True(engine.Snapshot().Authorization.Authorized);
     }
 
     private static HostAuthorization Authorization(string instanceCharacter, long revision)

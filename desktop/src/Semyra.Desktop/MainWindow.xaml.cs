@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using Semyra.Desktop.Desktop;
@@ -19,11 +20,7 @@ public partial class MainWindow : Window
     private readonly PlayerCursorActivityController _cursorActivity;
     private MpvGeometry? _mpvGeometry;
     private bool _mpvVisible;
-    private bool _nativeVideoFullscreen;
-    private WindowStyle _savedWindowStyle;
-    private ResizeMode _savedResizeMode;
-    private WindowState _savedWindowState;
-    private Rect _savedWindowBounds;
+    private readonly WindowFullscreenState _windowFullscreen = new();
     private bool _shutdownStarted;
     private bool _shutdownComplete;
 
@@ -162,7 +159,9 @@ public partial class MainWindow : Window
         var result = await DesktopBridge.TryHandleAsync(
             e.WebMessageAsJson,
             _hostEngine,
-            PickM3uFile);
+            PickM3uFile,
+            getWindowFullscreen: () => _windowFullscreen.Enabled,
+            setWindowFullscreen: ApplyWindowFullscreen);
         if (result.Handled)
         {
             try
@@ -238,11 +237,14 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (!_nativeVideoFullscreen || e.Key != Key.Escape) return;
-        var sessionId = _hostEngine.IptvMediaSnapshot().SessionId;
-        if (sessionId is null) return;
-        _hostEngine.SetMpvFullscreen(sessionId, false);
-        e.Handled = true;
+        if (!_windowFullscreen.Enabled || e.Key != Key.Escape) return;
+        var snapshot = _hostEngine.IptvMediaSnapshot();
+        if (snapshot.Fullscreen && snapshot.SessionId is not null)
+        {
+            _hostEngine.SetMpvFullscreen(snapshot.SessionId, false);
+            e.Handled = true;
+        }
+        // Room fullscreen is owned by room-shell.js so dialogs/panels receive Escape normally.
     }
 
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) => ApplyNativeVideoGeometry();
@@ -310,43 +312,99 @@ public partial class MainWindow : Window
 
     private void OnNativeVideoFullscreenChanged(object? sender, bool fullscreen)
     {
-        RunOnUi(() => ApplyNativeFullscreen(fullscreen));
+        RunOnUi(() => ApplyWindowFullscreen(fullscreen));
     }
 
-    private void ApplyNativeFullscreen(bool fullscreen)
+    private void ApplyWindowFullscreen(bool fullscreen)
     {
         _cursorActivity.SetFullscreen(fullscreen);
-        if (_nativeVideoFullscreen == fullscreen) return;
         if (fullscreen)
         {
-            _savedWindowStyle = WindowStyle;
-            _savedResizeMode = ResizeMode;
-            _savedWindowState = WindowState;
-            _savedWindowBounds = RestoreBounds;
+            var restoreBounds = WindowState == WindowState.Normal
+                ? new Rect(Left, Top, Width, Height)
+                : RestoreBounds;
+            if (!_windowFullscreen.Enter(WindowStyle, ResizeMode, WindowState, restoreBounds)) return;
+            var monitorBounds = CurrentMonitorBounds();
             WindowState = WindowState.Normal;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
-            WindowState = WindowState.Maximized;
-        }
-        else
-        {
-            WindowState = WindowState.Normal;
-            WindowStyle = _savedWindowStyle;
-            ResizeMode = _savedResizeMode;
-            if (_savedWindowState == WindowState.Normal && !_savedWindowBounds.IsEmpty)
+            if (monitorBounds is { } bounds)
             {
-                Left = _savedWindowBounds.Left;
-                Top = _savedWindowBounds.Top;
-                Width = _savedWindowBounds.Width;
-                Height = _savedWindowBounds.Height;
+                Left = bounds.Left;
+                Top = bounds.Top;
+                Width = bounds.Width;
+                Height = bounds.Height;
             }
             else
             {
-                WindowState = _savedWindowState;
+                WindowState = WindowState.Maximized;
             }
         }
-        _nativeVideoFullscreen = fullscreen;
+        else
+        {
+            var saved = _windowFullscreen.Exit();
+            if (saved is null) return;
+            WindowState = WindowState.Normal;
+            WindowStyle = saved.Style;
+            ResizeMode = saved.ResizeMode;
+            if (saved.WindowState == WindowState.Normal && !saved.Bounds.IsEmpty)
+            {
+                Left = saved.Bounds.Left;
+                Top = saved.Bounds.Top;
+                Width = saved.Bounds.Width;
+                Height = saved.Bounds.Height;
+            }
+            else
+            {
+                WindowState = saved.WindowState;
+            }
+        }
         ApplyNativeVideoGeometry();
+        if (Browser.CoreWebView2 is not null)
+        {
+            try
+            {
+                Browser.CoreWebView2.PostWebMessageAsJson(
+                    DesktopBridge.CreateWindowFullscreenChangedEvent(_windowFullscreen.Enabled));
+            }
+            catch (InvalidOperationException)
+            {
+                // A navegação pode substituir o documento entre o comando e a notificação.
+            }
+        }
+    }
+
+    private Rect? CurrentMonitorBounds()
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == 0) return null;
+        var monitor = MonitorFromWindow(handle, 2);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (monitor == 0 || !GetMonitorInfo(monitor, ref info)) return null;
+        var transform = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice;
+        if (transform is null) return null;
+        var topLeft = transform.Value.Transform(new Point(info.Monitor.Left, info.Monitor.Top));
+        var bottomRight = transform.Value.Transform(new Point(info.Monitor.Right, info.Monitor.Bottom));
+        return new Rect(topLeft, bottomRight);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromWindow(nint window, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public NativeRect Monitor;
+        public NativeRect Work;
+        public uint Flags;
     }
 
     private void ApplyNativeVideoGeometry()

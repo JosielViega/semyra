@@ -62,12 +62,13 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-livekit-player-mount hidden', $html);
         self::assertStringContainsString('data-livekit-viewer-token-url="/room/7MKP3WQH/livekit/viewer-token"', $html);
         self::assertStringContainsString('data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"', $html);
-        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=10b21-instance', $html);
+        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=11m-c-audio-republish', $html);
+        self::assertStringContainsString('/assets/js/room-desktop-iptv.js?v=11m-c-vod-controls', $html);
         self::assertStringContainsString('data-initial-instance-id=""', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/css/room.css?v=8b-polish-2', $html);
-        self::assertStringContainsString('/assets/js/room-shell.js?v=10b21-instance', $html);
+        self::assertStringContainsString('/assets/css/room.css?v=11m-c-vod-controls', $html);
+        self::assertStringContainsString('/assets/js/room-shell.js?v=11m-c-round11', $html);
         self::assertStringContainsString('/assets/js/room-wake-lock.js?v=8b-identity', $html);
         self::assertStringContainsString('class="room-logo room-logo-empty"', $html);
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
@@ -86,13 +87,40 @@ final class RoomViewTest extends TestCase
         ]);
 
         self::assertStringContainsString('data-desktop-publish-tabs', $html);
-        self::assertStringContainsString('data-iptv-source-panel', $html);
+        self::assertStringContainsString('data-iptv-source-panel-modern', $html);
         self::assertStringContainsString('>IPTV</button>', $html);
         self::assertStringContainsString('data-can-publish-iptv="1"', $html);
-        self::assertStringContainsString('data-room-iptv-source', $html);
-        self::assertStringContainsString('data-room-iptv-unavailable hidden', $html);
+        self::assertStringContainsString('data-room-iptv-source-modern', $html);
+        self::assertStringContainsString('data-iptv-tab="live"', $html);
+        self::assertStringContainsString('data-iptv-tab="movies"', $html);
+        self::assertStringContainsString('data-iptv-tab="series"', $html);
+        self::assertStringContainsString('data-iptv-series-detail', $html);
+        self::assertStringContainsString('role="tablist"', $html);
+        self::assertStringContainsString('data-room-iptv-unavailable-modern hidden', $html);
         self::assertStringContainsString('Publicação IPTV indisponível neste Desktop.', $html);
         self::assertStringNotContainsString('recurso Premium', $html);
+    }
+
+    public function testIptvControlsAreOutsideTheYouTubeTransmissionForm(): void
+    {
+        $html = $this->renderRoom([
+            'identity' => array_replace($this->identity(), ['user_id' => 7]),
+            'currentUser' => ['id' => 7, 'display_name' => 'Josiel'],
+            'can_publish_iptv' => true,
+        ]);
+
+        $youtubeStart = strpos($html, '<form id="room-youtube-transmission-form"');
+        $youtubeEnd = strpos($html, '</form>', $youtubeStart === false ? 0 : $youtubeStart);
+        $iptvStart = strpos($html, 'data-iptv-source-panel-modern');
+
+        self::assertNotFalse($youtubeStart);
+        self::assertNotFalse($youtubeEnd);
+        self::assertNotFalse($iptvStart);
+        self::assertLessThan($iptvStart, $youtubeEnd);
+        self::assertStringContainsString('data-youtube-transmission-form', $html);
+        self::assertMatchesRegularExpression('/<form[^>]+data-iptv-form="live"[^>]*>/', $html);
+        self::assertMatchesRegularExpression('/<form[^>]+data-iptv-form="movies"[^>]*>/', $html);
+        self::assertMatchesRegularExpression('/<form[^>]+data-iptv-form="series"[^>]*>/', $html);
     }
 
     public function testFreeAccountSeesPremiumGateWithoutCatalogControls(): void
@@ -182,6 +210,39 @@ final class RoomViewTest extends TestCase
         self::assertStringNotContainsString('LIVEKIT_API_KEY', $html);
     }
 
+    public function testIptvVodOwnerStartsWithSharedPlaybackControlsVisible(): void
+    {
+        $transmission = $this->transmission(true);
+        $transmission['source'] = 'iptv';
+        $transmission['youtube_video_id'] = null;
+        $transmission['media_mode'] = 'vod';
+        $transmission['playback']['position_ms'] = null;
+
+        $html = $this->renderRoom([
+            'identity' => $this->identity(),
+            'transmission' => $transmission,
+        ]);
+
+        self::assertStringContainsString('data-initial-source="iptv"', $html);
+        self::assertStringContainsString('data-initial-playback-position-ms=""', $html);
+        self::assertMatchesRegularExpression('/data-shared-playback-controls>/', $html);
+    }
+
+    public function testIptvVodViewerDoesNotSeeSharedPlaybackControls(): void
+    {
+        $transmission = $this->transmission(false);
+        $transmission['source'] = 'iptv';
+        $transmission['youtube_video_id'] = null;
+        $transmission['media_mode'] = 'vod';
+
+        $html = $this->renderRoom([
+            'identity' => $this->identity(),
+            'transmission' => $transmission,
+        ]);
+
+        self::assertStringContainsString('data-shared-playback-controls hidden', $html);
+    }
+
     public function testTelemetryIsRenderedOnlyInDebugMode(): void
     {
         $normal = $this->renderRoom(['identity' => $this->identity()]);
@@ -219,9 +280,9 @@ final class RoomViewTest extends TestCase
             self::assertStringNotContainsString($legacyGlyph, $html);
         }
         self::assertStringContainsString('/assets/js/room-media.js?v=10b21-instance', $html);
-        self::assertStringContainsString('/assets/js/room-playback.js?v=10b21-instance', $html);
+        self::assertStringContainsString('/assets/js/room-playback.js?v=11m-c-vod-controls-r7', $html);
         self::assertStringContainsString('data-leave-url="/room/7MKP3WQH/leave"', $html);
-        self::assertStringContainsString('/assets/js/room-presence.js?v=10b21-instance', $html);
+        self::assertStringContainsString('/assets/js/room-presence.js?v=11m-c-round11', $html);
     }
 
     public function testEscapesRoomParticipantOwnerAndFlashValues(): void
@@ -260,6 +321,32 @@ final class RoomViewTest extends TestCase
         self::assertStringNotContainsString('<svg onload=alert(3)>', $html);
         self::assertStringNotContainsString('<img src=x onerror=alert(4)>', $html);
         self::assertStringContainsString('data-room-flash data-flash-type="error"', $html);
+    }
+
+    public function testIptvCatalogOwnsScrollAndPaginationCannotBeCoveredByDialogActions(): void
+    {
+        $css = file_get_contents(dirname(__DIR__) . '/public/assets/css/room.css');
+
+        self::assertIsString($css);
+        self::assertMatchesRegularExpression('/\.room-iptv-catalog-scroller \{[^}]*flex: 1 1 auto;[^}]*min-height: 0;[^}]*overflow-x: hidden;[^}]*overflow-y: auto;[^}]*\}/s', $css);
+        self::assertMatchesRegularExpression('/\.room-iptv-grid \{[^}]*grid-auto-rows: max-content;[^}]*overflow: visible;[^}]*\}/s', $css);
+        self::assertMatchesRegularExpression('/\.room-iptv-pagination \{[^}]*position: relative;[^}]*flex: 0 0 auto;[^}]*\}/s', $css);
+        self::assertMatchesRegularExpression('/\.room-iptv-dialog-actions \{[^}]*position: relative;[^}]*flex: 0 0 auto;[^}]*\}/s', $css);
+        self::assertStringNotContainsString('.room-iptv-pagination { position: sticky;', $css);
+        self::assertStringNotContainsString('.room-iptv-dialog-actions { position: sticky;', $css);
+        self::assertStringNotContainsString('pointer-events: none', substr($css, (int) strpos($css, '.room-iptv-pagination'), 500));
+        self::assertStringContainsString('.room-iptv-grid-live { grid-template-columns: repeat(3, minmax(0, 1fr)); }', $css);
+        self::assertStringContainsString('.room-iptv-grid-posters { grid-template-columns: repeat(5, minmax(0, 1fr)); }', $css);
+        self::assertStringContainsString('@media (max-width: 860px)', $css);
+        self::assertStringContainsString('@media (max-width: 720px)', $css);
+        self::assertStringContainsString('@media (max-width: 600px)', $css);
+        self::assertStringContainsString('.room-iptv-grid-posters { grid-template-columns: repeat(4, minmax(0, 1fr)); }', $css);
+        self::assertStringContainsString('.room-iptv-grid-posters { grid-template-columns: repeat(3, minmax(0, 1fr)); }', $css);
+        self::assertStringContainsString('.room-iptv-grid-posters { grid-template-columns: repeat(2, minmax(0, 1fr)); }', $css);
+        self::assertMatchesRegularExpression('/\.room-iptv-poster-title \{[^}]*-webkit-line-clamp: 2;[^}]*\}/s', $css);
+        self::assertMatchesRegularExpression('/\.room-iptv-season-tabs \{[^}]*flex: 0 0 auto;[^}]*overflow-x: auto;[^}]*overflow-y: visible;[^}]*\}/s', $css);
+        self::assertMatchesRegularExpression('/\.room-iptv-series-detail \{[^}]*overflow: visible;[^}]*\}/s', $css);
+        self::assertMatchesRegularExpression('/\.room-iptv-episode-list \{[^}]*overflow-y: auto;[^}]*\}/s', $css);
     }
 
     private function renderRoom(array $overrides = []): string

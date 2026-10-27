@@ -16,6 +16,7 @@
     const playIcon = toggleButton?.querySelector('[data-icon-play]');
     const pauseIcon = toggleButton?.querySelector('[data-icon-pause]');
     const liveButton = controls.querySelector('[data-playback-live]');
+    const relativeButtons = Array.from(controls.querySelectorAll('[data-playback-relative]'));
     const seekInput = controls.querySelector('[data-playback-seek]');
     const currentOutput = controls.querySelector('[data-playback-current]');
     const separator = controls.querySelector('[data-playback-separator]');
@@ -24,6 +25,7 @@
     const maxTimeMs = 315576000000;
     let transmission = null;
     let durationMs = 0;
+    let nativeSnapshot = null;
     let commandInProgress = false;
     let autoCheckInProgress = false;
     const resyncLock = media.createResyncLock();
@@ -83,19 +85,49 @@
         const liveEdgePositionMs = rawLiveEdge === null ? null : Number(rawLiveEdge);
         const liveSyncPositionMs = rawLiveSync === null ? null : Number(rawLiveSync);
         const liveSyncDelayMs = rawLiveSyncDelay === null ? null : Number(rawLiveSyncDelay);
-        if (source !== 'youtube'
+        const youtube = source === 'youtube';
+        const iptv = source === 'iptv';
+        if ((!youtube && !iptv)
             || typeof instanceId !== 'string'
             || !/^[a-f0-9]{32}$/.test(instanceId)
-            || typeof videoId !== 'string'
-            || !/^[A-Za-z0-9_-]{11}$/.test(videoId)
+            || (youtube && (typeof videoId !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(videoId)))
+            || (iptv && videoId !== null && videoId !== undefined && videoId !== '')
             || !Number.isSafeInteger(revision)
             || revision < 1
             || typeof ownerName !== 'string'
             || typeof isOwner !== 'boolean'
             || !['vod', 'live'].includes(mediaMode)
-            || typeof atLiveEdge !== 'boolean'
-            || (mediaMode !== 'live' && atLiveEdge)
             || !['playing', 'paused'].includes(playback?.state)
+            || !Number.isSafeInteger(playback?.revision)
+            || playback.revision < 1) {
+            return null;
+        }
+
+        if (iptv) {
+            const safePositionMs = Number.isSafeInteger(positionMs)
+                && positionMs >= 0 && positionMs <= maxTimeMs ? positionMs : null;
+            return {
+                source,
+                instanceId,
+                videoId: null,
+                revision,
+                ownerName,
+                isOwner,
+                mediaMode,
+                playback: {
+                    state: playback.state,
+                    positionMs: safePositionMs,
+                    revision: playback.revision,
+                    atLiveEdge: false,
+                    liveEdgePositionMs: null,
+                    liveSyncPositionMs: null,
+                    liveSyncDelayMs: null,
+                },
+            };
+        }
+
+        if (typeof atLiveEdge !== 'boolean'
+            || (mediaMode !== 'live' && atLiveEdge)
             || (positionMs !== null
                 && (!Number.isSafeInteger(positionMs) || positionMs < 0 || positionMs > maxTimeMs))
             || (positionMs === null
@@ -113,9 +145,7 @@
             || (mediaMode !== 'live'
                 && (liveEdgePositionMs !== null
                     || liveSyncPositionMs !== null
-                    || liveSyncDelayMs !== null))
-            || !Number.isSafeInteger(playback?.revision)
-            || playback.revision < 1) {
+                    || liveSyncDelayMs !== null))) {
             return null;
         }
 
@@ -139,12 +169,31 @@
         };
     };
 
+    const shouldShowSharedPlaybackControls = (value) => value?.source === 'youtube'
+        || (value?.source === 'iptv' && value?.mediaMode === 'vod' && value?.isOwner === true);
+
+    const currentPlaybackState = () => (
+        transmission?.source === 'iptv'
+        && transmission?.mediaMode === 'vod'
+        && transmission?.isOwner === true
+        && nativeSnapshot !== null
+            ? nativeSnapshot.state
+            : transmission?.playback.state
+    );
+
     const render = () => {
         const owner = transmission?.isOwner === true;
-        controls.hidden = transmission === null;
+        const iptvVod = transmission?.source === 'iptv' && transmission?.mediaMode === 'vod';
+        controls.hidden = !shouldShowSharedPlaybackControls(transmission);
+        const authoritativePlayback = iptvVod && owner && nativeSnapshot !== null
+            ? {
+                state: nativeSnapshot.state,
+                positionMs: nativeSnapshot.positionMs,
+            }
+            : transmission?.playback;
         const positionMs = scrubbing.isActive()
-            ? (scrubbing.positionMs() ?? transmission?.playback.positionMs ?? 0)
-            : (transmission?.playback.positionMs ?? 0);
+            ? (scrubbing.positionMs() ?? authoritativePlayback?.positionMs ?? 0)
+            : (authoritativePlayback?.positionMs ?? 0);
         const mediaMode = transmission?.mediaMode ?? 'vod';
         const liveEdgePositionMs = transmission?.playback.liveEdgePositionMs ?? null;
         const liveSyncPositionMs = transmission?.playback.liveSyncPositionMs ?? null;
@@ -173,10 +222,11 @@
             return;
         }
 
-        const playing = transmission.playback.state === 'playing';
+        const playing = authoritativePlayback?.state === 'playing';
         const live = mediaMode === 'live';
         const rangeMaxMs = live ? media.liveRangeMaxMs(liveSyncPositionMs) : durationMs;
-        syncButton.hidden = !owner;
+        const nativeSeekReady = !iptvVod || nativeSnapshot?.seekable === true;
+        syncButton.hidden = !owner || iptvVod;
         syncButton.disabled = controlsLocked();
         toggleButton.dataset.state = playing ? 'playing' : 'paused';
         playIcon.toggleAttribute('hidden', playing);
@@ -184,7 +234,12 @@
         toggleButton.setAttribute('aria-label', playing ? 'Pausar transmissão' : 'Reproduzir transmissão');
         toggleButton.hidden = !owner;
         toggleButton.disabled = controlsLocked();
-        seekInput.disabled = !owner || controlsLocked()
+        relativeButtons.forEach((button) => {
+            button.hidden = !owner || live;
+            button.disabled = controlsLocked() || !nativeSeekReady
+                || !Number.isSafeInteger(rangeMaxMs) || rangeMaxMs <= 0;
+        });
+        seekInput.disabled = !owner || controlsLocked() || !nativeSeekReady
             || !Number.isSafeInteger(rangeMaxMs) || rangeMaxMs <= 0;
         seekInput.max = String(Math.max(0, Math.floor((rangeMaxMs ?? 0) / 1000)));
         if (!scrubbing.isActive()) {
@@ -213,6 +268,7 @@
         if (transmission?.instanceId !== previousInstanceId
             || transmission?.revision !== previousRevision) {
             durationMs = 0;
+            nativeSnapshot = null;
         }
         if (transmission?.instanceId !== previousInstanceId
             || transmission?.revision !== previousRevision
@@ -251,7 +307,7 @@
         }));
     };
 
-    const requestSnapshot = () => new Promise((resolve) => {
+    const requestYoutubeSnapshot = () => new Promise((resolve) => {
         const receive = (event) => {
             window.clearTimeout(timeoutId);
             resolve(event.detail ?? null);
@@ -269,7 +325,71 @@
         instanceId: transmission.instanceId,
         transmissionRevision: transmission.revision,
         playbackRevision: transmission.playback.revision,
-        playbackPositionMs: transmission.playback.positionMs,
+        playbackPositionMs: transmission.source === 'iptv' && nativeSnapshot !== null
+            ? nativeSnapshot.positionMs
+            : transmission.playback.positionMs,
+        playbackState: currentPlaybackState(),
+    };
+
+    let nativeRequestSequence = 0;
+    const nativeControl = (command, positionMs = null) => new Promise((resolve) => {
+        if (transmission?.source !== 'iptv' || transmission?.mediaMode !== 'vod' || transmission?.isOwner !== true) {
+            resolve({ok: false, reason: 'native_control_unavailable'});
+            return;
+        }
+        const clientRequestId = `publish-control-${++nativeRequestSequence}`;
+        const requestedInstanceId = transmission.instanceId;
+        const requestedRevision = transmission.revision;
+        const receive = (event) => {
+            if (event.detail?.action !== 'publish-control' || event.detail?.clientRequestId !== clientRequestId) return;
+            window.removeEventListener('semyra:iptv-result', receive);
+            window.clearTimeout(timeoutId);
+            const result = event.detail;
+            if (result.ok === true) {
+                const nextDurationMs = Number.isFinite(result.duration) && result.duration >= 0
+                    ? Math.round(result.duration * 1000) : 0;
+                const snapshot = {
+                    ok: true,
+                    positionMs: Math.round((result.position ?? 0) * 1000),
+                    durationMs: nextDurationMs,
+                    state: result.paused === true || result.state === 'paused' ? 'paused' : 'playing',
+                    seekable: result.seekable === true,
+                };
+                if (transmission?.instanceId === requestedInstanceId
+                    && transmission?.revision === requestedRevision) {
+                    nativeSnapshot = snapshot;
+                    durationMs = nextDurationMs;
+                }
+                resolve(snapshot);
+            } else resolve({ok: false, reason: result.error || 'native_control_failed'});
+        };
+        const timeoutId = window.setTimeout(() => {
+            window.removeEventListener('semyra:iptv-result', receive);
+            resolve({ok: false, reason: 'native_control_timeout'});
+        }, 9000);
+        window.addEventListener('semyra:iptv-result', receive);
+        const detail = {
+            action: 'publish-control',
+            command,
+            transmissionInstanceId: transmission.instanceId,
+            transmissionRevision: transmission.revision,
+            clientRequestId,
+        };
+        if (command === 'seek') detail.positionMs = positionMs;
+        window.dispatchEvent(new CustomEvent('semyra:iptv-request', {detail}));
+    });
+
+    const requestSnapshot = () => transmission?.source === 'iptv'
+        ? nativeControl('snapshot')
+        : requestYoutubeSnapshot();
+
+    const compensateNative = async (expectedContext) => {
+        if (transmission?.source !== 'iptv') return;
+        if (expectedContext.playbackState === 'paused') await nativeControl('pause');
+        else await nativeControl('play');
+        if (Number.isSafeInteger(expectedContext.playbackPositionMs)) {
+            await nativeControl('seek', expectedContext.playbackPositionMs);
+        }
     };
 
     const performCommand = async (action, positionMs, expectedContext) => {
@@ -283,6 +403,13 @@
         }
 
         try {
+            const iptvVod = transmission?.source === 'iptv' && transmission?.mediaMode === 'vod';
+            if (iptvVod) {
+                const nativeAction = action === 'seek' ? 'seek' : action;
+                const native = await nativeControl(nativeAction, positionMs);
+                if (!native.ok) return {ok: false, reason: 'native_control_failed'};
+                positionMs = native.positionMs;
+            }
             const body = new URLSearchParams({
                 _token: csrfToken,
                 action,
@@ -301,6 +428,7 @@
             });
             const payload = await response.json();
             if (!response.ok) {
+                if (iptvVod) await compensateNative(expectedContext);
                 if (payload.transmission !== undefined) {
                     applyTransmission(payload.transmission);
                 }
@@ -331,8 +459,13 @@
         const expectedContext = currentContext();
         let positionMs = requestedPositionMs;
         if (action !== 'live' && positionMs === null) {
-            const snapshot = await requestSnapshot();
-            positionMs = snapshot?.positionMs;
+            if (transmission.source === 'iptv') {
+                const snapshot = nativeSnapshot ?? await nativeControl('snapshot');
+                positionMs = snapshot.ok ? snapshot.positionMs : null;
+            } else {
+                const snapshot = await requestYoutubeSnapshot();
+                positionMs = snapshot?.positionMs;
+            }
         }
         if (!media.resyncContextMatches(expectedContext, currentContext())) {
             return {ok: false, reason: 'stale'};
@@ -340,7 +473,7 @@
 
         commandInProgress = true;
         render();
-        setStatus('Atualizando…');
+        setStatus(action === 'seek' ? 'Buscando…' : 'Atualizando…');
         const result = await performCommand(action, positionMs, expectedContext);
         commandInProgress = false;
         render();
@@ -524,11 +657,40 @@
 
     toggleButton.addEventListener('click', () => {
         if (transmission !== null) {
-            sendCommand(transmission.playback.state === 'playing' ? 'pause' : 'play');
+            sendCommand(currentPlaybackState() === 'playing' ? 'pause' : 'play');
         }
     });
     syncButton.addEventListener('click', () => startResync());
     liveButton.addEventListener('click', () => sendCommand('live'));
+    const seekRelative = async (delta) => {
+        const snapshot = await nativeControl('snapshot');
+        const current = snapshot.ok ? snapshot.positionMs : transmission?.playback.positionMs;
+        if (!Number.isSafeInteger(delta) || !Number.isSafeInteger(current)) return;
+        await sendCommand('seek', Math.max(0, Math.min(durationMs || maxTimeMs, current + delta)));
+    };
+    relativeButtons.forEach((button) => button.addEventListener('click', () => {
+        const delta = Number(button.dataset.playbackRelative);
+        void seekRelative(delta);
+    }));
+
+    document.addEventListener('keydown', (event) => {
+        if (transmission?.source !== 'iptv' || transmission?.mediaMode !== 'vod' || transmission?.isOwner !== true
+            || event.altKey || event.ctrlKey || event.metaKey
+            || event.target?.closest?.('input, textarea, select, button, a, dialog, [contenteditable="true"]')) return;
+        const action = event.code === 'Space' ? (currentPlaybackState() === 'playing' ? 'pause' : 'play') : null;
+        const delta = event.key === 'ArrowLeft' ? -30000 : event.key === 'ArrowRight' ? 30000 : null;
+        if (action === null && delta === null) return;
+        event.preventDefault();
+        if (action !== null) sendCommand(action);
+        else void seekRelative(delta);
+    });
+
+    const refreshNativeSnapshot = async () => {
+        if (transmission?.source !== 'iptv' || transmission?.mediaMode !== 'vod' || transmission?.isOwner !== true) return;
+        const snapshot = await nativeControl('snapshot');
+        if (snapshot.ok) render();
+    };
+    window.addEventListener('semyra:host-authorized', () => { void refreshNativeSnapshot(); });
 
     const beginScrubbing = () => {
         if (scrubbing.isActive()) {
@@ -623,11 +785,13 @@
     });
     document.addEventListener('semyra:presence-updated', (event) => {
         applyTransmission(event.detail?.transmission ?? null);
+        void refreshNativeSnapshot();
         maybeAutoResync(event.detail?.participants ?? []);
     });
 
     const initialInstanceId = shell.dataset.initialInstanceId ?? '';
     const initialRevision = Number(shell.dataset.initialRevision);
+    const rawInitialPosition = shell.dataset.initialPlaybackPositionMs;
     const rawInitialLiveEdge = shell.dataset.initialLiveEdgePositionMs;
     const rawInitialLiveSync = shell.dataset.initialLiveSyncPositionMs;
     const rawInitialLiveSyncDelay = shell.dataset.initialLiveSyncDelayMs;
@@ -643,7 +807,7 @@
             mediaMode: shell.dataset.initialMediaMode,
             playback: {
                 state: shell.dataset.initialPlaybackState,
-                positionMs: Number(shell.dataset.initialPlaybackPositionMs),
+                positionMs: rawInitialPosition === '' ? null : Number(rawInitialPosition),
                 revision: Number(shell.dataset.initialPlaybackRevision),
                 atLiveEdge: shell.dataset.initialPlaybackAtLiveEdge === '1',
                 liveEdgePositionMs: rawInitialLiveEdge === '' ? null : Number(rawInitialLiveEdge),
@@ -652,4 +816,5 @@
             },
         }
         : null);
+    void refreshNativeSnapshot();
 })();

@@ -13,6 +13,8 @@ public sealed class DesktopMessageTests
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.series.search\",\"requestId\":\"vod-series-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":1,\"query\":\"show\",\"category\":\"2\",\"offset\":0,\"limit\":50}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.series.details\",\"requestId\":\"vod-details-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"seriesId\":4,\"refresh\":false}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.view-start\",\"requestId\":\"vod-view-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"movie\",\"mediaId\":4}")]
+    [InlineData("{\"type\":\"semyra.desktop.iptv.publish.start\",\"requestId\":\"vod-publish-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"movie\",\"mediaId\":4}")]
+    [InlineData("{\"type\":\"semyra.desktop.iptv.publish.start\",\"requestId\":\"vod-publish-2\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"episode\",\"mediaId\":5}")]
     public void AcceptsStrictVodContracts(string json)
     {
         Assert.True(DesktopMessage.TryReadRequest(json, out var request));
@@ -25,9 +27,32 @@ public sealed class DesktopMessageTests
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.movies.search\",\"requestId\":\"vod-movies-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceId\":1,\"query\":\"\",\"category\":null,\"offset\":0,\"limit\":101}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.view-start\",\"requestId\":\"vod-view-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"movie\",\"mediaId\":4,\"url\":\"https://private.example/movie\"}")]
     [InlineData("{\"type\":\"semyra.desktop.iptv.vod.view-start\",\"requestId\":\"vod-view-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"series\",\"mediaId\":4}")]
+    [InlineData("{\"type\":\"semyra.desktop.iptv.publish.start\",\"requestId\":\"vod-publish-1\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"series\",\"mediaId\":4}")]
+    [InlineData("{\"type\":\"semyra.desktop.iptv.publish.start\",\"requestId\":\"vod-publish-2\",\"accountContextId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"movie\",\"mediaId\":4,\"url\":\"https://private.example/movie\"}")]
     public void RejectsInvalidOrExpandedVodContracts(string json)
     {
         Assert.False(DesktopMessage.TryReadRequest(json, out _));
+    }
+
+    [Fact]
+    public void PublishControlProtocolIsStrictFencedAndContainsNoUrl()
+    {
+        var context = new string('e', 32);
+        var instance = new string('c', 32);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.media.publish-control","requestId":"control-1","accountContextId":"{{context}}","action":"pause","transmissionInstanceId":"{{instance}}","transmissionRevision":3}""",
+            out var pause));
+        Assert.Equal("pause", pause.Media!.Action);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.media.publish-control","requestId":"control-2","accountContextId":"{{context}}","action":"seek","positionMs":60000,"transmissionInstanceId":"{{instance}}","transmissionRevision":3}""",
+            out var seek));
+        Assert.Equal(60000, seek.Media!.PositionMs);
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.media.publish-control","requestId":"control-3","accountContextId":"{{context}}","action":"pause","transmissionInstanceId":"{{instance}}","transmissionRevision":3,"url":"https://private.example"}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.media.publish-control","requestId":"control-4","accountContextId":"{{context}}","action":"seek","positionMs":-1,"transmissionInstanceId":"{{instance}}","transmissionRevision":3}""",
+            out _));
     }
     [Fact]
     public void XtreamAddProtocolAcceptsOnlyTheStrictCredentialBoundary()
@@ -85,7 +110,7 @@ public sealed class DesktopMessageTests
         var host = result.RootElement.GetProperty("host");
         Assert.Equal("ready", host.GetProperty("state").GetString());
         Assert.Equal(
-            ["host.status", "host.authorize"],
+            ["host.status", "host.authorize", "window.fullscreen"],
             host.GetProperty("capabilities").EnumerateArray().Select(value => value.GetString()));
         Assert.False(host.GetProperty("authorization").GetProperty("authorized").GetBoolean());
     }
@@ -128,6 +153,49 @@ public sealed class DesktopMessageTests
 
         Assert.Equal(HostEngineState.Ready, hostEngine.State);
         Assert.False(hostEngine.Snapshot().Authorization.Authorized);
+    }
+
+    [Fact]
+    public async Task WindowFullscreenProtocolIsStrictAndReturnsRealState()
+    {
+        var engine = new HostEngine();
+        engine.Start();
+        var enabled = false;
+
+        var status = await DesktopBridge.TryHandleAsync(
+            """{"type":"semyra.desktop.window.fullscreen.status","requestId":"window-status"}""",
+            engine,
+            () => null,
+            getWindowFullscreen: () => enabled,
+            setWindowFullscreen: value => enabled = value);
+        Assert.True(status.Handled);
+        Assert.Contains("\"enabled\":false", status.Response, StringComparison.Ordinal);
+
+        var enter = await DesktopBridge.TryHandleAsync(
+            """{"type":"semyra.desktop.window.fullscreen.set","requestId":"window-enter","enabled":true}""",
+            engine,
+            () => null,
+            getWindowFullscreen: () => enabled,
+            setWindowFullscreen: value => enabled = value);
+        Assert.True(enter.Handled);
+        Assert.True(enabled);
+        Assert.Contains("\"enabled\":true", enter.Response, StringComparison.Ordinal);
+
+        var exit = await DesktopBridge.TryHandleAsync(
+            """{"type":"semyra.desktop.window.fullscreen.set","requestId":"window-exit","enabled":false}""",
+            engine,
+            () => null,
+            getWindowFullscreen: () => enabled,
+            setWindowFullscreen: value => enabled = value);
+        Assert.True(exit.Handled);
+        Assert.False(enabled);
+
+        Assert.False(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.window.fullscreen.set","requestId":"bad","enabled":"yes"}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            """{"type":"semyra.desktop.window.fullscreen.set","requestId":"bad","enabled":true,"handle":42}""",
+            out _));
     }
 
     [Theory]

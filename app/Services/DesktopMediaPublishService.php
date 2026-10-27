@@ -37,7 +37,8 @@ final class DesktopMediaPublishService
             || (int) ($current['revision'] ?? 0) !== $revision) {
             throw new DesktopMediaPublishException('transmission_changed', 409);
         }
-        if (($current['source_type'] ?? null) !== 'iptv' || ($current['media_mode'] ?? null) !== 'live') {
+        if (($current['source_type'] ?? null) !== 'iptv'
+            || !in_array(($current['media_mode'] ?? null), ['live', 'vod'], true)) {
             throw new DesktopMediaPublishException('publish_not_applicable', 409);
         }
         if (!$this->liveKitAvailable) {

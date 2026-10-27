@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const desktop = require('../../public/assets/js/desktop-bridge.js');
 const real11iCapabilities = [
-    'host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog',
+    'host.status', 'host.authorize', 'window.fullscreen', 'iptv.sources', 'iptv.catalog',
     'iptv.local-view', 'media.whip', 'livekit.publish',
 ];
 
@@ -64,6 +64,7 @@ const webviewWindow = {
 const webviewBridge = desktop.createDesktopBridge(webviewWindow);
 assert.equal(webviewBridge.start(), true);
 assert.equal(desktop.validCapabilities(real11iCapabilities), true);
+assert.equal(desktop.validCapabilities([...real11iCapabilities, 'livekit.publish-vod']), true);
 assert.equal(desktop.validCapabilities([...real11iCapabilities, 'iptv.favorites']), false);
 assert.deepEqual(posted, [{type: 'semyra.desktop.ping', requestId: 'request-11a'}]);
 
@@ -127,13 +128,13 @@ messageListener({data: {
     protocolVersion: 1,
     host: {
         state: 'ready',
-        capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.local-view'],
+        capabilities: ['host.status', 'host.authorize', 'window.fullscreen', 'iptv.sources', 'iptv.catalog', 'iptv.local-view', 'media.whip', 'livekit.publish', 'livekit.publish-vod'],
         authorization: {authorized: false},
     },
 }});
 assert.deepEqual(webviewBridge.getHostSnapshot(), {
     state: 'ready',
-    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.local-view'],
+    capabilities: ['host.status', 'host.authorize', 'window.fullscreen', 'iptv.sources', 'iptv.catalog', 'iptv.local-view', 'media.whip', 'livekit.publish', 'livekit.publish-vod'],
     authorization: {
         authorized: false,
         permission: null,
@@ -145,7 +146,7 @@ assert.equal(dispatched.length, 2);
 assert.equal(dispatched[1].type, 'semyra:host-ready');
 assert.deepEqual(dispatched[1].detail, {
     state: 'ready',
-    capabilities: ['host.status', 'host.authorize', 'iptv.sources', 'iptv.catalog', 'iptv.local-view'],
+    capabilities: ['host.status', 'host.authorize', 'window.fullscreen', 'iptv.sources', 'iptv.catalog', 'iptv.local-view', 'media.whip', 'livekit.publish', 'livekit.publish-vod'],
     authorization: {
         authorized: false,
         permission: null,
@@ -153,6 +154,53 @@ assert.deepEqual(dispatched[1].detail, {
         transmissionRevision: null,
     },
 });
+
+webviewWindow.crypto.randomUUID = () => 'fullscreen-status';
+windowListeners.get('semyra:window-fullscreen-request')({});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.window.fullscreen.status',
+    requestId: 'fullscreen-status',
+});
+messageListener({data: {
+    type: 'semyra.desktop.window.fullscreen.status-result',
+    requestId: 'fullscreen-status',
+    protocolVersion: 1,
+    ok: true,
+    enabled: false,
+}});
+assert.equal(dispatched.at(-1).type, 'semyra:window-fullscreen-state');
+assert.deepEqual(dispatched.at(-1).detail, {ok: true, enabled: false, error: null});
+
+webviewWindow.crypto.randomUUID = () => 'fullscreen-set';
+windowListeners.get('semyra:window-fullscreen-request')({detail: {enabled: true}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.window.fullscreen.set',
+    requestId: 'fullscreen-set',
+    enabled: true,
+});
+messageListener({data: {
+    type: 'semyra.desktop.window.fullscreen.set-result',
+    requestId: 'fullscreen-set',
+    protocolVersion: 1,
+    ok: true,
+    enabled: true,
+}});
+assert.deepEqual(dispatched.at(-1).detail, {ok: true, enabled: true, error: null});
+
+messageListener({data: {
+    type: 'semyra.desktop.window.fullscreen.changed',
+    protocolVersion: 1,
+    enabled: false,
+}});
+assert.deepEqual(dispatched.at(-1).detail, {ok: true, enabled: false, error: null});
+
+webviewWindow.crypto.randomUUID = () => 'host-leave';
+windowListeners.get('semyra:host-leave-request')({});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.host.leave',
+    requestId: 'host-leave',
+});
+webviewWindow.crypto.randomUUID = () => 'request-11a';
 
 windowListeners.get('semyra:iptv-request')({detail: {action: 'list'}});
 assert.deepEqual(posted.at(-1), {
@@ -183,6 +231,28 @@ assert.deepEqual(dispatched.at(-1).detail.sources, [{
     lastRefreshStatus: 'ready', lastRefreshError: null, lastRefreshAt: null, channelCount: 3,
     movieCount: 0, seriesCount: 0, vodSyncState: 'idle', vodSyncError: null, vodLastSyncedAt: null,
 }]);
+assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
+
+webviewWindow.crypto.randomUUID = () => 'publish-control-request';
+windowListeners.get('semyra:iptv-request')({detail: {
+    action: 'publish-control', command: 'seek', positionMs: 60000,
+    transmissionInstanceId: 'e'.repeat(32), transmissionRevision: 7,
+    clientRequestId: 'publish-control-client', sourceUrl: 'must-not-cross',
+}});
+assert.deepEqual(posted.at(-1), {
+    type: 'semyra.desktop.media.publish-control', requestId: 'publish-control-request',
+    accountContextId: 'b'.repeat(32), action: 'seek', positionMs: 60000,
+    transmissionInstanceId: 'e'.repeat(32), transmissionRevision: 7,
+});
+assert.equal(JSON.stringify(posted.at(-1)).includes('must-not-cross'), false);
+messageListener({data: {
+    type: 'semyra.desktop.media.publish-control-result', requestId: 'publish-control-request',
+    protocolVersion: 1, ok: true, state: 'streaming', channelId: 301, channelName: 'Episode',
+    mode: 'publish', contentKind: 'episode', position: 60, duration: 1400, seekable: true,
+    sessionId: 'f'.repeat(32), providerUrl: 'must-not-cross', whipEndpoint: 'must-not-cross',
+}});
+assert.equal(dispatched.at(-1).detail.action, 'publish-control');
+assert.equal(dispatched.at(-1).detail.position, 60);
 assert.equal(JSON.stringify(dispatched.at(-1)).includes('must-not-cross'), false);
 
 webviewWindow.crypto.randomUUID = () => 'iptv-vod-continue-dismiss';

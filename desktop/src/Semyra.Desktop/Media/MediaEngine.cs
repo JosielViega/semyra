@@ -14,6 +14,7 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
     ];
 
     private readonly Func<long, IptvPlaybackChannel> _resolveChannel;
+    private readonly Func<string, long, IptvVodPlaybackTarget>? _resolveVod;
     private readonly IProviderStreamClient _provider;
     private readonly IMediaPipelineFactory _pipelines;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
@@ -24,6 +25,9 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
     private Task? _sessionTask;
     private long? _activeChannelId;
     private string _activeMode = "local";
+    private string _activeContentKind = "live";
+    private IVodMediaPipeline? _activeVodPipeline;
+    private HostAuthorization? _activeVodAuthorization;
     private MediaSnapshot _snapshot = MediaSnapshot.Idle;
     private bool _disposed;
 
@@ -33,9 +37,11 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         IProviderStreamClient provider,
         IMediaPipelineFactory pipelines,
         Func<TimeSpan, CancellationToken, Task>? delay = null,
-        IDesktopPublishClient? publishClient = null)
+        IDesktopPublishClient? publishClient = null,
+        Func<string, long, IptvVodPlaybackTarget>? resolveVod = null)
     {
         _resolveChannel = resolveChannel;
+        _resolveVod = resolveVod;
         Runtime = runtime;
         _provider = provider;
         _pipelines = pipelines;
@@ -54,7 +60,8 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
             runtime,
             new ProviderStreamClient(),
             new MediaPipelineFactory(runtime),
-            publishClient: new DesktopPublishClient(() => SemyraWebConfiguration.Load().BaseUri));
+            publishClient: new DesktopPublishClient(() => SemyraWebConfiguration.Load().BaseUri),
+            resolveVod: catalog.ResolveVodForPlayback);
     }
 
     public MediaSnapshot Snapshot()
@@ -72,6 +79,127 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
             throw new MediaEngineException("whip_runtime_unavailable");
         }
         return await StartCoreAsync(channelId, "publish", authorizationProvider, cancellationToken);
+    }
+
+    public async Task<MediaSnapshot> StartVodPublishAsync(string kind, long mediaId, Func<HostAuthorization?> authorizationProvider, CancellationToken cancellationToken = default)
+    {
+        if (!Runtime.IsVodPublishAvailable || _publishClient is null || _resolveVod is null)
+            throw new MediaEngineException("vod_publish_unavailable");
+        if (kind is not ("movie" or "episode") || mediaId <= 0) throw new MediaEngineException("invalid_media_kind");
+
+        TaskCompletionSource<MediaSnapshot> ready;
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_activeChannelId == mediaId && _activeMode == "publish" && _activeContentKind == kind && _sessionTask is { IsCompleted: false })
+                return Snapshot();
+            await StopSessionLockedAsync();
+            IptvVodPlaybackTarget target;
+            try { target = _resolveVod(kind, mediaId); }
+            catch (IptvValidationException exception) { throw new MediaEngineException("vod_not_found", exception); }
+            _activeChannelId = mediaId;
+            _activeMode = "publish";
+            _activeContentKind = kind;
+            _sessionCancellation = new CancellationTokenSource();
+            ready = new TaskCompletionSource<MediaSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Update(MediaState.Preparing, mediaId, target.Name, 1, null, "vod", kind);
+            _sessionTask = RunVodSessionAsync(target, authorizationProvider, _sessionCancellation.Token, ready);
+        }
+        finally { _gate.Release(); }
+        return await ready.Task.WaitAsync(cancellationToken);
+    }
+
+    private async Task RunVodSessionAsync(IptvVodPlaybackTarget target, Func<HostAuthorization?> authorizationProvider,
+        CancellationToken cancellationToken, TaskCompletionSource<MediaSnapshot> ready)
+    {
+        DesktopPublishLease? lease = null;
+        HostAuthorization? attemptAuthorization = null;
+        try
+        {
+            attemptAuthorization = ValidAuthorization(authorizationProvider);
+            lease = await _publishClient!.StartAsync(attemptAuthorization, cancellationToken);
+            await using var source = await VodPublishSource.StartAsync(target.StreamUri, cancellationToken);
+            _ = await VodMediaProbe.InspectAsync(Runtime, source.LocalUri, cancellationToken);
+            await using var pipeline = _pipelines.CreateVodPublish(source.LocalUri, lease.WhipEndpoint);
+            await pipeline.StartAsync(cancellationToken);
+            var native = await pipeline.SnapshotAsync(cancellationToken);
+            lock (_snapshotLock)
+            {
+                _activeVodPipeline = pipeline;
+                _activeVodAuthorization = attemptAuthorization;
+            }
+            var streaming = Update(MediaState.Streaming, target.Id, target.Name, 1, null, "vod", target.Kind,
+                native.SessionId, native.PositionMs / 1000d, native.DurationMs / 1000d, native.Seekable, native.State == "paused");
+            ready.TrySetResult(streaming);
+            var completion = pipeline.WaitForExitAsync(cancellationToken);
+            while (!completion.IsCompleted)
+            {
+                await _delay(TimeSpan.FromSeconds(1), cancellationToken);
+                var current = ValidAuthorization(authorizationProvider);
+                if (!SameContext(current, attemptAuthorization)) throw new MediaEngineException("transmission_changed");
+            }
+            await completion;
+            Update(MediaState.Ended, target.Id, target.Name, 1, null, "vod", target.Kind);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { ready.TrySetResult(Snapshot()); }
+        catch (Exception exception)
+        {
+            var code = exception is MediaEngineException media ? media.Code : "provider_connect_failed";
+            var failed = Update(MediaState.Failed, target.Id, target.Name, 1, code, "vod", target.Kind);
+            ready.TrySetResult(failed);
+        }
+        finally
+        {
+            lock (_snapshotLock)
+            {
+                _activeVodPipeline = null;
+                _activeVodAuthorization = null;
+            }
+            if (lease is not null && attemptAuthorization is not null)
+            {
+                try
+                {
+                    var latest = authorizationProvider();
+                    await _publishClient!.StopAsync(latest is not null && SameContext(latest, attemptAuthorization) ? latest : attemptAuthorization, lease.IngressId, CancellationToken.None);
+                }
+                catch { }
+            }
+        }
+    }
+
+    public async Task<MediaSnapshot> ControlVodPublishAsync(
+        string action,
+        long? positionMs,
+        HostAuthorization authorization,
+        CancellationToken cancellationToken = default)
+    {
+        IVodMediaPipeline pipeline;
+        HostAuthorization active;
+        lock (_snapshotLock)
+        {
+            pipeline = _activeVodPipeline ?? throw new MediaEngineException("vod_control_unavailable");
+            active = _activeVodAuthorization ?? throw new MediaEngineException("host_authorization_required");
+        }
+        if (_activeMode != "publish" || _activeContentKind is not ("movie" or "episode") || !SameContext(authorization, active))
+            throw new MediaEngineException("transmission_changed");
+        var native = action switch
+        {
+            "pause" => await pipeline.PauseAsync(cancellationToken),
+            "play" => await pipeline.PlayAsync(cancellationToken),
+            "seek" when positionMs is >= 0 => await pipeline.SeekAsync(positionMs.Value, cancellationToken),
+            "snapshot" => await pipeline.SnapshotAsync(cancellationToken),
+            _ => throw new MediaEngineException("invalid_media_control"),
+        };
+        var state = native.State switch
+        {
+            "paused" => MediaState.Streaming,
+            "playing" => MediaState.Streaming,
+            "ended" => MediaState.Ended,
+            _ => MediaState.Failed,
+        };
+        return Update(state, Snapshot().ChannelId, Snapshot().ChannelName, 1,
+            state == MediaState.Failed ? "media_host_failed" : null, "vod", _activeContentKind,
+            native.SessionId, native.PositionMs / 1000d, native.DurationMs / 1000d, native.Seekable, native.State == "paused");
     }
 
     private async Task<MediaSnapshot> StartCoreAsync(
@@ -108,6 +236,7 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
 
             _activeChannelId = channelId;
             _activeMode = mode;
+            _activeContentKind = "live";
             _sessionCancellation = new CancellationTokenSource();
             ready = new TaskCompletionSource<MediaSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
             Update(MediaState.Preparing, channel.Id, channel.Name, 1, null);
@@ -239,6 +368,7 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         _sessionTask = null;
         _activeChannelId = null;
         _activeMode = "local";
+        _activeContentKind = "live";
         if (cancellation is not null)
         {
             cancellation.Cancel();
@@ -268,9 +398,13 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         }
     }
 
-    private MediaSnapshot Update(MediaState state, long? channelId, string? channelName, int attempt, string? errorCode)
+    private MediaSnapshot Update(MediaState state, long? channelId, string? channelName, int attempt, string? errorCode,
+        string? mediaKind = null, string? vodContentKind = null, string? sessionId = null,
+        double position = 0, double duration = 0, bool seekable = false, bool paused = false)
     {
-        var snapshot = new MediaSnapshot(state.ToString().ToLowerInvariant(), channelId, channelName, attempt, errorCode, _activeMode);
+        var snapshot = new MediaSnapshot(state.ToString().ToLowerInvariant(), channelId, channelName, attempt, errorCode, _activeMode,
+            SessionId: sessionId, Position: position, Duration: duration, Seekable: seekable,
+            MediaKind: mediaKind, Paused: paused, VodContentKind: vodContentKind);
         lock (_snapshotLock)
         {
             _snapshot = snapshot;

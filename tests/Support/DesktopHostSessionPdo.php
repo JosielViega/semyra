@@ -41,7 +41,7 @@ final class DesktopHostSessionPdo extends PDO
             || $current['instance_id'] !== $params['transmission_instance_id']
             || (int) $current['revision'] !== (int) $params['transmission_revision']
             || $current['source_type'] !== 'iptv'
-            || $current['media_mode'] !== 'live') {
+            || !in_array($current['media_mode'], ['live', 'vod'], true)) {
             return false;
         }
         $ownerMatches = $current['owner_user_id'] !== null
