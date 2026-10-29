@@ -11,6 +11,7 @@ use DateTimeZone;
 final class DesktopHostSessionService
 {
     public const PERMISSION = 'media.publish';
+    public const SCREEN_PERMISSION = 'screen.publish';
     private const TOKEN_PATTERN = '/\A([a-f0-9]{32})\.([a-f0-9]{64})\z/D';
 
     public function __construct(
@@ -29,7 +30,11 @@ final class DesktopHostSessionService
         int $revision,
         ?int $ownerUserId,
         string $ownerParticipantKeyHash,
+        string $permission = self::PERMISSION,
     ): ?array {
+        if (!in_array($permission, [self::PERMISSION, self::SCREEN_PERMISSION], true)) {
+            throw new \InvalidArgumentException('Unsupported Desktop Host Session permission.');
+        }
         $this->sessions->deleteExpired();
         $this->sessions->revokeEquivalent(
             $roomId,
@@ -37,7 +42,7 @@ final class DesktopHostSessionService
             $revision,
             $ownerUserId,
             $ownerParticipantKeyHash,
-            self::PERMISSION,
+            $permission,
         );
 
         $selector = bin2hex(random_bytes(16));
@@ -50,7 +55,7 @@ final class DesktopHostSessionService
             $revision,
             $ownerUserId,
             $ownerParticipantKeyHash,
-            self::PERMISSION,
+            $permission,
             $selector,
             hash('sha256', $validator),
             $expires->format('Y-m-d H:i:s.v'),
@@ -61,7 +66,7 @@ final class DesktopHostSessionService
         return [
             'token' => $selector . '.' . $validator,
             'expires_at' => $expires->format('Y-m-d\TH:i:s.v\Z'),
-            'permission' => self::PERMISSION,
+            'permission' => $permission,
         ];
     }
 

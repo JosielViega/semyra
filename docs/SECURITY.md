@@ -41,7 +41,9 @@ Tarefas críticas não devem rodar durante uma visita HTTP. Use cron chamando sc
 
 ## LiveKit
 
-O LiveKit é uma integração opcional e fica desabilitado por padrão. `LIVEKIT_API_SECRET` existe somente no backend; nunca deve ser enviado ao browser, persistido no banco ou registrado em logs. O endpoint de viewer emite JWT curto, com dez minutos de validade, `roomJoin` e `canSubscribe`, negando publicação de mídia e dados. As respostas usam `no-store`, `no-cache` e `nosniff`.
+O LiveKit é uma integração opcional e fica desabilitado por padrão. `LIVEKIT_API_SECRET` existe somente no backend; nunca deve ser enviado ao browser, persistido no banco ou registrado em logs. O endpoint de viewer emite JWT curto, com dez minutos de validade, `roomJoin` e `canSubscribe`, negando publicação de mídia e dados. O endpoint de voz também exige sessão de participante e CSRF e emite outro JWT curto, permitindo publish exclusivamente da source `microphone`; câmera, screen share, data, Ingress e administração permanecem negados. As respostas usam `no-store`, `no-cache` e `nosniff`.
+
+O chat de texto resolve remetente no backend, usa prepared statements, nonce idempotente, rate limit e cursores limitados. Mensagens são devolvidas como texto e renderizadas por `textContent`, sem HTML confiado ao cliente. A chave bruta do participante, cookies e identidades privadas nunca entram na tabela ou na resposta.
 
 Room names e participant identities são opacos, sem código público de sala, e-mail, nome, user ID ou participant key em claro. O acesso exige CSRF, participação vigente na sala, identidade autenticada compatível e uma transmissão IPTV Live com o mesmo `instance_id` e revisão solicitados. Cada emissão recebe viewer identity aleatória; a identidade esperada do publisher deriva de namespace, room ID e `instance_id`, mudando em todo start ou replacement mesmo quando a revision reinicia no mesmo valor.
 

@@ -28,11 +28,31 @@ public sealed record SemyraWebConfiguration(Uri BaseUri, string UserDataFolder)
                 "SEMYRA_DESKTOP_URL é inválida. Use HTTPS; em Debug, HTTP é aceito somente para localhost ou 127.0.0.1.");
         }
 
-        var userDataFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Semyra",
-            "WebView2");
+        var userDataFolder = ResolveUserDataFolder(
+            Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER"),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
 
         return new SemyraWebConfiguration(baseUri, userDataFolder);
+    }
+
+    internal static string ResolveUserDataFolder(string? configuredFolder, string localApplicationData)
+    {
+        if (string.IsNullOrWhiteSpace(configuredFolder))
+        {
+            return Path.Combine(localApplicationData, "Semyra", "WebView2");
+        }
+        var value = configuredFolder.Trim();
+        if (!Path.IsPathFullyQualified(value))
+        {
+            throw new InvalidOperationException("WEBVIEW2_USER_DATA_FOLDER deve ser um caminho absoluto.");
+        }
+        try
+        {
+            return Path.GetFullPath(value);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new InvalidOperationException("WEBVIEW2_USER_DATA_FOLDER é inválido.", exception);
+        }
     }
 }

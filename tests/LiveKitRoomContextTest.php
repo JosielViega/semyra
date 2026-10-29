@@ -9,6 +9,17 @@ use PHPUnit\Framework\TestCase;
 
 final class LiveKitRoomContextTest extends TestCase
 {
+    public function testVoiceIdentityIsScopedToRoomParticipantAndTab(): void
+    {
+        $context = new LiveKitRoomContext('testing');
+        $first = $context->voiceIdentity(7, str_repeat('a', 64), str_repeat('b', 32));
+
+        self::assertMatchesRegularExpression('/^smy_c_[a-f0-9]{32}$/', $first);
+        self::assertSame($first, $context->voiceIdentity(7, str_repeat('a', 64), str_repeat('b', 32)));
+        self::assertNotSame($first, $context->voiceIdentity(7, str_repeat('a', 64), str_repeat('c', 32)));
+        self::assertNotSame($first, $context->voiceIdentity(8, str_repeat('a', 64), str_repeat('b', 32)));
+    }
+
     public function testRoomNameIsStableOpaqueAndScopedByRoomAndNamespace(): void
     {
         $context = new LiveKitRoomContext('production');

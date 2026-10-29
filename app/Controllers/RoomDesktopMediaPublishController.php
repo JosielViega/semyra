@@ -21,15 +21,20 @@ final class RoomDesktopMediaPublishController
 
     public function start(string $code): Response
     {
-        return $this->handle($code, false);
+        return $this->handle($code, 'start');
     }
 
     public function stop(string $code): Response
     {
-        return $this->handle($code, true);
+        return $this->handle($code, 'stop');
     }
 
-    private function handle(string $code, bool $stop): Response
+    public function status(string $code): Response
+    {
+        return $this->handle($code, 'status');
+    }
+
+    private function handle(string $code, string $action = 'start'): Response
     {
         $room = $this->rooms->findByCode($code);
         if ($room === null) {
@@ -40,7 +45,7 @@ final class RoomDesktopMediaPublishController
             return $this->error('invalid_request', 422);
         }
         $body = $this->request->json();
-        $expected = $stop ? ['ingress_id', 'transmission_instance_id', 'transmission_revision'] : ['transmission_instance_id', 'transmission_revision'];
+        $expected = $action === 'start' ? ['transmission_instance_id', 'transmission_revision'] : ['ingress_id', 'transmission_instance_id', 'transmission_revision'];
         if ($body === null || count($body) !== count($expected) || array_diff(array_keys($body), $expected) !== []) {
             return $this->error('invalid_request', 422);
         }
@@ -54,10 +59,13 @@ final class RoomDesktopMediaPublishController
             return $this->error('host_session_required', 401);
         }
         try {
-            if ($stop) {
+            if ($action !== 'start') {
                 $ingressId = $body['ingress_id'] ?? null;
                 if (!is_string($ingressId) || preg_match('/^[A-Za-z0-9_-]{1,128}$/', $ingressId) !== 1) {
                     return $this->error('invalid_request', 422);
+                }
+                if ($action === 'status') {
+                    return Response::json($this->publish->status($matches[1], (int) $room['id'], $instanceId, $revision, $ingressId), 200, self::HEADERS);
                 }
                 $this->publish->stop($matches[1], (int) $room['id'], $instanceId, $revision, $ingressId);
                 return Response::json(['stopped' => true], 200, self::HEADERS);

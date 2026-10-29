@@ -54,6 +54,16 @@ final class RoomDesktopHostSessionControllerTest extends TestCase
         self::assertCount(1, $pdo->sessions);
     }
 
+    public function testPremiumOwnerCanIssueSourceSpecificScreenHostSession(): void
+    {
+        [$controller, $pdo] = $this->controller(authenticated: true, source: 'screen', mediaMode: 'live');
+        $response = $controller->issue('ROOM2345');
+        $body = json_decode($response->body(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame(201, $response->status());
+        self::assertSame('screen.publish', $body['permission']);
+        self::assertSame('screen.publish', array_values($pdo->sessions)[0]['permission']);
+    }
+
     public function testFreeDatabaseRowFlowsThroughRepositoryAndOwnerDoesNotReceiveHostSession(): void
     {
         [$controller, $pdo] = $this->controller(premium: false);

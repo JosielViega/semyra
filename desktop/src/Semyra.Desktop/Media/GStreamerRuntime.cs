@@ -3,7 +3,14 @@ using System.IO;
 
 namespace Semyra.Desktop.Media;
 
-public sealed record GStreamerRuntimeSnapshot(bool Available, bool WhipAvailable, string? Version, string? ErrorCode);
+public sealed record GStreamerRuntimeSnapshot(
+    bool Available,
+    bool WhipAvailable,
+    string? Version,
+    string? ErrorCode,
+    bool ScreenCaptureAvailable = false,
+    bool ScreenAudioAvailable = false,
+    IReadOnlyList<string>? ScreenEncoderCandidates = null);
 
 internal interface IGStreamerCommandRunner
 {
@@ -68,6 +75,9 @@ public sealed class GStreamerRuntime
     public bool IsAvailable => Snapshot.Available;
     public bool IsWhipAvailable => Snapshot.Available && Snapshot.WhipAvailable;
     public bool IsVodPublishAvailable { get; }
+    public bool IsScreenVideoAvailable => Snapshot.ScreenCaptureAvailable && IsWhipAvailable && ScreenEncoderCandidates.Count > 0;
+    public bool IsScreenAudioAvailable => Snapshot.ScreenAudioAvailable && IsScreenVideoAvailable;
+    public IReadOnlyList<string> ScreenEncoderCandidates => Snapshot.ScreenEncoderCandidates ?? Array.Empty<string>();
 
     public static GStreamerRuntime DiscoverDefault()
     {
@@ -101,10 +111,19 @@ public sealed class GStreamerRuntime
                     }
                 }
                 var whipAvailable = runner.Run(inspect, ["whipsink"]).ExitCode == 0;
+                var screenCapture = runner.Run(inspect, ["d3d11screencapturesrc"]).ExitCode == 0
+                    && runner.Run(inspect, ["d3d11download"]).ExitCode == 0
+                    && runner.Run(inspect, ["videoscale"]).ExitCode == 0
+                    && runner.Run(inspect, ["videorate"]).ExitCode == 0;
+                var screenAudio = runner.Run(inspect, ["wasapi2src"]).ExitCode == 0;
+                var encoders = new[] { "nvh264enc", "mfh264enc", "x264enc" }
+                    .Where(element => runner.Run(inspect, [element]).ExitCode == 0)
+                    .ToArray();
                 var vodAvailable = whipAvailable && File.Exists(discoverer)
                     && RequiredVodElements.All(element => runner.Run(inspect, [element]).ExitCode == 0);
                 return new GStreamerRuntime(launch, inspect, File.Exists(discoverer) ? discoverer : null, vodAvailable,
-                    new GStreamerRuntimeSnapshot(true, whipAvailable, SafeVersion(versionResult.Output), null));
+                    new GStreamerRuntimeSnapshot(true, whipAvailable, SafeVersion(versionResult.Output), null,
+                        screenCapture, screenAudio, encoders));
             }
             catch
             {
@@ -118,7 +137,8 @@ public sealed class GStreamerRuntime
 
     internal static GStreamerRuntime AvailableForTests(string launchPath = "gst-launch-1.0.exe", bool whipAvailable = true)
     {
-        return new GStreamerRuntime(launchPath, "gst-inspect-1.0.exe", "gst-discoverer-1.0.exe", whipAvailable, new GStreamerRuntimeSnapshot(true, whipAvailable, "test", null));
+        return new GStreamerRuntime(launchPath, "gst-inspect-1.0.exe", "gst-discoverer-1.0.exe", whipAvailable,
+            new GStreamerRuntimeSnapshot(true, whipAvailable, "test", null, true, true, ["x264enc"]));
     }
 
     internal static GStreamerRuntime UnavailableForTests() =>

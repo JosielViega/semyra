@@ -6,6 +6,7 @@ declare(strict_types=1);
 /** @var null|array{participant_key: string, display_name: string, user_id: null|int} $identity */
 /** @var null|array{id: int, display_name: string} $currentUser */
 /** @var bool $can_publish_iptv */
+/** @var bool $can_share_screen */
 /** @var list<array{name: string, is_you: bool}> $participants */
 /** @var null|array{source: string, instance_id: string, youtube_video_id: null|string, revision: int, owner_name: string, is_owner: bool, media_mode: string, playback: array{state: string, position_ms: null|int, revision: int, at_live_edge: bool, live_edge_position_ms: null|int, live_sync_position_ms: null|int, live_sync_delay_ms: null|int}} $transmission */
 /** @var bool $debug */
@@ -14,10 +15,14 @@ declare(strict_types=1);
 /** @var string $csrfToken */
 $currentUser = $currentUser ?? null;
 $canPublishIptv = $can_publish_iptv ?? false;
+$canShareScreen = $can_share_screen ?? false;
 $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing';
 ?>
 <svg class="room-icon-sprite" aria-hidden="true" focusable="false">
     <symbol id="room-icon-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="room-icon-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></symbol>
+    <symbol id="room-icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></symbol>
+    <symbol id="room-icon-mic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 2 20 20M9 9v1a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6M17 16.95A7 7 0 0 1 5 12v-2M19 10v2a7 7 0 0 1-.11 1.23M12 19v3M8 22h8"/></symbol>
     <symbol id="room-icon-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98M15.41 6.51 8.59 10.49"/></symbol>
     <symbol id="room-icon-video-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5 3V8l-5 3"/><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M8 9v6M5 12h6"/></symbol>
     <symbol id="room-icon-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-5V2M4 17h5v5"/><path d="M5.1 9A8 8 0 0 1 18.4 5.6L20 7M4 17l1.6 1.4A8 8 0 0 0 18.9 15"/></symbol>
@@ -70,9 +75,15 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         data-leave-url="/room/<?= e($room['code']) ?>/leave"
         data-playback-url="/room/<?= e($room['code']) ?>/transmission/playback"
         data-livekit-viewer-token-url="/room/<?= e($room['code']) ?>/livekit/viewer-token"
+        data-livekit-voice-token-url="/room/<?= e($room['code']) ?>/livekit/voice-token"
+        data-chat-messages-url="/room/<?= e($room['code']) ?>/chat/messages"
         data-desktop-host-session-url="/room/<?= e($room['code']) ?>/desktop/host-session"
         data-iptv-transmission-url="/room/<?= e($room['code']) ?>/transmission/iptv"
+        data-screen-transmission-url="/room/<?= e($room['code']) ?>/transmission/screen"
+        data-screen-heartbeat-url="/room/<?= e($room['code']) ?>/transmission/screen/heartbeat"
+        data-screen-stop-url="/room/<?= e($room['code']) ?>/transmission/screen/stop"
         data-can-publish-iptv="<?= $canPublishIptv ? '1' : '0' ?>"
+        data-can-share-screen="<?= $canShareScreen ? '1' : '0' ?>"
         data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"
         data-csrf-token="<?= e($csrfToken) ?>"
         data-initial-source="<?= e($transmission['source'] ?? '') ?>"
@@ -113,6 +124,8 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                 </div>
                 <nav class="room-hud-actions" aria-label="Ações da sala">
                     <button type="button" class="room-icon-button room-participants-button" data-panel-toggle="participants" aria-label="Mostrar participantes" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-users"></use></svg><strong id="room-participant-count"><?= count($participants) ?></strong></button>
+                    <button type="button" class="room-icon-button room-voice-button" data-panel-toggle="voice" aria-label="Abrir chat de voz" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-mic-off"></use></svg><span class="room-control-indicator" data-voice-button-indicator hidden></span></button>
+                    <button type="button" class="room-icon-button room-chat-button" data-panel-toggle="chat" aria-label="Abrir chat de texto" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-message"></use></svg><span class="room-unread-badge" data-chat-unread hidden>0</span></button>
                     <button type="button" class="room-icon-button" data-panel-toggle="share" aria-label="Compartilhar sala" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-share"></use></svg></button>
                     <button type="button" class="room-icon-button" data-open-transmission aria-label="Iniciar ou trocar transmissão"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg></button>
                 </nav>
@@ -120,7 +133,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
 
             <footer class="room-hud-bottom">
                 <div class="room-owner-copy" aria-live="polite">
-                    <span data-room-owner><?= $transmission !== null ? e(($transmission['is_owner'] ? 'Você' : $transmission['owner_name']) . ' está transmitindo') : 'Sem transmissão ativa' ?></span>
+                    <span data-room-owner><?= $transmission !== null ? e(($transmission['is_owner'] ? 'Você' : $transmission['owner_name']) . (($transmission['source'] ?? null) === 'screen' ? ' está compartilhando a tela' : ' está transmitindo')) : 'Sem transmissão ativa' ?></span>
                     <span class="room-player-status" id="youtube-player-status" role="status" aria-live="polite"></span>
                     <span class="room-player-status" id="livekit-player-status" role="status" aria-live="polite" hidden></span>
                 </div>
@@ -173,6 +186,32 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
             <p id="room-share-status" class="room-panel-status" role="status" aria-live="polite"></p>
         </aside>
 
+        <aside class="room-panel room-panel-voice" data-room-panel="voice" data-room-voice hidden aria-labelledby="voice-title">
+            <div class="room-panel-heading"><div><h2 id="voice-title">Chat de voz</h2><p class="room-panel-eyebrow" data-voice-connection>Conectando...</p></div><button type="button" class="room-close-button" data-panel-close aria-label="Fechar chat de voz"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button></div>
+            <div class="room-voice-controls">
+                <button type="button" class="room-text-button" data-voice-microphone aria-pressed="false" title="Ativar ou desativar seu microfone"><svg class="room-icon" aria-hidden="true"><use data-voice-microphone-icon href="#room-icon-mic-off"></use></svg><span data-voice-microphone-label>Ativar microfone</span></button>
+                <button type="button" class="room-secondary-button" data-voice-listen aria-pressed="false" title="Silenciar ou ouvir os outros participantes"><svg class="room-icon" aria-hidden="true"><use data-voice-listen-icon href="#room-icon-volume"></use></svg><span data-voice-listen-label>Silenciar participantes</span></button>
+                <label class="room-voice-volume" for="room-voice-volume"><span>Volume das vozes</span><input id="room-voice-volume" data-voice-volume type="range" min="0" max="100" value="100" aria-label="Volume das vozes"></label>
+            </div>
+            <p class="room-panel-status" data-voice-status role="status" aria-live="polite">O microfone inicia desligado.</p>
+            <ul class="room-voice-participants" data-voice-participants aria-label="Participantes conectados ao chat de voz"></ul>
+            <p class="room-voice-warning">Ao compartilhar audio do sistema neste mesmo dispositivo, use fones de ouvido para reduzir o risco de realimentacao.</p>
+            <div data-voice-audio-mount hidden></div>
+        </aside>
+
+        <aside class="room-panel room-panel-chat" data-room-panel="chat" data-room-chat hidden aria-labelledby="chat-title">
+            <div class="room-panel-heading"><div><h2 id="chat-title">Chat da sala</h2><p class="room-panel-eyebrow">Mensagens persistentes desta sala</p></div><button type="button" class="room-close-button" data-panel-close aria-label="Fechar chat"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button></div>
+            <button type="button" class="room-chat-older" data-chat-older hidden>Carregar mensagens anteriores</button>
+            <ol class="room-chat-messages" data-chat-messages aria-live="polite" aria-relevant="additions"></ol>
+            <button type="button" class="room-chat-new" data-chat-new hidden>Novas mensagens</button>
+            <form class="room-chat-form" data-chat-form>
+                <label class="room-visually-hidden" for="room-chat-message">Mensagem</label>
+                <textarea id="room-chat-message" data-chat-input rows="2" maxlength="1000" placeholder="Escreva uma mensagem" required></textarea>
+                <div class="room-chat-compose"><span data-chat-counter>0/1000</span><button type="submit" class="room-text-button" data-chat-send>Enviar</button></div>
+                <p class="room-panel-status" data-chat-status role="status" aria-live="polite"></p>
+            </form>
+        </aside>
+
         <?php if ($debug): ?>
             <aside class="room-debug" data-room-telemetry aria-labelledby="room-debug-title">
                 <h2 id="room-debug-title">Diagnóstico</h2>
@@ -223,7 +262,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     <button type="button" class="room-close-button" data-close-transmission aria-label="Cancelar"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button>
                 </div>
                 <p class="room-replace-warning" data-replace-warning<?= $transmission === null ? ' hidden' : '' ?>><strong data-replace-owner><?= e($transmission['owner_name'] ?? 'Participante') ?></strong> está transmitindo. Iniciar sua transmissão substituirá a transmissão atual.</p>
-                <?php if (is_array($currentUser)): ?><div class="room-source-tabs" data-desktop-publish-tabs role="tablist" aria-label="Fonte da transmissão" hidden><button type="button" class="room-secondary-button" role="tab" aria-selected="true" data-source-tab="youtube">YouTube</button><button type="button" class="room-secondary-button" role="tab" aria-selected="false" data-source-tab="iptv"><?= $canPublishIptv ? 'IPTV' : 'IPTV · Premium' ?></button></div><?php endif; ?>
+                <?php if (is_array($currentUser)): ?><div class="room-source-tabs" data-desktop-publish-tabs role="tablist" aria-label="Fonte da transmissão"><button type="button" class="room-secondary-button" role="tab" aria-selected="true" data-source-tab="youtube">YouTube</button><button type="button" class="room-secondary-button" role="tab" aria-selected="false" data-source-tab="iptv"><?= $canPublishIptv ? 'IPTV' : 'IPTV · Premium' ?></button><button type="button" class="room-secondary-button" role="tab" aria-selected="false" data-source-tab="screen"><?= $canShareScreen ? 'Tela' : 'Tela · Premium' ?></button></div><?php endif; ?>
                 <section class="room-youtube-source-panel" data-youtube-source-panel>
                     <form id="room-youtube-transmission-form" data-youtube-transmission-form method="post" action="/room/<?= e($room['code']) ?>/transmission">
                         <?= $csrfField ?>
@@ -238,19 +277,23 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                     </form>
                 </section>
                 <?php if (is_array($currentUser)): ?><?php require __DIR__ . '/../partials/room-iptv-publish.php'; ?><?php endif; ?>
+                <?php if (is_array($currentUser)): ?><?php require __DIR__ . '/../partials/room-screen-share.php'; ?><?php endif; ?>
             </div>
         </dialog>
     </main>
 
     <script src="/assets/js/room-media.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
-    <script src="/assets/js/room-livekit-player.js?v=11m-c-audio-republish" defer></script>
-    <script src="/assets/js/room-desktop-host.js?v=11m-c-round11" defer></script>
-    <script src="/assets/js/room-desktop-iptv.js?v=11m-c-vod-controls" defer></script>
+    <script src="/assets/js/room-livekit-player.js?v=11n-screen-share-r3-7" defer></script>
+    <script src="/assets/js/room-voice.js?v=12-voice-1" defer></script>
+    <script src="/assets/js/room-chat.js?v=12-chat-1" defer></script>
+    <?php if (is_array($currentUser)): ?><script src="/assets/js/room-screen-share.js?v=11n-screen-native-r3-6" defer></script><?php endif; ?>
+    <script src="/assets/js/room-desktop-host.js?v=11n-screen-native-r3-5" defer></script>
+    <script src="/assets/js/room-desktop-iptv.js?v=11n-screen-share" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
     <script src="/assets/js/room-playback.js?v=11m-c-vod-controls-r7" defer></script>
-    <script src="/assets/js/room-shell.js?v=11m-c-round11" defer></script>
+    <script src="/assets/js/room-shell.js?v=11n-screen-r3-6" defer></script>
     <script src="/assets/js/room-wake-lock.js?v=8b-identity" defer></script>
-    <script src="/assets/js/room-presence.js?v=11m-c-round11" defer></script>
+    <script src="/assets/js/room-presence.js?v=11n-screen-r3-6" defer></script>
 <?php endif; ?>

@@ -29,6 +29,9 @@
     let videoElement = null;
     let audioTrack = null;
     let audioElement = null;
+    const currentAttachmentKeys = {video: null, audio: null};
+    const fallbackTrackIds = new WeakMap();
+    let fallbackTrackSequence = 0;
     let volumeStorage = null;
     try {
         volumeStorage = window.localStorage;
@@ -42,8 +45,17 @@
     const debugEnabled = document.querySelector('[data-room-telemetry]') !== null;
     const trackReplacementStartedAt = {video: null, audio: null};
     const trackTimings = [];
+    const viewerDiagnostics = [];
 
     const debugNow = () => Number(window.performance?.now?.() ?? Date.now());
+
+    const recordViewerDiagnostic = (phase, detail = null) => {
+        if (!debugEnabled) return;
+        const entry = {phase, elapsedMs: Math.max(0, Math.round(debugNow()))};
+        if (typeof detail === 'string' && /^[a-z0-9_-]{1,40}$/i.test(detail)) entry.detail = detail;
+        viewerDiagnostics.push(Object.freeze(entry));
+        if (viewerDiagnostics.length > 40) viewerDiagnostics.shift();
+    };
 
     const recordTrackTiming = (role) => {
         const startedAt = trackReplacementStartedAt[role];
@@ -99,11 +111,19 @@
         window.SemyraLiveKitDebug = Object.freeze({
             getVideoStats: videoStats,
             getTrackTimings: () => trackTimings.slice(),
+            getViewerDiagnostics: () => viewerDiagnostics.slice(),
+            getViewerState: () => Object.freeze({
+                connected: room !== null,
+                publisherExpected: expectedPublisherIdentity !== null,
+                videoAttached: videoElement !== null,
+                audioAttached: audioElement !== null,
+            }),
         });
     }
 
-    const isLiveKitTransmission = (transmission) => transmission?.source === 'iptv'
-        && ['live', 'vod'].includes(transmission?.mediaMode)
+    const isLiveKitTransmission = (transmission) => ((transmission?.source === 'iptv'
+        && ['live', 'vod'].includes(transmission?.mediaMode))
+        || (transmission?.source === 'screen' && transmission?.mediaMode === 'live'))
         && typeof transmission?.instanceId === 'string'
         && instancePattern.test(transmission.instanceId)
         && Number.isSafeInteger(transmission?.revision)
@@ -142,9 +162,11 @@
         if (kind === 'video') {
             videoTrack = null;
             videoElement = null;
+            currentAttachmentKeys.video = null;
         } else {
             audioTrack = null;
             audioElement = null;
+            currentAttachmentKeys.audio = null;
         }
     };
 
@@ -225,14 +247,45 @@
         ?? (publication?.isVideo ? sdk.Track.Kind.Video : null)
         ?? (publication?.isAudio ? sdk.Track.Kind.Audio : null);
 
+    const publicationTrackSid = (track, publication) => {
+        const sid = publication?.trackSid ?? publication?.sid ?? track?.sid;
+        if (typeof sid === 'string' && sid !== '') return sid;
+        const reference = publication && typeof publication === 'object' ? publication : track;
+        if (!reference || typeof reference !== 'object') return 'unknown';
+        if (!fallbackTrackIds.has(reference)) fallbackTrackIds.set(reference, `local-${++fallbackTrackSequence}`);
+        return fallbackTrackIds.get(reference);
+    };
+
+    const attachmentKey = (track, publication, participant) =>
+        `${participant?.identity ?? 'unknown'}:${publicationTrackSid(track, publication)}`;
+
+    const publicationAllowed = (publication, sdk) => {
+        if (activeTransmission?.source !== 'screen') return true;
+        // WHIP can normalize an unspecified source to camera/microphone. The
+        // dedicated, fenced publisher identity remains the security boundary;
+        // accept both explicit screen-share labels and that WHIP fallback.
+        const kind = publicationKind(publication, sdk);
+        const source = publication?.source ?? publication?.track?.source ?? sdk.Track.Source.Unknown;
+        return (kind === sdk.Track.Kind.Video || kind === sdk.Track.Kind.Audio)
+            && [sdk.Track.Source.Unknown, sdk.Track.Source.ScreenShare,
+                sdk.Track.Source.ScreenShareAudio, sdk.Track.Source.Camera,
+                sdk.Track.Source.Microphone, undefined, null].includes(source);
+    };
+
     const subscribePublication = (publication, participant, sdk) => {
-        if (participant?.identity !== expectedPublisherIdentity) {
+        if (participant?.identity !== expectedPublisherIdentity || !publicationAllowed(publication, sdk)) {
             return;
         }
         const kind = publicationKind(publication, sdk);
         if (![sdk.Track.Kind.Video, sdk.Track.Kind.Audio].includes(kind)) {
             return;
         }
+        recordViewerDiagnostic(
+            kind === sdk.Track.Kind.Video
+                ? 'viewer_video_track_discovered'
+                : 'viewer_audio_track_discovered',
+            publication?.source ?? publication?.track?.source ?? 'unknown',
+        );
         if (publication.isSubscribed !== true && typeof publication.setSubscribed === 'function') {
             Promise.resolve(publication.setSubscribed(true)).catch(() => {
                 updateStatus('Aguardando transmissão…');
@@ -244,6 +297,7 @@
         if (participant?.identity !== expectedPublisherIdentity) {
             return;
         }
+        recordViewerDiagnostic('viewer_publisher_found');
         const publications = participant.trackPublications;
         const values = publications instanceof Map
             ? publications.values()
@@ -270,7 +324,8 @@
 
     const attachTrack = (track, publication, participant, sdk, capturedGeneration) => {
         if (capturedGeneration !== generation
-            || participant?.identity !== expectedPublisherIdentity) {
+            || participant?.identity !== expectedPublisherIdentity
+            || !publicationAllowed(publication, sdk)) {
             try {
                 track?.detach?.();
             } catch {
@@ -286,6 +341,8 @@
             return;
         }
         const role = kind === sdk.Track.Kind.Video ? 'video' : 'audio';
+        const key = attachmentKey(track, publication, participant);
+        if (currentAttachmentKeys[role] === key) return;
         removeAttached(role);
         const element = track.attach();
         if (role === 'video') {
@@ -295,6 +352,7 @@
             element.classList.add('room-livekit-video');
             videoTrack = track;
             videoElement = element;
+            currentAttachmentKeys.video = key;
         } else {
             element.autoplay = true;
             element.controls = false;
@@ -303,40 +361,50 @@
             element.classList.add('room-livekit-audio');
             audioTrack = track;
             audioElement = element;
+            currentAttachmentKeys.audio = key;
             emitAudioState();
             if (!locallyMuted) void preserveAudiblePlayback(element, capturedGeneration);
         }
         recordTrackTiming(role);
         mount.append(element);
+        recordViewerDiagnostic(role === 'video'
+            ? 'viewer_video_element_attached' : 'viewer_audio_element_attached');
         updateStatus(role === 'video'
-            ? (activeTransmission?.mediaMode === 'live' ? 'AO VIVO' : 'Transmissão conectada.')
+            ? (activeTransmission?.source === 'screen' ? 'Tela compartilhada.' : activeTransmission?.mediaMode === 'live' ? 'AO VIVO' : 'Transmissão conectada.')
             : (locallyMuted ? 'Áudio conectado. Ative o som quando quiser.' : 'Áudio conectado.'));
     };
 
     const registerRoomEvents = (nextRoom, sdk, capturedGeneration) => {
         const on = (event, listener) => nextRoom.on(event, listener);
         on(sdk.RoomEvent.ParticipantConnected, (participant) => inspectParticipant(participant, sdk));
+        on(sdk.RoomEvent.ParticipantDisconnected, (participant) => {
+            if (participant?.identity !== expectedPublisherIdentity) return;
+            clearTracks();
+            if (capturedGeneration === generation) updateStatus('Aguardando transmissão…');
+        });
         on(sdk.RoomEvent.TrackPublished, (publication, participant) => {
             subscribePublication(publication, participant, sdk);
         });
         on(sdk.RoomEvent.TrackSubscribed, (track, publication, participant) => {
             attachTrack(track, publication, participant, sdk, capturedGeneration);
         });
-        on(sdk.RoomEvent.TrackUnsubscribed, (track) => {
-            if (track === videoTrack) removeAttached('video');
-            if (track === audioTrack) removeAttached('audio');
+        on(sdk.RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+            const key = attachmentKey(track, publication, participant);
+            if (track === videoTrack || key === currentAttachmentKeys.video) removeAttached('video');
+            if (track === audioTrack || key === currentAttachmentKeys.audio) removeAttached('audio');
             if (capturedGeneration === generation) updateStatus('Aguardando transmissão…');
         });
         on(sdk.RoomEvent.TrackUnpublished, (publication, participant) => {
             if (participant?.identity !== expectedPublisherIdentity) return;
             const kind = publicationKind(publication, sdk);
+            const key = attachmentKey(publication?.track, publication, participant);
             if (kind === sdk.Track.Kind.Video) {
                 if (debugEnabled) trackReplacementStartedAt.video = debugNow();
-                removeAttached('video');
+                if (currentAttachmentKeys.video === key || !publication?.trackSid) removeAttached('video');
             }
             if (kind === sdk.Track.Kind.Audio) {
                 if (debugEnabled) trackReplacementStartedAt.audio = debugNow();
-                removeAttached('audio');
+                if (currentAttachmentKeys.audio === key || !publication?.trackSid) removeAttached('audio');
             }
             if (capturedGeneration === generation) updateStatus('Aguardando transmissão…');
         });
@@ -352,6 +420,7 @@
     };
 
     const requestToken = async (instanceId, revision) => {
+        recordViewerDiagnostic('viewer_token_requested');
         const body = new URLSearchParams({
             _token: csrfToken,
             transmission_instance_id: instanceId,
@@ -391,6 +460,7 @@
 
         const capturedGeneration = ++generation;
         activeTransmission = transmission;
+        recordViewerDiagnostic('viewer_livekit_transmission_detected');
         await disconnectRoom();
         if (capturedGeneration !== generation) return;
         mount.hidden = false;
@@ -431,6 +501,7 @@
             }
 
             expectedPublisherIdentity = payload.publisher_identity;
+            recordViewerDiagnostic('viewer_token_issued');
             const nextRoom = new sdk.Room({adaptiveStream: true, disconnectOnPageLeave: true});
             registerRoomEvents(nextRoom, sdk, capturedGeneration);
             await nextRoom.connect(payload.server_url, payload.participant_token, {autoSubscribe: false});
@@ -439,6 +510,7 @@
                 return;
             }
             room = nextRoom;
+            recordViewerDiagnostic('viewer_livekit_connected');
             const participants = nextRoom.remoteParticipants;
             const values = participants instanceof Map ? participants.values() : Object.values(participants ?? {});
             for (const participant of values) inspectParticipant(participant, sdk);

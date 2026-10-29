@@ -51,6 +51,17 @@ final class DesktopHostSessionServiceTest extends TestCase
         self::assertNull($service->validate($revoked['token'], 7, self::INSTANCE, 3, 'media.publish'));
     }
 
+    public function testScreenPermissionIsBoundToScreenTransmissionOnly(): void
+    {
+        [$service, $pdo] = $this->service();
+        $pdo->transmission['source_type'] = 'screen';
+        $issued = $service->issue(7, self::INSTANCE, 3, null, self::OWNER_HASH, DesktopHostSessionService::SCREEN_PERMISSION);
+        self::assertNotNull($issued);
+        self::assertSame('screen.publish', $issued['permission']);
+        self::assertNotNull($service->validate($issued['token'], 7, self::INSTANCE, 3, 'screen.publish'));
+        self::assertNull($service->validate($issued['token'], 7, self::INSTANCE, 3, 'media.publish'));
+    }
+
     public function testNewEquivalentIssueRevokesPreviousAndAtomicCreateRejectsChangedTransmission(): void
     {
         [$service, $pdo] = $this->service();
@@ -60,6 +71,11 @@ final class DesktopHostSessionServiceTest extends TestCase
         self::assertNotNull($second);
         [$firstSelector] = explode('.', $first['token'], 2);
         self::assertNotNull($pdo->sessions[$firstSelector]['revoked_at']);
+        self::assertSame(
+            'invalid_host_session',
+            $service->validateResult($first['token'], 7, self::INSTANCE, 3, 'media.publish')['error'],
+        );
+        self::assertNotNull($service->validate($second['token'], 7, self::INSTANCE, 3, 'media.publish'));
 
         $pdo->changeBeforeHostInsert = true;
         self::assertNull($service->issue(7, self::INSTANCE, 3, null, self::OWNER_HASH));

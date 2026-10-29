@@ -336,4 +336,21 @@ public sealed class DesktopMessageTests
         Assert.False(DesktopMessage.TryReadRequest(
             """{"type":"semyra.desktop.account.activate","requestId":"account-4","profileId":"../bad"}""", out _));
     }
+
+    [Fact]
+    public void ScreenPreviewProtocolAcceptsOnlyOpaqueTargetAndAccountContext()
+    {
+        var context = new string('a', 32);
+        var target = new string('b', 32);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.screen.preview","requestId":"preview","accountContextId":"{{context}}","targetId":"{{target}}"}""",
+            out var preview));
+        Assert.Equal(target, preview.Screen!.TargetId);
+        Assert.True(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.screen.preview.cancel","requestId":"preview-cancel","accountContextId":"{{context}}"}""",
+            out _));
+        Assert.False(DesktopMessage.TryReadRequest(
+            $$"""{"type":"semyra.desktop.screen.preview","requestId":"preview-bad","accountContextId":"{{context}}","targetId":"123","handle":42}""",
+            out _));
+    }
 }

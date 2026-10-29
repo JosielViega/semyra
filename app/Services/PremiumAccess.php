@@ -11,4 +11,10 @@ final class PremiumAccess
     {
         return ($user['is_premium'] ?? false) === true;
     }
+
+    /** @param array<string, mixed> $user */
+    public function canShareScreen(array $user): bool
+    {
+        return ($user['is_premium'] ?? false) === true;
+    }
 }

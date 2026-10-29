@@ -73,10 +73,12 @@ const replacement = {
     ...transmissionEvents()[0].detail.transmission,
     instanceId: 'b'.repeat(32),
 };
-listeners.get('semyra:presence-updated')({detail: {transmission: replacement}});
+listeners.get('semyra:presence-updated')({detail: {transmission: replacement, requestStartedAt: 1234}});
 
 assert.equal(transmissionEvents().length, 2,
     'same revision and metadata in a new instance dispatches transmission-updated');
 assert.equal(endInstance.value, 'b'.repeat(32), 'end form follows the current instance');
 assert.equal(endRevision.value, '1');
+assert.equal(transmissionEvents().at(-1).detail.requestStartedAt, 1234,
+    'the shell preserves presence observation ordering metadata');
 console.log('room-shell instance tests passed');

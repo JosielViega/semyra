@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace App\Services;
 
 use Agence104\LiveKit\IngressServiceClient;
+use Livekit\IngressAudioOptions;
 use Livekit\IngressInput;
+use Livekit\IngressState\Status;
+use Livekit\IngressVideoOptions;
+use Livekit\TrackSource;
 use RuntimeException;
 use Twirp\Error;
 use Twirp\ErrorCode;
@@ -18,16 +22,29 @@ final class SdkLiveKitIngressGateway implements LiveKitIngressGateway
     ) {
     }
 
-    public function createWhipIngress(string $name, string $roomName, string $publisherIdentity): array
+    public function createWhipIngress(
+        string $name,
+        string $roomName,
+        string $publisherIdentity,
+        bool $screenShare = false,
+    ): array
     {
+        $audio = $screenShare ? new IngressAudioOptions([
+            'name' => 'screen-audio',
+            'source' => TrackSource::SCREEN_SHARE_AUDIO,
+        ]) : null;
+        $video = $screenShare ? new IngressVideoOptions([
+            'name' => 'screen-video',
+            'source' => TrackSource::SCREEN_SHARE,
+        ]) : null;
         $info = $this->client()->createIngress(
             IngressInput::WHIP_INPUT,
             $name,
             $roomName,
             $publisherIdentity,
             '',
-            null,
-            null,
+            $audio,
+            $video,
             true,
         );
         $ingressId = trim($info->getIngressId());
@@ -102,6 +119,30 @@ final class SdkLiveKitIngressGateway implements LiveKitIngressGateway
             }
         }
         return array_keys($ids);
+    }
+
+    public function findIngressStatus(string $roomName, string $ingressName, string $publisherIdentity, string $ingressId): ?string
+    {
+        if ($roomName === '' || $ingressName === '' || $publisherIdentity === '' || $ingressId === '') {
+            throw new RuntimeException('LiveKit ingress status context is invalid.');
+        }
+        foreach ($this->client()->listIngress('', $ingressId)->getItems() as $info) {
+            if ($info->getIngressId() !== $ingressId
+                || $info->getRoomName() !== $roomName
+                || $info->getName() !== $ingressName
+                || $info->getParticipantIdentity() !== $publisherIdentity
+                || $info->getInputType() !== IngressInput::WHIP_INPUT) {
+                continue;
+            }
+            return match ($info->getState()?->getStatus()) {
+                Status::ENDPOINT_BUFFERING => 'buffering',
+                Status::ENDPOINT_PUBLISHING => 'publishing',
+                Status::ENDPOINT_ERROR => 'error',
+                Status::ENDPOINT_COMPLETE => 'complete',
+                default => 'inactive',
+            };
+        }
+        return null;
     }
 
     public function apiUrl(): string

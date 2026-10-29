@@ -291,7 +291,7 @@
             && left.isOwner === right.isOwner
             && left.mediaMode === right.mediaMode);
 
-    const applyTransmission = (transmission) => {
+    const applyTransmission = (transmission, requestStartedAt = null) => {
         if (hasAppliedTransmission && sameTransmission(currentTransmission, transmission)) {
             return;
         }
@@ -312,7 +312,7 @@
 
         if (ownerCopy) {
             ownerCopy.textContent = active
-                ? `${transmission.isOwner ? 'Você' : transmission.ownerName} está transmitindo`
+                ? `${transmission.isOwner ? 'Você' : transmission.ownerName}${transmission.source === 'screen' ? ' está compartilhando a tela' : ' está transmitindo'}`
                 : 'Sem transmissão ativa';
         }
         if (replaceOwner && active) {
@@ -320,13 +320,13 @@
         }
 
         document.dispatchEvent(new CustomEvent('semyra:transmission-updated', {
-            detail: { transmission: currentTransmission },
+            detail: { transmission: currentTransmission, requestStartedAt },
         }));
         revealHud();
     };
 
     document.addEventListener('semyra:presence-updated', (event) => {
-        applyTransmission(event.detail?.transmission ?? null);
+        applyTransmission(event.detail?.transmission ?? null, event.detail?.requestStartedAt ?? null);
     });
 
     const initialRevision = Number(shell.dataset.initialRevision);

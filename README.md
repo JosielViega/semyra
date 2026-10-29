@@ -31,8 +31,10 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - infraestrutura de rotas, controllers, repositories, views, PDO, sessões, CSRF, logs, migrations, testes e CI;
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
-- correção contínua de drift e chat ainda não implementados;
-- compartilhamento de tela é uma fonte futura adicional; não substitui a integração permanente com YouTube e seu pipeline ainda não foi definido.
+- chat de texto persistente por sala, com histórico recente, paginação e polling incremental compatível com hospedagem compartilhada;
+- chat de voz LiveKit para contas Free, Premium e convidados válidos, com microfone opt-in e volume independente da transmissão;
+- correção contínua de drift ainda não implementada;
+- compartilhamento de tela Premium pelo Semyra Desktop, com seleção nativa de monitor ou janela, preview estático exclusivamente local, áudio do sistema opcional e presets Econômica/Padrão/Alta. O Host Engine captura no Windows e publica H.264 + Opus por GStreamer/WHIP no LiveKit; convidados e contas Free continuam podendo assistir, mas não iniciar.
 
 - entitlement Premium persistido na conta e aplicado exclusivamente ao início da publicação IPTV em salas; YouTube, visualização e toda a experiência IPTV local continuam gratuitos. No Desktop, a seleção oferece TV ao vivo, Filmes e Séries pelo catálogo local; Live usa o pipeline MPEG-TS existente e VOD MP4/H.264/AAC usa proxy loopback efêmero, transcode H.264 WebRTC-friendly e publisher nativo isolado com Play/Pause/Seek reais antes do WHIP/LiveKit, sempre por IDs opacos e com estados explícitos quando Premium ou o runtime não estão disponíveis;
 
@@ -205,7 +207,7 @@ A tabela `rooms` contém:
 
 Salas temporárias são invisíveis depois de 24 horas sem atividade e removidas oportunisticamente durante novas criações ou ao consultar diretamente um código expirado. A exclusão física usa os `ON DELETE CASCADE` existentes para participantes e transmissão. Salas persistentes podem atualizar `last_activity_at`, mas esse valor não determina sua expiração.
 
-A tabela `room_transmissions` relaciona uma sala a zero ou uma transmissão ativa. `owner_user_id` identifica owners autenticados; quando é nulo, `owner_participant_key_hash` mantém convidados e compatibilidade. Uma transmissão legacy só é vinculada à conta se a sessão ainda provar posse do hash exato; ser criador ou ter histórico nunca basta. A tabela também mantém fonte, video ID do YouTube, modo de mídia, revisões e estado oficial de playback. A posição pública e a âncora de borda são projetadas pelo relógio do MySQL.
+A tabela `room_transmissions` relaciona uma sala a zero ou uma transmissão ativa. `owner_user_id` identifica owners autenticados; quando é nulo, `owner_participant_key_hash` mantém convidados e compatibilidade. Uma transmissão legacy só é vinculada à conta se a sessão ainda provar posse do hash exato; ser criador ou ter histórico nunca basta. A tabela também mantém fonte (`youtube`, `iptv` ou `screen`), video ID do YouTube, modo de mídia, revisões e estado oficial de playback. Para `screen`, `publisher_last_seen_at` permite remover publicações órfãs em poucos segundos sem depender da presença geral na sala. A posição pública e a âncora de borda são projetadas pelo relógio do MySQL.
 
 A tabela `room_participants` associa uma identidade física a uma sala. O navegador guarda uma chave aleatória de 256 bits na sessão e o banco recebe somente seu hash SHA-256. `user_id` é opcional e não único: sessões diferentes da mesma conta conservam chaves distintas, mas são apresentadas como uma única pessoa lógica pela linha ativa mais recente. Guests permanecem separados por chave e com `user_id = NULL`. O `public_id` de uma conta é opaco e estável entre chaves, sem expor o ID interno.
 

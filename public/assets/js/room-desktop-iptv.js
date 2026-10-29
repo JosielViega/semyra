@@ -5,6 +5,7 @@
     const sourceTabs = document.querySelector('[data-desktop-publish-tabs]');
     const youtubePanel = document.querySelector('[data-youtube-source-panel]');
     const panel = document.querySelector('[data-iptv-source-panel-modern]');
+    const screenPanel = document.querySelector('[data-screen-source-panel]');
     const controls = document.querySelector('[data-room-iptv-controls-modern]');
     const unavailable = document.querySelector('[data-room-iptv-unavailable-modern]');
     const vodUnavailable = document.querySelector('[data-room-vod-unavailable]');
@@ -197,11 +198,13 @@
     }
 
     function showSource(mode) {
-        state.sourceMode = mode === 'iptv' ? 'iptv' : 'youtube';
+        state.sourceMode = ['iptv', 'screen'].includes(mode) ? mode : 'youtube';
         const iptv = state.sourceMode === 'iptv';
-        youtubePanel.hidden = iptv; panel.hidden = !iptv;
-        youtubePanel.querySelectorAll('input, button').forEach((control) => { control.disabled = iptv; });
-        document.querySelector('[data-transmission-kicker]').textContent = iptv ? 'IPTV' : 'YouTube';
+        const screen = state.sourceMode === 'screen';
+        youtubePanel.hidden = iptv || screen; panel.hidden = !iptv;
+        if (screenPanel) screenPanel.hidden = !screen;
+        youtubePanel.querySelectorAll('input, button').forEach((control) => { control.disabled = iptv || screen; });
+        document.querySelector('[data-transmission-kicker]').textContent = iptv ? 'IPTV' : screen ? 'Tela' : 'YouTube';
         sourceTabs.querySelectorAll('[data-source-tab]').forEach((button) => {
             const selected = button.dataset.sourceTab === state.sourceMode;
             button.classList.toggle('is-active', selected); button.setAttribute('aria-selected', selected ? 'true' : 'false');
@@ -214,11 +217,13 @@
         state.catalog = Array.isArray(capabilities) && capabilities.includes('iptv.catalog');
         state.livePublish = state.catalog && capabilities.includes('livekit.publish');
         state.vodPublish = state.livePublish && capabilities.includes('livekit.publish-vod');
-        sourceTabs.hidden = !state.catalog;
+        sourceTabs.hidden = false;
+        const iptvTab = sourceTabs.querySelector('[data-source-tab="iptv"]');
+        if (iptvTab) iptvTab.hidden = !state.catalog;
         if (controls) controls.hidden = state.canPublish && !state.livePublish;
         if (unavailable) unavailable.hidden = !state.canPublish || state.livePublish;
         if (vodUnavailable) vodUnavailable.hidden = !state.livePublish || state.vodPublish || state.tab === 'live';
-        if (!state.catalog) showSource('youtube');
+        if (!state.catalog && state.sourceMode === 'iptv') showSource('youtube');
     }
 
     async function beginPublish(kind, mediaId) {

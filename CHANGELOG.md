@@ -6,6 +6,12 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- O Ingress WHIP de compartilhamento agora declara tracks como `SCREEN_SHARE`/`SCREEN_SHARE_AUDIO`; o viewer também tolera a normalização LiveKit para `camera`/`microphone` exclusivamente quando a track pertence ao publisher cercado da transmissão vigente, evitando que mídia publicada fique presa em “Aguardando transmissão”.
+
+- O lease da transmissão de tela agora recebe heartbeat desde a aceitação do Start, incluindo as fases de autorização, preparação e conexão; o polling da sala não remove mais a própria transmissão após cinco segundos enquanto GStreamer/WHIP/LiveKit ainda aguardam `PUBLISHING`, e respostas de presence iniciadas antes do Start não desfazem o contexto recém-criado ao chegar atrasadas.
+- O compartilhamento de tela agora possui um único emissor inicial e um lifecycle próprio de renovação da Host Session, evitando que a autorização genérica de IPTV revogue o token recém-entregue ao Screen Publisher; respostas `401` distinguem sessão realmente expirada de token inválido/revogado e callbacks antigos não substituem uma renovação mais nova.
+- A confirmação do Screen Publisher agora distingue HTTP, autorização, fencing, payload inválido, ingress ausente e estado de erro do LiveKit; `ingress_not_found` e falhas transitórias recebem retry curto e limitado antes do timeout total, sem aceitar `BUFFERING` como sucesso nem remover a exigência de `PUBLISHING` real.
+- O bridge Desktop preserva o estado intermediário `connecting` do compartilhamento de tela em vez de convertê-lo em falha e interromper o próprio publisher; erros nativos agora aguardam a drenagem do diagnóstico do GStreamer e chegam à interface como códigos sanitizados específicos.
 - Transmissões YouTube e IPTV agora são encerradas quando o owner fica sem instância ativa por 5 segundos; reloads e múltiplas abas sobrevivem pela mesma presença existente, e o `DELETE` é cercado atomicamente por sala, instância, revisão e identidade do owner.
 - O fullscreen da sala usa a Fullscreen API no navegador e a janela WPF no Semyra Desktop por capability allowlisted `window.fullscreen`, preservando monitor, bounds e estado maximizado sem reiniciar a mídia.
 - O catálogo de publicação IPTV separa poster, título, metadata e CTA em cards responsivos de Filmes/Séries; o seletor horizontal de temporadas permanece visível acima da lista rolável de episódios, sem regredir paginação ou layout de TV.
@@ -15,6 +21,11 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 - Comandos, encerramento, observações de live edge e viewers agora são vinculados a um `instance_id` imutável por transmissão, evitando colisões após `end` seguido de novo `start` com revision reutilizada.
 
 ### Added
+
+- Comunicacao independente da midia nas salas: chat de texto persistente em MySQL com polling incremental, paginacao, idempotencia, rate limit, CSRF e renderizacao segura; e chat de voz WebRTC pelo LiveKit com token curto limitado exclusivamente a microfone, microfone inicialmente desligado, volume/mute recebido independentes e indicador de fala.
+
+- O seletor nativo de compartilhamento gera, somente após seleção, uma pré-visualização JPEG estática e limitada do monitor ou janela, mantida em memória no Desktop e descartada por geração sem backend, disco ou LiveKit.
+- Compartilhamento de tela Premium pelo publisher nativo do Semyra Desktop, com seleção opaca de monitor/janela, presets Econômica/Padrão/Alta, áudio de sistema WASAPI opcional, H.264 + Opus por GStreamer/WHIP no LiveKit, Host Session limitada a `screen.publish`, heartbeat cercado por instância/revisão e cleanup automático. O navegador comum permanece viewer e não solicita captura.
 
 - Controles compartilhados reais para o owner de IPTV VOD, com Play/Pause, seek, ±30 s e progresso consultado de um publisher GStreamer persistente e isolado no `Semyra.MediaHost`, cercado por Host Session, instância e revisão e sem URLs em argv, DOM ou respostas.
 - Pause de IPTV VOD congela somente a timeline de conteúdo; um pipeline de publicação separado mantém RTP/WHIP monotônico com o último frame e silêncio, evitando drift A/V cumulativo nos receivers. As transições aguardam os estados reais do GStreamer e seek continua republicando com posicionamento preciso.

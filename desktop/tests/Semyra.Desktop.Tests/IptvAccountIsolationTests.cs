@@ -180,6 +180,8 @@ public sealed class IptvAccountIsolationTests : IDisposable
 
     private sealed class PublishClient : IDesktopPublishClient
     {
+        public Task<DesktopPublishStatus> StatusAsync(HostAuthorization authorization, string ingressId, CancellationToken cancellationToken) =>
+            Task.FromResult(new DesktopPublishStatus("publishing"));
         public List<HostAuthorization> Stops { get; } = [];
         public Task<DesktopPublishLease> StartAsync(HostAuthorization authorization, CancellationToken cancellationToken) =>
             Task.FromResult(new DesktopPublishLease("INGRESS_TEST", new Uri("https://whip.example/test")));

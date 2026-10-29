@@ -857,6 +857,49 @@ test('desktop account resolution fails closed and logout fences stale IPTV resul
     assert.equal(activationFailure.dispatched.some((event) => event.type === 'semyra:host-ready'), false);
 });
 
+test('screen bridge preserves connecting and transports only bounded local preview data', async () => {
+    const posted = [];
+    const dispatched = [];
+    const listeners = new Map();
+    let receive = null;
+    const target = {
+        chrome: {webview: {
+            addEventListener: (_type, listener) => { receive = listener; },
+            removeEventListener: () => {},
+            postMessage: (message) => posted.push(message),
+        }},
+        crypto: {randomUUID: () => 'screen-request'},
+        CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
+        dispatchEvent: (event) => dispatched.push(event),
+        addEventListener: (type, listener) => listeners.set(type, listener),
+        fetch: async () => ({ok: true, json: async () => ({profile_id: 'a'.repeat(64)})}),
+        document: {getElementById: () => null, querySelectorAll: () => [], querySelector: () => null},
+    };
+    desktop.createDesktopBridge(target).start();
+    receive({data:{type:'semyra.desktop.pong',requestId:'screen-request',protocolVersion:1,desktop:true,platform:'windows'}});
+    await new Promise(resolve => setImmediate(resolve));
+    receive({data:{type:'semyra.desktop.account.activate-result',requestId:'screen-request',protocolVersion:1,
+        activated:true,accountContextId:'b'.repeat(32)}});
+    receive({data:{type:'semyra.desktop.host.status-result',requestId:'screen-request',protocolVersion:1,
+        host:{state:'ready',capabilities:['host.status','host.authorize','iptv.sources','iptv.catalog','screen.targets','screen.publish','screen.audio'],authorization:{authorized:false}}}});
+
+    receive({data:{type:'semyra.desktop.screen.publish.state',protocolVersion:1,accountContextId:'b'.repeat(32),
+        state:'connecting',targetId:'c'.repeat(32),targetType:'monitor',quality:'standard',audio:true,
+        encoder:'x264enc',errorCode:null,diagnosticCode:'screen_whip_connecting'}});
+    assert.equal(dispatched.at(-1).type,'semyra:screen-state');
+    assert.equal(dispatched.at(-1).detail.state,'connecting');
+    assert.equal(dispatched.at(-1).detail.diagnosticCode,'screen_whip_connecting');
+
+    listeners.get('semyra:screen-request')({detail:{action:'preview',targetId:'c'.repeat(32)}});
+    assert.deepEqual(posted.at(-1),{type:'semyra.desktop.screen.preview',requestId:'screen-request',
+        accountContextId:'b'.repeat(32),targetId:'c'.repeat(32)});
+    receive({data:{type:'semyra.desktop.screen.preview-result',requestId:'screen-request',protocolVersion:1,ok:true,
+        state:'available',dataUrl:'data:image/jpeg;base64,ZmFrZQ==',width:400,height:225}});
+    assert.equal(dispatched.at(-1).type,'semyra:screen-result');
+    assert.equal(dispatched.at(-1).detail.state,'available');
+    assert.equal(dispatched.at(-1).detail.dataUrl,'data:image/jpeg;base64,ZmFrZQ==');
+});
+
 function createCheckbox() {
     return {
         checked: false,

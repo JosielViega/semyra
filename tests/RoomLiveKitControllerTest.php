@@ -77,6 +77,16 @@ final class RoomLiveKitControllerTest extends TestCase
         self::assertSame(201, $controller->viewerToken('ROOM1234')->status());
     }
 
+    public function testScreenTransmissionCanIssueViewerTokenToJoinedGuest(): void
+    {
+        [$controller] = $this->controller(transmission: $this->transmission(
+            sourceType: 'screen',
+            mediaMode: 'live',
+        ));
+
+        self::assertSame(201, $controller->viewerToken('ROOM1234')->status());
+    }
+
     #[DataProvider('invalidRevisions')]
     public function testTransmissionRevisionMustBePositiveInteger(mixed $revision): void
     {

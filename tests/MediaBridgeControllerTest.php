@@ -110,8 +110,9 @@ final class ControllerBridgeStore implements MediaBridgeJobStore
 
 final class ControllerIngressGateway implements LiveKitIngressGateway
 {
+    public function findIngressStatus(string $roomName, string $ingressName, string $publisherIdentity, string $ingressId): ?string { return null; }
     public function findIngressIdsByRoomAndName(string $roomName, string $ingressName): array { return []; }
-    public function createWhipIngress(string $name,string $roomName,string $publisherIdentity):array{return ['ingress_id'=>'INGRESS_TEST','whip_endpoint'=>'https://whip.invalid/SAFE_TEST_CREDENTIAL'];}
+    public function createWhipIngress(string $name,string $roomName,string $publisherIdentity,bool $screenShare=false):array{return ['ingress_id'=>'INGRESS_TEST','whip_endpoint'=>'https://whip.invalid/SAFE_TEST_CREDENTIAL'];}
     public function findOwnedIngressIds(string $roomName,string $ingressName,string $publisherIdentity):array{return [];}
     public function deleteIngress(string $ingressId):void{}
 }

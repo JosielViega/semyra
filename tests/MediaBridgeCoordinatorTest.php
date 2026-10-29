@@ -781,6 +781,7 @@ final class FakeMediaBridgeStore implements MediaBridgeJobStore
 
 final class FakeIngressGateway implements LiveKitIngressGateway
 {
+    public function findIngressStatus(string $roomName, string $ingressName, string $publisherIdentity, string $ingressId): ?string { return null; }
     public function findIngressIdsByRoomAndName(string $roomName, string $ingressName): array { return []; }
     public array $created=[];
     public array $deleted=[];
@@ -795,7 +796,7 @@ final class FakeIngressGateway implements LiveKitIngressGateway
     public bool $invalidResponse=false;
     public $afterCreate=null;
     public $afterFind=null;
-    public function createWhipIngress(string $name,string $roomName,string $publisherIdentity): array
+    public function createWhipIngress(string $name,string $roomName,string $publisherIdentity,bool $screenShare=false): array
     {
         $id = array_shift($this->createIds) ?? 'INGRESS_NEW';
         $this->created[]=['name'=>$name,'room'=>$roomName,'publisher'=>$publisherIdentity];

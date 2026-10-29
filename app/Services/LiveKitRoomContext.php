@@ -37,6 +37,19 @@ final class LiveKitRoomContext
         return 'smy_v_' . bin2hex(random_bytes(24));
     }
 
+    public function voiceIdentity(int $roomId, string $participantKeyHash, string $voiceInstanceId): string
+    {
+        $this->assertPositive($roomId, 'Room ID');
+        if (preg_match('/^[a-f0-9]{64}$/', $participantKeyHash) !== 1
+            || preg_match('/^[a-f0-9]{32}$/', $voiceInstanceId) !== 1) {
+            throw new \InvalidArgumentException('Voice participant identity input is invalid.');
+        }
+
+        return 'smy_c_' . $this->digest(
+            'voice:' . $roomId . ':' . $participantKeyHash . ':' . $voiceInstanceId,
+        );
+    }
+
     private function digest(string $value): string
     {
         return substr(hash('sha256', "semyra-livekit-v1\0" . $this->namespace . "\0" . $value), 0, 32);

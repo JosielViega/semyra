@@ -18,11 +18,12 @@ if (!in_array($app['config']['environment'], ['local', 'testing'], true)) {
 
 final class ManualMediaBridgeIngressGateway implements LiveKitIngressGateway
 {
+    public function findIngressStatus(string $roomName, string $ingressName, string $publisherIdentity, string $ingressId): ?string { return null; }
     public function findIngressIdsByRoomAndName(string $roomName, string $ingressName): array { return []; }
     /** @var array<string, array{name: string, room: string, publisher: string}> */
     private array $ingresses = [];
 
-    public function createWhipIngress(string $name, string $roomName, string $publisherIdentity): array
+    public function createWhipIngress(string $name, string $roomName, string $publisherIdentity, bool $screenShare = false): array
     {
         $id = 'TEST_' . substr(hash('sha256', $name . $roomName . $publisherIdentity), 0, 32);
         $this->ingresses[$id] = ['name' => $name, 'room' => $roomName, 'publisher' => $publisherIdentity];

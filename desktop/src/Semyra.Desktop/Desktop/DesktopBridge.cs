@@ -3,6 +3,7 @@ using System.Text.Json;
 using Semyra.Desktop.Host;
 using Semyra.Desktop.Iptv;
 using Semyra.Desktop.Media;
+using Semyra.Desktop.Screen;
 
 namespace Semyra.Desktop.Desktop;
 
@@ -96,6 +97,11 @@ public static class DesktopBridge
         if (request.Type == DesktopMessage.AccountClearType)
         {
             return (true, await CreateAccountClearResultAsync(request.RequestId, hostEngine));
+        }
+
+        if (request.Screen is not null)
+        {
+            return await HandleScreenAsync(request, hostEngine, cancellationToken);
         }
 
         if (request.Iptv is null)
@@ -226,6 +232,79 @@ public static class DesktopBridge
         }
     }
 
+    private static async Task<(bool Handled, string Response)> HandleScreenAsync(
+        DesktopRequest request, HostEngine hostEngine, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (request.Type == DesktopMessage.ScreenTargetsType)
+                return (true, Success(DesktopMessage.ScreenTargetsResultType, request.RequestId,
+                    new { targets = hostEngine.ListScreenTargets(request.Screen!.AccountContextId) }));
+            if (request.Type == DesktopMessage.ScreenPreviewType)
+            {
+                var preview = await hostEngine.PreviewScreenTargetAsync(
+                    request.Screen!.AccountContextId,
+                    request.Screen.TargetId!,
+                    cancellationToken);
+                return (true, Success(DesktopMessage.ScreenPreviewResultType, request.RequestId, new
+                {
+                    state = "available",
+                    dataUrl = preview.DataUrl,
+                    width = preview.Width,
+                    height = preview.Height,
+                }));
+            }
+            if (request.Type == DesktopMessage.ScreenPreviewCancelType)
+            {
+                hostEngine.CancelScreenPreview();
+                return (true, Success(DesktopMessage.ScreenPreviewCancelResultType, request.RequestId,
+                    new { state = "cancelled" }));
+            }
+            var snapshot = request.Type switch
+            {
+                DesktopMessage.ScreenPublishStartType => await hostEngine.StartScreenPublishAsync(
+                    request.Screen!.AccountContextId, request.Screen.TargetId!, request.Screen.Quality!, request.Screen.Audio, cancellationToken),
+                DesktopMessage.ScreenPublishStopType => await hostEngine.StopScreenPublishAsync(),
+                DesktopMessage.ScreenPublishStatusType => hostEngine.ScreenPublishSnapshot(),
+                _ => throw new ScreenPublisherException("invalid_screen_command"),
+            };
+            var type = request.Type switch
+            {
+                DesktopMessage.ScreenPublishStartType => DesktopMessage.ScreenPublishStartResultType,
+                DesktopMessage.ScreenPublishStopType => DesktopMessage.ScreenPublishStopResultType,
+                _ => DesktopMessage.ScreenPublishStatusResultType,
+            };
+            return (true, Success(type, request.RequestId, new
+            {
+                state = snapshot.State, targetId = snapshot.TargetId, targetType = snapshot.TargetType,
+                quality = snapshot.Quality, audio = snapshot.Audio, encoder = snapshot.Encoder,
+                errorCode = snapshot.ErrorCode, diagnosticCode = snapshot.DiagnosticCode,
+            }));
+        }
+        catch (ScreenPublisherException exception)
+        {
+            var type = request.Type == DesktopMessage.ScreenTargetsType ? DesktopMessage.ScreenTargetsResultType
+                : request.Type == DesktopMessage.ScreenPreviewType ? DesktopMessage.ScreenPreviewResultType
+                : request.Type == DesktopMessage.ScreenPreviewCancelType ? DesktopMessage.ScreenPreviewCancelResultType
+                : request.Type == DesktopMessage.ScreenPublishStartType ? DesktopMessage.ScreenPublishStartResultType
+                : request.Type == DesktopMessage.ScreenPublishStopType ? DesktopMessage.ScreenPublishStopResultType
+                : DesktopMessage.ScreenPublishStatusResultType;
+            return (true, Error(type, request.RequestId, exception.Code));
+        }
+        catch (OperationCanceledException)
+        {
+            var type = request.Type == DesktopMessage.ScreenPreviewType ? DesktopMessage.ScreenPreviewResultType
+                : request.Type == DesktopMessage.ScreenPreviewCancelType ? DesktopMessage.ScreenPreviewCancelResultType
+                : request.Type == DesktopMessage.ScreenPublishStartType ? DesktopMessage.ScreenPublishStartResultType
+                : request.Type == DesktopMessage.ScreenPublishStopType ? DesktopMessage.ScreenPublishStopResultType
+                : DesktopMessage.ScreenPublishStatusResultType;
+            var code = request.Type is DesktopMessage.ScreenPreviewType or DesktopMessage.ScreenPreviewCancelType
+                ? "screen_preview_cancelled"
+                : "screen_publish_cancelled";
+            return (true, Error(type, request.RequestId, code));
+        }
+    }
+
     private static async Task<(bool Handled, string Response)> HandlePlayerAsync(
         DesktopRequest request,
         HostEngine hostEngine,
@@ -340,6 +419,24 @@ public static class DesktopBridge
             vodContentKind = snapshot.VodContentKind,
             canPreviousEpisode = snapshot.CanPreviousEpisode,
             canNextEpisode = snapshot.CanNextEpisode,
+            accountContextId,
+        }, JsonOptions);
+    }
+
+    public static string CreateScreenPublisherStateEvent(ScreenPublisherSnapshot snapshot, string? accountContextId = null)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            type = DesktopMessage.ScreenPublishStateType,
+            protocolVersion = DesktopMessage.ProtocolVersion,
+            state = snapshot.State,
+            targetId = snapshot.TargetId,
+            targetType = snapshot.TargetType,
+            quality = snapshot.Quality,
+            audio = snapshot.Audio,
+            encoder = snapshot.Encoder,
+            errorCode = snapshot.ErrorCode,
+            diagnosticCode = snapshot.DiagnosticCode,
             accountContextId,
         }, JsonOptions);
     }

@@ -15,6 +15,7 @@ use App\Services\DesktopMediaPublishService;
 use App\Services\LiveKitIngressGateway;
 use App\Services\LiveKitRoomContext;
 use App\Services\PremiumAccess;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\DesktopHostSessionPdo;
 
@@ -50,6 +51,64 @@ final class DesktopMediaPublishServiceTest extends TestCase
 
         self::assertSame('INGRESS_NEW', $result['ingress_id']);
         self::assertCount(1, $gateway->created);
+        self::assertFalse($gateway->created[0]['screenShare']);
+    }
+
+    public function testScreenTransmissionUsesItsOwnPermissionAndCreatesWhip(): void
+    {
+        [$service, $token, $gateway] = $this->fixture('screen');
+        $result = $service->start($token, 7, self::INSTANCE, 3);
+        self::assertSame('INGRESS_NEW', $result['ingress_id']);
+        self::assertCount(1, $gateway->created);
+        self::assertTrue($gateway->created[0]['screenShare']);
+    }
+
+    public function testScreenReadinessUsesOwnedIngressPublishingState(): void
+    {
+        [$service, $token, $gateway, $identity, $context] = $this->fixture('screen');
+        $gateway->items = [[
+            'id' => 'SCREEN_READY',
+            'room' => $context->roomName(7),
+            'name' => $identity->name(7),
+            'state' => 'publishing',
+        ]];
+
+        self::assertSame(['state' => 'publishing'], $service->status($token, 7, self::INSTANCE, 3, 'SCREEN_READY'));
+    }
+
+    #[DataProvider('readinessStates')]
+    public function testScreenReadinessPreservesEverySanitizedIngressState(string $state): void
+    {
+        [$service, $token, $gateway, $identity, $context] = $this->fixture('screen');
+        $gateway->items = [[
+            'id' => 'SCREEN_STATE',
+            'room' => $context->roomName(7),
+            'name' => $identity->name(7),
+            'state' => $state,
+        ]];
+
+        self::assertSame(['state' => $state], $service->status(
+            $token, 7, self::INSTANCE, 3, 'SCREEN_STATE'));
+    }
+
+    public static function readinessStates(): array
+    {
+        return array_combine(
+            ['inactive', 'buffering', 'publishing', 'error', 'complete'],
+            array_map(static fn(string $state): array => [$state], ['inactive', 'buffering', 'publishing', 'error', 'complete']),
+        );
+    }
+
+    public function testScreenReadinessRejectsUnknownIngress(): void
+    {
+        [$service, $token] = $this->fixture('screen');
+        try {
+            $service->status($token, 7, self::INSTANCE, 3, 'MISSING');
+            self::fail('Expected unknown ingress to be rejected.');
+        } catch (DesktopMediaPublishException $exception) {
+            self::assertSame('ingress_not_found', $exception->errorCode);
+            self::assertSame(404, $exception->status);
+        }
     }
 
     public function testChangedTransmissionAndInvalidTokenAreRejectedBeforeProvisioning(): void
@@ -59,7 +118,7 @@ final class DesktopMediaPublishServiceTest extends TestCase
             $service->start($token, 7, str_repeat('c', 32), 3);
             self::fail('Expected authorization failure.');
         } catch (DesktopMediaPublishException $exception) {
-            self::assertSame('invalid_host_session', $exception->errorCode);
+            self::assertSame('transmission_changed', $exception->errorCode);
         }
         self::assertSame([], $gateway->created);
     }
@@ -118,6 +177,19 @@ final class DesktopMediaPublishServiceTest extends TestCase
         self::assertSame(['OWNED'], $gateway->deleted);
     }
 
+    public function testOldScreenGenerationCanCleanItsIngressAfterTransmissionReplacement(): void
+    {
+        [$service, $token, $gateway, $identity, $context, $pdo] = $this->fixture('screen');
+        $gateway->items = [['id' => 'OLD_SCREEN', 'room' => $context->roomName(7), 'name' => $identity->name(7)]];
+        $pdo->transmission['source_type'] = 'iptv';
+        $pdo->transmission['instance_id'] = str_repeat('c', 32);
+        $pdo->transmission['revision'] = 4;
+
+        $service->stop($token, 7, self::INSTANCE, 3, 'OLD_SCREEN');
+
+        self::assertSame(['OLD_SCREEN'], $gateway->deleted);
+    }
+
     public function testUnavailableLiveKitFailsBeforeIngressCreation(): void
     {
         [$service, $token, $gateway, $identity, $context, $pdo, $sessions, $repository] = $this->fixture();
@@ -132,16 +204,17 @@ final class DesktopMediaPublishServiceTest extends TestCase
         self::assertSame([], $gateway->created);
     }
 
-    private function fixture(): array
+    private function fixture(string $source = 'iptv'): array
     {
         $pdo = new DesktopHostSessionPdo();
         $pdo->seedUser(7);
         $pdo->transmission = ['room_id' => 7, 'instance_id' => self::INSTANCE, 'revision' => 3,
             'owner_user_id' => 7, 'owner_participant_key_hash' => self::OWNER,
-            'source_type' => 'iptv', 'media_mode' => 'live'];
+            'source_type' => $source, 'media_mode' => 'live'];
         $database = $this->database($pdo);
         $sessions = new DesktopHostSessionService(new DesktopHostSessionRepository($database), 600);
-        $issued = $sessions->issue(7, self::INSTANCE, 3, 7, self::OWNER);
+        $issued = $sessions->issue(7, self::INSTANCE, 3, 7, self::OWNER,
+            $source === 'screen' ? DesktopHostSessionService::SCREEN_PERMISSION : DesktopHostSessionService::PERMISSION);
         self::assertNotNull($issued);
         $gateway = new DesktopPublishGateway();
         $context = new LiveKitRoomContext('testing');
@@ -165,9 +238,9 @@ final class DesktopPublishGateway implements LiveKitIngressGateway
     public array $items = [];
     public array $deleted = [];
     public array $created = [];
-    public function createWhipIngress(string $name, string $roomName, string $publisherIdentity): array
+    public function createWhipIngress(string $name, string $roomName, string $publisherIdentity, bool $screenShare = false): array
     {
-        $this->created[] = compact('name', 'roomName', 'publisherIdentity');
+        $this->created[] = compact('name', 'roomName', 'publisherIdentity', 'screenShare');
         return ['ingress_id' => 'INGRESS_NEW', 'whip_endpoint' => 'https://whip.invalid/test'];
     }
     public function findOwnedIngressIds(string $roomName, string $ingressName, string $publisherIdentity): array { return []; }
@@ -177,6 +250,15 @@ final class DesktopPublishGateway implements LiveKitIngressGateway
             $this->items,
             static fn(array $item): bool => $item['room'] === $roomName && $item['name'] === $ingressName,
         )));
+    }
+    public function findIngressStatus(string $roomName, string $ingressName, string $publisherIdentity, string $ingressId): ?string
+    {
+        foreach ($this->items as $item) {
+            if ($item['id'] === $ingressId && $item['room'] === $roomName && $item['name'] === $ingressName) {
+                return $item['state'] ?? 'inactive';
+            }
+        }
+        return null;
     }
     public function deleteIngress(string $ingressId): void
     {

@@ -10,7 +10,14 @@ public sealed record DesktopRequest(
     MediaRequest? Media = null,
     AccountRequest? Account = null,
     PlayerRequest? Player = null,
-    WindowRequest? Window = null);
+    WindowRequest? Window = null,
+    ScreenRequest? Screen = null);
+
+public sealed record ScreenRequest(
+    string AccountContextId,
+    string? TargetId = null,
+    string? Quality = null,
+    bool Audio = false);
 
 public sealed record WindowRequest(bool? Enabled = null);
 

@@ -8,8 +8,12 @@ use Agence104\LiveKit\IngressServiceClient;
 use App\Services\SdkLiveKitIngressGateway;
 use Livekit\IngressInfo;
 use Livekit\IngressInput;
+use Livekit\IngressState;
+use Livekit\IngressState\Status;
 use Livekit\ListIngressResponse;
+use Livekit\TrackSource;
 use Livekit\TwirpError;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Twirp\ErrorCode;
 
@@ -25,6 +29,8 @@ final class SdkLiveKitIngressGatewayTest extends TestCase
         self::assertSame(IngressInput::WHIP_INPUT, $client->createArgs[0]);
         self::assertSame('smy_r_room', $client->createArgs[2]);
         self::assertSame('smy_i_publisher', $client->createArgs[3]);
+        self::assertNull($client->createArgs[5]);
+        self::assertNull($client->createArgs[6]);
         self::assertTrue($client->createArgs[7]);
         self::assertCount(8, $client->createArgs, 'URL Input must not be supplied.');
         self::assertSame('INGRESS_TEST', $result['ingress_id']);
@@ -37,6 +43,18 @@ final class SdkLiveKitIngressGatewayTest extends TestCase
         $gateway = new SdkLiveKitIngressGateway($this->config(), $client);
         $gateway->deleteIngress('INGRESS_TEST');
         self::assertSame(['INGRESS_TEST'], $client->deleted);
+    }
+
+    public function testScreenWhipIngressDeclaresScreenShareTrackSources(): void
+    {
+        $client = new RecordingIngressClient();
+        $gateway = new SdkLiveKitIngressGateway($this->config(), $client);
+
+        $gateway->createWhipIngress('screen', 'room', 'publisher', true);
+
+        self::assertSame(TrackSource::SCREEN_SHARE_AUDIO, $client->createArgs[5]->getSource());
+        self::assertSame(TrackSource::SCREEN_SHARE, $client->createArgs[6]->getSource());
+        self::assertTrue($client->createArgs[7]);
     }
 
     public function testListingReturnsOnlyStrictlyOwnedWhipIngressIds(): void
@@ -69,6 +87,43 @@ final class SdkLiveKitIngressGatewayTest extends TestCase
         $gateway->deleteIngress('ALREADY_GONE');
 
         self::assertSame(['ALREADY_GONE'], $client->deleted);
+    }
+
+    public function testStatusRequiresExactOwnedIngressAndReturnsOnlySanitizedState(): void
+    {
+        $client = new RecordingIngressClient();
+        $matching = $this->ingress('READY', 'expected-name', 'expected-room', 'expected-publisher');
+        $matching->setState(new IngressState(['status' => Status::ENDPOINT_PUBLISHING, 'error' => 'sensitive upstream detail']));
+        $client->listed = [$matching, $this->ingress('FOREIGN', 'other-name', 'expected-room', 'expected-publisher')];
+        $gateway = new SdkLiveKitIngressGateway($this->config(), $client);
+
+        self::assertSame('publishing', $gateway->findIngressStatus('expected-room', 'expected-name', 'expected-publisher', 'READY'));
+        self::assertNull($gateway->findIngressStatus('expected-room', 'expected-name', 'expected-publisher', 'FOREIGN'));
+        self::assertSame([['', 'READY'], ['', 'FOREIGN']], $client->listArgs);
+    }
+
+    #[DataProvider('ingressStates')]
+    public function testStatusMapsEverySdkIngressState(int $sdkStatus, string $expected): void
+    {
+        $client = new RecordingIngressClient();
+        $matching = $this->ingress('STATE', 'expected-name', 'expected-room', 'expected-publisher');
+        $matching->setState(new IngressState(['status' => $sdkStatus, 'error' => 'sensitive upstream detail']));
+        $client->listed = [$matching];
+        $gateway = new SdkLiveKitIngressGateway($this->config(), $client);
+
+        self::assertSame($expected, $gateway->findIngressStatus(
+            'expected-room', 'expected-name', 'expected-publisher', 'STATE'));
+    }
+
+    public static function ingressStates(): array
+    {
+        return [
+            'inactive' => [Status::ENDPOINT_INACTIVE, 'inactive'],
+            'buffering' => [Status::ENDPOINT_BUFFERING, 'buffering'],
+            'publishing' => [Status::ENDPOINT_PUBLISHING, 'publishing'],
+            'error' => [Status::ENDPOINT_ERROR, 'error'],
+            'complete' => [Status::ENDPOINT_COMPLETE, 'complete'],
+        ];
     }
 
     private function ingress(

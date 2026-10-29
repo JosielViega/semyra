@@ -427,6 +427,8 @@ public sealed class MediaEngineTests
 
     private sealed class FakePublishClient : IDesktopPublishClient
     {
+        public Task<DesktopPublishStatus> StatusAsync(HostAuthorization authorization, string ingressId, CancellationToken cancellationToken) =>
+            Task.FromResult(new DesktopPublishStatus("publishing"));
         public List<HostAuthorization> Starts { get; } = [];
         public List<HostAuthorization> Stops { get; } = [];
         public Task<DesktopPublishLease> StartAsync(HostAuthorization authorization, CancellationToken cancellationToken)

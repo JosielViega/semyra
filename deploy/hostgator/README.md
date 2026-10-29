@@ -67,6 +67,12 @@ Os exemplos em `server-config-examples/` ficam fora do mirror e não se chamam `
 
 Não há caminho absoluto de conta embutido no projeto.
 
+## Comunicação em produção
+
+O chat de texto roda no PHP/MySQL da hospedagem e não exige processo residente, Redis ou WebSocket próprio. Após copiar a migration de `room_messages`, execute-a separadamente com backup e monitore o volume de polling/armazenamento. O frontend consulta apenas mensagens posteriores ao cursor e reduz a frequência em segundo plano.
+
+O chat de voz não hospeda mídia na HostGator: o PHP somente emite JWTs curtos e o tráfego WebRTC segue pelo LiveKit configurado. Antes do gate entre dispositivos, confirme domínio em HTTPS, `APP_URL` público, cookies `Secure`, `LIVEKIT_URL` com `wss://`, credenciais LiveKit somente no `.env` do servidor e política de origem/WebView2 correspondente ao domínio. Permissão de microfone exige contexto seguro; logs devem permanecer sanitizados e nunca incluir JWT, cookie, API secret ou conteúdo de mensagem.
+
 ## Atualizações futuras
 
 1. Atualize e teste o código localmente.

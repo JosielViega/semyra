@@ -141,6 +141,7 @@ final class RoomController
                 'display_name' => $currentUser['display_name'],
             ],
             'can_publish_iptv' => $currentUser !== null && $this->premiumAccess->canPublishIptv($currentUser),
+            'can_share_screen' => $currentUser !== null && $this->premiumAccess->canShareScreen($currentUser),
             'participants' => $participants,
             'transmission' => $transmission,
             'debug' => $this->request->query('debug') === '1',

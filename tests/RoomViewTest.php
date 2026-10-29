@@ -62,13 +62,19 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-livekit-player-mount hidden', $html);
         self::assertStringContainsString('data-livekit-viewer-token-url="/room/7MKP3WQH/livekit/viewer-token"', $html);
         self::assertStringContainsString('data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"', $html);
-        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=11m-c-audio-republish', $html);
-        self::assertStringContainsString('/assets/js/room-desktop-iptv.js?v=11m-c-vod-controls', $html);
+        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=11n-screen-share-r3-7', $html);
+        self::assertStringContainsString('/assets/js/room-desktop-iptv.js?v=11n-screen-share', $html);
         self::assertStringContainsString('data-initial-instance-id=""', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/css/room.css?v=11m-c-vod-controls', $html);
-        self::assertStringContainsString('/assets/js/room-shell.js?v=11m-c-round11', $html);
+        self::assertStringContainsString('/assets/css/room.css?v=12-communication-1', $html);
+        self::assertStringContainsString('data-livekit-voice-token-url="/room/7MKP3WQH/livekit/voice-token"', $html);
+        self::assertStringContainsString('data-chat-messages-url="/room/7MKP3WQH/chat/messages"', $html);
+        self::assertStringContainsString('data-room-panel="voice"', $html);
+        self::assertStringContainsString('data-room-panel="chat"', $html);
+        self::assertStringContainsString('/assets/js/room-voice.js?v=12-voice-1', $html);
+        self::assertStringContainsString('/assets/js/room-chat.js?v=12-chat-1', $html);
+        self::assertStringContainsString('/assets/js/room-shell.js?v=11n-screen-r3-6', $html);
         self::assertStringContainsString('/assets/js/room-wake-lock.js?v=8b-identity', $html);
         self::assertStringContainsString('class="room-logo room-logo-empty"', $html);
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);
@@ -84,6 +90,7 @@ final class RoomViewTest extends TestCase
             'identity' => array_replace($this->identity(), ['user_id' => 7]),
             'currentUser' => ['id' => 7, 'display_name' => 'Josiel'],
             'can_publish_iptv' => true,
+            'can_share_screen' => true,
         ]);
 
         self::assertStringContainsString('data-desktop-publish-tabs', $html);
@@ -136,6 +143,43 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('Transmitir sua IPTV para a sala é um recurso Premium.', $html);
         self::assertStringNotContainsString('data-room-iptv-source>', $html);
         self::assertStringNotContainsString('data-room-iptv-find', $html);
+    }
+
+    public function testPremiumAccountSeesScreenShareTabAndCaptureControls(): void
+    {
+        $html = $this->renderRoom([
+            'identity' => array_replace($this->identity(), ['user_id' => 7]),
+            'currentUser' => ['id' => 7, 'display_name' => 'Josiel'],
+            'can_share_screen' => true,
+        ]);
+
+        self::assertStringContainsString('data-source-tab="screen">Tela</button>', $html);
+        self::assertStringContainsString('data-can-share-screen="1"', $html);
+        self::assertStringContainsString('data-screen-source-panel', $html);
+        self::assertStringContainsString('data-screen-share-audio', $html);
+        self::assertStringContainsString('data-screen-targets', $html);
+        self::assertStringContainsString('data-screen-share-quality', $html);
+        self::assertStringContainsString('<option value="standard" selected>', $html);
+        self::assertStringContainsString('A captura é feita localmente pelo Semyra Desktop.', $html);
+        self::assertStringContainsString('data-screen-share-start', $html);
+        self::assertStringContainsString('/assets/js/room-screen-share.js?v=11n-screen-native-r3-6', $html);
+        self::assertStringContainsString('/transmission/screen/heartbeat', $html);
+        self::assertStringContainsString('/transmission/screen/stop', $html);
+        self::assertStringNotContainsString('participant_token', $html);
+    }
+
+    public function testFreeAccountSeesScreenPremiumGateWithoutCaptureButton(): void
+    {
+        $html = $this->renderRoom([
+            'identity' => array_replace($this->identity(), ['user_id' => 7]),
+            'currentUser' => ['id' => 7, 'display_name' => 'Josiel'],
+            'can_share_screen' => false,
+        ]);
+
+        self::assertStringContainsString('data-source-tab="screen">Tela · Premium</button>', $html);
+        self::assertStringContainsString('data-can-share-screen="0"', $html);
+        self::assertStringContainsString('Compartilhamento de tela é um recurso Premium.', $html);
+        self::assertStringNotContainsString('data-screen-share-start', $html);
     }
 
     public function testOwnerSeesActiveTransmissionHudAndEndAction(): void
@@ -282,7 +326,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('/assets/js/room-media.js?v=10b21-instance', $html);
         self::assertStringContainsString('/assets/js/room-playback.js?v=11m-c-vod-controls-r7', $html);
         self::assertStringContainsString('data-leave-url="/room/7MKP3WQH/leave"', $html);
-        self::assertStringContainsString('/assets/js/room-presence.js?v=11m-c-round11', $html);
+        self::assertStringContainsString('/assets/js/room-presence.js?v=11n-screen-r3-6', $html);
     }
 
     public function testEscapesRoomParticipantOwnerAndFlashValues(): void

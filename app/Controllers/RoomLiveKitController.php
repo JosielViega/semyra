@@ -64,8 +64,10 @@ final class RoomLiveKitController
             return $this->jsonError('transmission_not_found', 409);
         }
 
-        if (($transmission['source_type'] ?? null) !== 'iptv'
-            || !in_array(($transmission['media_mode'] ?? null), ['live', 'vod'], true)) {
+        $sourceType = $transmission['source_type'] ?? null;
+        $mediaMode = $transmission['media_mode'] ?? null;
+        if (!(($sourceType === 'iptv' && in_array($mediaMode, ['live', 'vod'], true))
+            || ($sourceType === 'screen' && $mediaMode === 'live'))) {
             return $this->jsonError('livekit_not_applicable', 409);
         }
 

@@ -93,6 +93,19 @@ public static partial class DesktopMessage
     public const string IptvPublishStatusResultType = "semyra.desktop.iptv.publish.status-result";
     public const string IptvPublishControlType = "semyra.desktop.media.publish-control";
     public const string IptvPublishControlResultType = "semyra.desktop.media.publish-control-result";
+    public const string ScreenTargetsType = "semyra.desktop.screen.targets";
+    public const string ScreenTargetsResultType = "semyra.desktop.screen.targets-result";
+    public const string ScreenPreviewType = "semyra.desktop.screen.preview";
+    public const string ScreenPreviewResultType = "semyra.desktop.screen.preview-result";
+    public const string ScreenPreviewCancelType = "semyra.desktop.screen.preview.cancel";
+    public const string ScreenPreviewCancelResultType = "semyra.desktop.screen.preview.cancel-result";
+    public const string ScreenPublishStartType = "semyra.desktop.screen.publish.start";
+    public const string ScreenPublishStartResultType = "semyra.desktop.screen.publish.start-result";
+    public const string ScreenPublishStopType = "semyra.desktop.screen.publish.stop";
+    public const string ScreenPublishStopResultType = "semyra.desktop.screen.publish.stop-result";
+    public const string ScreenPublishStatusType = "semyra.desktop.screen.publish.status";
+    public const string ScreenPublishStatusResultType = "semyra.desktop.screen.publish.status-result";
+    public const string ScreenPublishStateType = "semyra.desktop.screen.publish.state";
     public const int ProtocolVersion = 1;
 
     public static bool TryReadPlayerControlsVisibility(string json, out bool hidden)
@@ -189,6 +202,34 @@ public static partial class DesktopMessage
                     return false;
                 }
                 request = new DesktopRequest(type, requestId, Account: new AccountRequest(profileId));
+                return true;
+            }
+
+            if (type is ScreenTargetsType or ScreenPreviewCancelType or ScreenPublishStopType or ScreenPublishStatusType)
+            {
+                if (properties.Count != 3 || !TryAccountContext(properties, out var screenContext)) return false;
+                request = new DesktopRequest(type, requestId, Screen: new ScreenRequest(screenContext));
+                return true;
+            }
+
+            if (type == ScreenPreviewType)
+            {
+                if (properties.Count != 4
+                    || !TryAccountContext(properties, out var screenContext)
+                    || !TryString(properties, "targetId", out var targetId)
+                    || !InstanceIdPattern().IsMatch(targetId)) return false;
+                request = new DesktopRequest(type, requestId, Screen: new ScreenRequest(screenContext, targetId));
+                return true;
+            }
+
+            if (type == ScreenPublishStartType)
+            {
+                if (properties.Count != 6
+                    || !TryAccountContext(properties, out var screenContext)
+                    || !TryString(properties, "targetId", out var targetId) || !InstanceIdPattern().IsMatch(targetId)
+                    || !TryString(properties, "quality", out var quality) || quality is not ("economy" or "standard" or "high")
+                    || !TryBoolean(properties, "audio", out var audio)) return false;
+                request = new DesktopRequest(type, requestId, Screen: new ScreenRequest(screenContext, targetId, quality, audio));
                 return true;
             }
 
@@ -510,7 +551,7 @@ public static partial class DesktopMessage
                 || !revisionValue.TryGetInt64(out var revision)
                 || revision <= 0
                 || !TryString(properties, "permission", out var permission)
-                || permission != "media.publish"
+                || permission is not ("media.publish" or "screen.publish")
                 || !TryString(properties, "expiresAt", out var expiresAtValue)
                 || !DateTimeOffset.TryParse(
                     expiresAtValue,

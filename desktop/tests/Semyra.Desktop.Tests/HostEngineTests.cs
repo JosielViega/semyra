@@ -158,6 +158,47 @@ public sealed class HostEngineTests
         Assert.True(engine.Snapshot().Authorization.Authorized);
     }
 
+    [Fact]
+    public async Task AuthorizationExpiryClearsNativePublishingPermission()
+    {
+        var engine = new HostEngine();
+        engine.Start();
+        var authorization = Authorization("a", 1) with { ExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(25) };
+
+        Assert.True(engine.Authorize(authorization));
+        await Task.Delay(100);
+
+        Assert.False(engine.Snapshot().Authorization.Authorized);
+    }
+
+    [Fact]
+    public void DelayedOlderAuthorizationCannotReplaceRenewedContext()
+    {
+        var engine = new HostEngine();
+        engine.Start();
+        var initial = Authorization("a", 1) with
+        {
+            Token = new string('a', 32) + "." + new string('b', 64),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5),
+        };
+        var renewed = initial with
+        {
+            Token = new string('c', 32) + "." + new string('d', 64),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10),
+        };
+        var delayed = initial with
+        {
+            Token = new string('e', 32) + "." + new string('f', 64),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(6),
+        };
+
+        Assert.True(engine.Authorize(initial));
+        Assert.True(engine.Authorize(renewed));
+        Assert.False(engine.Authorize(delayed));
+        Assert.True(engine.Authorize(renewed));
+        Assert.True(engine.Snapshot().Authorization.Authorized);
+    }
+
     private static HostAuthorization Authorization(string instanceCharacter, long revision)
     {
         return new HostAuthorization(

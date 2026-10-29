@@ -16,5 +16,9 @@ final class PremiumAccessTest extends TestCase
         self::assertTrue($access->canPublishIptv(['is_premium' => true]));
         self::assertFalse($access->canPublishIptv(['is_premium' => false]));
         self::assertFalse($access->canPublishIptv([]));
+
+        self::assertTrue($access->canShareScreen(['is_premium' => true]));
+        self::assertFalse($access->canShareScreen(['is_premium' => false]));
+        self::assertFalse($access->canShareScreen([]));
     }
 }

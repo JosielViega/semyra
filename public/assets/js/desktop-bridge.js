@@ -68,6 +68,15 @@
         'publish-control': ['semyra.desktop.media.publish-control', 'semyra.desktop.media.publish-control-result'],
     });
     const IPTV_MEDIA_STATE_TYPE = 'semyra.desktop.iptv.media.state';
+    const SCREEN_COMMANDS = Object.freeze({
+        targets: ['semyra.desktop.screen.targets', 'semyra.desktop.screen.targets-result'],
+        preview: ['semyra.desktop.screen.preview', 'semyra.desktop.screen.preview-result'],
+        'preview-cancel': ['semyra.desktop.screen.preview.cancel', 'semyra.desktop.screen.preview.cancel-result'],
+        start: ['semyra.desktop.screen.publish.start', 'semyra.desktop.screen.publish.start-result'],
+        stop: ['semyra.desktop.screen.publish.stop', 'semyra.desktop.screen.publish.stop-result'],
+        status: ['semyra.desktop.screen.publish.status', 'semyra.desktop.screen.publish.status-result'],
+    });
+    const SCREEN_PUBLISH_STATE_TYPE = 'semyra.desktop.screen.publish.state';
     const IPTV_VOD_PROGRESS_CHANGED_TYPE = 'semyra.desktop.iptv.vod.progress-changed';
     const PROTOCOL_VERSION = 1;
     const PLAYER_USER_ACTIVITY_TYPE = 'semyra.desktop.player.user-activity';
@@ -89,6 +98,10 @@
         if (capabilities[index] === 'media.whip' && capabilities[index + 1] === 'livekit.publish') {
             index += 2;
             if (capabilities[index] === 'livekit.publish-vod') index += 1;
+        }
+        if (capabilities[index] === 'screen.targets' && capabilities[index + 1] === 'screen.publish') {
+            index += 2;
+            if (capabilities[index] === 'screen.audio') index += 1;
         }
         return index === capabilities.length;
     }
@@ -119,6 +132,7 @@
         let rememberControl = null;
         let rememberInteracted = false;
         const iptvRequests = new Map();
+        const screenRequests = new Map();
 
         function dispatchIptvError(pending, error) {
             const detail = {action: pending.action, ok: false, error};
@@ -332,7 +346,7 @@
             const authorized = authorization?.authorized === true;
             return Object.freeze({
                 authorized,
-                permission: authorized && authorization.permission === 'media.publish'
+                permission: authorized && ['media.publish', 'screen.publish'].includes(authorization.permission)
                     ? authorization.permission : null,
                 transmissionInstanceId: authorized
                     && typeof authorization.transmissionInstanceId === 'string'
@@ -353,7 +367,7 @@
                 || !/^[a-f0-9]{32}$/.test(detail.transmissionInstanceId)
                 || !Number.isSafeInteger(detail.transmissionRevision)
                 || detail.transmissionRevision < 1
-                || detail.permission !== 'media.publish'
+                || !['media.publish', 'screen.publish'].includes(detail.permission)
                 || typeof detail.expiresAt !== 'string'
                 || !Number.isFinite(Date.parse(detail.expiresAt))
                 || Date.parse(detail.expiresAt) <= Date.now()) {
@@ -643,6 +657,63 @@
             }
         }
 
+        function requestScreen(event) {
+            const detail = event?.detail;
+            const action = typeof detail?.action === 'string' ? detail.action : '';
+            const command = SCREEN_COMMANDS[action];
+            if (!command || !accountContextId || !hostSnapshot
+                || !hostSnapshot.capabilities.includes('screen.publish')) return;
+            const request = {type: command[0], requestId: createRequestId(target), accountContextId};
+            if (action === 'preview') {
+                if (typeof detail.targetId !== 'string' || !/^[a-f0-9]{32}$/.test(detail.targetId)) return;
+                request.targetId = detail.targetId;
+            } else if (action === 'start') {
+                if (typeof detail.targetId !== 'string' || !/^[a-f0-9]{32}$/.test(detail.targetId)
+                    || !['economy', 'standard', 'high'].includes(detail.quality)
+                    || typeof detail.audio !== 'boolean'
+                    || (detail.audio && !hostSnapshot.capabilities.includes('screen.audio'))) return;
+                request.targetId = detail.targetId;
+                request.quality = detail.quality;
+                request.audio = detail.audio;
+            }
+            screenRequests.set(request.requestId, Object.freeze({action, resultType: command[1], accountContextId}));
+            try { webview.postMessage(request); }
+            catch (_) { screenRequests.delete(request.requestId); }
+        }
+
+        function receiveScreen(message) {
+            const pending = screenRequests.get(message.requestId);
+            if (!pending || message.type !== pending.resultType || message.protocolVersion !== PROTOCOL_VERSION
+                || pending.accountContextId !== accountContextId || typeof message.ok !== 'boolean') return;
+            screenRequests.delete(message.requestId);
+            const detail = {action: pending.action, ok: message.ok,
+                error: message.ok ? null : (typeof message.error === 'string' ? message.error.slice(0, 64) : 'screen_command_failed')};
+            if (pending.action === 'targets' && Array.isArray(message.targets)) {
+                detail.targets = message.targets.filter(function (item) {
+                    return item && typeof item.id === 'string' && /^[a-f0-9]{32}$/.test(item.id)
+                        && ['monitor', 'window'].includes(item.type) && typeof item.name === 'string'
+                        && Number.isSafeInteger(item.width) && Number.isSafeInteger(item.height);
+                }).map(function (item) { return Object.freeze({id: item.id, type: item.type,
+                    name: item.name.slice(0, 160), width: item.width, height: item.height, available: item.available === true}); });
+            } else if (pending.action === 'preview') {
+                const dataUrl = typeof message.dataUrl === 'string' && message.dataUrl.length <= 360000
+                    && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(message.dataUrl) ? message.dataUrl : null;
+                detail.state = dataUrl && Number.isSafeInteger(message.width) && Number.isSafeInteger(message.height)
+                    && message.width > 0 && message.width <= 400 && message.height > 0 ? 'available' : 'unavailable';
+                detail.dataUrl = detail.state === 'available' ? dataUrl : null;
+                detail.width = detail.state === 'available' ? message.width : null;
+                detail.height = detail.state === 'available' ? message.height : null;
+            } else {
+                detail.state = typeof message.state === 'string' ? message.state.slice(0, 32) : 'failed';
+                detail.targetId = typeof message.targetId === 'string' ? message.targetId : null;
+                detail.encoder = typeof message.encoder === 'string' ? message.encoder.slice(0, 32) : null;
+                detail.audio = message.audio === true;
+                detail.errorCode = typeof message.errorCode === 'string' ? message.errorCode.slice(0, 64) : null;
+                detail.diagnosticCode = typeof message.diagnosticCode === 'string' ? message.diagnosticCode.slice(0, 64) : null;
+            }
+            target.dispatchEvent(new target.CustomEvent('semyra:screen-result', {detail: Object.freeze(detail)}));
+        }
+
         function reportPlayerControlsVisibility(event) {
             const detail = event && event.detail;
             if (!webview || !detail || typeof detail.hidden !== 'boolean') return;
@@ -822,6 +893,23 @@
             }));
         }
 
+        function receiveScreenPublishState(message) {
+            if (!ready || message.protocolVersion !== PROTOCOL_VERSION
+                || message.accountContextId !== accountContextId) return;
+            const validStates = ['idle', 'preparing', 'connecting', 'streaming', 'stopping', 'cancelled', 'failed'];
+            const detail = Object.freeze({
+                state: validStates.includes(message.state) ? message.state : 'failed',
+                targetId: typeof message.targetId === 'string' ? message.targetId.slice(0, 64) : null,
+                targetType: ['monitor', 'window'].includes(message.targetType) ? message.targetType : null,
+                quality: ['economy', 'standard', 'high'].includes(message.quality) ? message.quality : null,
+                audio: message.audio === true,
+                encoder: typeof message.encoder === 'string' ? message.encoder.slice(0, 32) : null,
+                errorCode: typeof message.errorCode === 'string' ? message.errorCode.slice(0, 64) : null,
+                diagnosticCode: typeof message.diagnosticCode === 'string' ? message.diagnosticCode.slice(0, 64) : null,
+            });
+            target.dispatchEvent(new target.CustomEvent('semyra:screen-state', {detail}));
+        }
+
         function receiveVodProgressChanged(message) {
             if (!ready || message.protocolVersion !== PROTOCOL_VERSION || message.accountContextId !== accountContextId
                 || !positiveId(message.sourceId) || !['movie', 'episode'].includes(message.mediaType)
@@ -880,10 +968,17 @@
                 case IPTV_MEDIA_STATE_TYPE:
                     receiveMediaState(message);
                     break;
+                case SCREEN_PUBLISH_STATE_TYPE:
+                    receiveScreenPublishState(message);
+                    break;
                 case IPTV_VOD_PROGRESS_CHANGED_TYPE:
                     receiveVodProgressChanged(message);
                     break;
                 default:
+                    if (Object.values(SCREEN_COMMANDS).some(function (command) { return command[1] === message.type; })) {
+                        receiveScreen(message);
+                        break;
+                    }
                     if (Object.values(IPTV_COMMANDS).some(function (command) { return command[1] === message.type; })) {
                         receiveIptv(message);
                     }
@@ -910,6 +1005,7 @@
                 target.addEventListener('semyra:host-leave-request', requestHostLeave);
                 target.addEventListener('semyra:window-fullscreen-request', requestWindowFullscreen);
                 target.addEventListener('semyra:iptv-request', requestIptv);
+                target.addEventListener('semyra:screen-request', requestScreen);
                 target.addEventListener('semyra:player-controls-visibility', reportPlayerControlsVisibility);
             }
             const logoutForm = target.document?.querySelector?.('form.account-logout[action="/logout"]');
@@ -955,6 +1051,8 @@
         validCapabilities,
         PROTOCOL_VERSION,
         IPTV_COMMANDS,
+        SCREEN_COMMANDS,
+        SCREEN_PUBLISH_STATE_TYPE,
         IPTV_MEDIA_STATE_TYPE,
         PLAYER_CONTROLS_VISIBILITY_TYPE,
         createDesktopBridge,

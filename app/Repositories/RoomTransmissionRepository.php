@@ -18,6 +18,7 @@ final class RoomTransmissionRepository
         $statement = $this->database->connection()->prepare(
             'SELECT transmission.room_id, transmission.instance_id, transmission.owner_participant_key_hash, transmission.owner_user_id, '
             . 'transmission.source_type, transmission.youtube_video_id, transmission.media_mode, '
+            . 'transmission.publisher_last_seen_at, '
             . 'transmission.revision, '
             . 'transmission.playback_state, transmission.playback_position_ms, '
             . 'transmission.playback_at_live_edge, transmission.playback_revision, '
@@ -50,13 +51,13 @@ final class RoomTransmissionRepository
         ?string $youtubeVideoId,
         string $mediaMode,
         ?int $ownerUserId = null,
-    ): void {
+    ): string {
         $instanceId = bin2hex(random_bytes(16));
         $statement = $this->database->connection()->prepare(
             'INSERT INTO room_transmissions '
-            . '(room_id, instance_id, owner_participant_key_hash, owner_user_id, source_type, youtube_video_id, media_mode, playback_at_live_edge) '
+            . '(room_id, instance_id, owner_participant_key_hash, owner_user_id, source_type, youtube_video_id, media_mode, playback_at_live_edge, publisher_last_seen_at) '
             . 'VALUES (:room_id, :instance_id, :owner_participant_key_hash, :owner_user_id, :source_type, :youtube_video_id, '
-            . ':media_mode, :playback_at_live_edge) '
+            . ':media_mode, :playback_at_live_edge, CASE WHEN :screen_publisher = 1 THEN CURRENT_TIMESTAMP(3) ELSE NULL END) '
             . 'ON DUPLICATE KEY UPDATE '
             . 'instance_id = VALUES(instance_id), '
             . 'owner_participant_key_hash = VALUES(owner_participant_key_hash), '
@@ -67,6 +68,7 @@ final class RoomTransmissionRepository
             . 'playback_at_live_edge = VALUES(playback_at_live_edge), '
             . 'playback_revision = 1, playback_updated_at = CURRENT_TIMESTAMP(3), '
             . 'live_edge_position_ms = NULL, live_edge_updated_at = NULL, '
+            . 'publisher_last_seen_at = VALUES(publisher_last_seen_at), '
             . 'started_at = CURRENT_TIMESTAMP(3), updated_at = CURRENT_TIMESTAMP(3)',
         );
         $statement->execute([
@@ -78,7 +80,91 @@ final class RoomTransmissionRepository
             'youtube_video_id' => $youtubeVideoId,
             'media_mode' => $mediaMode,
             'playback_at_live_edge' => $mediaMode === 'live' ? 1 : 0,
+            'screen_publisher' => $sourceType === 'screen' ? 1 : 0,
         ]);
+
+        return $instanceId;
+    }
+
+    public function touchScreenPublisher(
+        int $roomId,
+        string $ownerParticipantKeyHash,
+        string $instanceId,
+        int $transmissionRevision,
+        ?int $ownerUserId = null,
+    ): bool {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE room_transmissions SET publisher_last_seen_at = CURRENT_TIMESTAMP(3) '
+            . 'WHERE room_id = :room_id AND source_type = \'screen\' AND media_mode = \'live\' '
+            . 'AND ((owner_user_id IS NOT NULL AND owner_user_id = :owner_user_id) '
+            . 'OR (owner_user_id IS NULL AND owner_participant_key_hash = :owner_participant_key_hash)) '
+            . 'AND instance_id = :transmission_instance_id AND revision = :transmission_revision',
+        );
+        $statement->execute([
+            'room_id' => $roomId,
+            'owner_participant_key_hash' => $ownerParticipantKeyHash,
+            'owner_user_id' => $ownerUserId,
+            'transmission_instance_id' => $instanceId,
+            'transmission_revision' => $transmissionRevision,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    public function endScreen(
+        int $roomId,
+        string $ownerParticipantKeyHash,
+        string $instanceId,
+        int $transmissionRevision,
+        ?int $ownerUserId = null,
+    ): bool {
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM room_transmissions WHERE room_id = :room_id '
+            . 'AND source_type = \'screen\' AND media_mode = \'live\' '
+            . 'AND ((owner_user_id IS NOT NULL AND owner_user_id = :owner_user_id) '
+            . 'OR (owner_user_id IS NULL AND owner_participant_key_hash = :owner_participant_key_hash)) '
+            . 'AND instance_id = :transmission_instance_id AND revision = :transmission_revision',
+        );
+        $statement->execute([
+            'room_id' => $roomId,
+            'owner_participant_key_hash' => $ownerParticipantKeyHash,
+            'owner_user_id' => $ownerUserId,
+            'transmission_instance_id' => $instanceId,
+            'transmission_revision' => $transmissionRevision,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    public function endScreenIfPublisherStale(
+        int $roomId,
+        string $ownerParticipantKeyHash,
+        ?int $ownerUserId,
+        string $instanceId,
+        int $transmissionRevision,
+        int $staleSeconds,
+    ): bool {
+        if ($staleSeconds < 1 || $staleSeconds > 300) {
+            throw new \InvalidArgumentException('Screen publisher stale threshold is invalid.');
+        }
+        $statement = $this->database->connection()->prepare(
+            'DELETE FROM room_transmissions WHERE room_id = :room_id '
+            . 'AND source_type = \'screen\' AND media_mode = \'live\' '
+            . 'AND ((owner_user_id IS NOT NULL AND owner_user_id = :owner_user_id) '
+            . 'OR (owner_user_id IS NULL AND owner_participant_key_hash = :owner_participant_key_hash)) '
+            . 'AND instance_id = :transmission_instance_id AND revision = :transmission_revision '
+            . 'AND (publisher_last_seen_at IS NULL OR publisher_last_seen_at < CURRENT_TIMESTAMP(3) - INTERVAL '
+            . $staleSeconds . ' SECOND)',
+        );
+        $statement->execute([
+            'room_id' => $roomId,
+            'owner_participant_key_hash' => $ownerParticipantKeyHash,
+            'owner_user_id' => $ownerUserId,
+            'transmission_instance_id' => $instanceId,
+            'transmission_revision' => $transmissionRevision,
+        ]);
+
+        return $statement->rowCount() === 1;
     }
 
     public function end(

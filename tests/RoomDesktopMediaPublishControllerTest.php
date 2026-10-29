@@ -77,8 +77,9 @@ final class RoomDesktopMediaPublishControllerTest extends TestCase
 
 final class ControllerDesktopPublishGateway implements LiveKitIngressGateway
 {
+    public function findIngressStatus(string $roomName, string $ingressName, string $publisherIdentity, string $ingressId): ?string { return 'publishing'; }
     public int $creates = 0;
-    public function createWhipIngress(string $name, string $roomName, string $publisherIdentity): array
+    public function createWhipIngress(string $name, string $roomName, string $publisherIdentity, bool $screenShare = false): array
     {
         ++$this->creates;
         return ['ingress_id' => 'INGRESS_CONTROLLER', 'whip_endpoint' => 'https://whip.invalid/controller'];

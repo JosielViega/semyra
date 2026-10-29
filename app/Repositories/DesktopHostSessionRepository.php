@@ -34,7 +34,10 @@ final class DesktopHostSessionRepository
             . 'WHERE transmission.room_id = :room_id '
             . 'AND transmission.instance_id = :transmission_instance_id '
             . 'AND transmission.revision = :transmission_revision '
-            . "AND transmission.source_type = 'iptv' AND transmission.media_mode IN ('live', 'vod') "
+            . "AND ((:permission_iptv = 'media.publish' AND transmission.source_type = 'iptv' "
+            . "AND transmission.media_mode IN ('live', 'vod')) "
+            . "OR (:permission_screen = 'screen.publish' AND transmission.source_type = 'screen' "
+            . "AND transmission.media_mode = 'live')) "
             . 'AND ((transmission.owner_user_id IS NOT NULL AND transmission.owner_user_id = :owner_user_id) '
             . 'OR (transmission.owner_user_id IS NULL '
             . 'AND transmission.owner_participant_key_hash = :owner_participant_key_hash))',
@@ -46,6 +49,8 @@ final class DesktopHostSessionRepository
             'owner_user_id' => $ownerUserId,
             'owner_participant_key_hash' => $ownerParticipantKeyHash,
             'permission' => $permission,
+            'permission_iptv' => $permission,
+            'permission_screen' => $permission,
             'selector' => $selector,
             'validator_hash' => $validatorHash,
             'expires_at' => $expiresAt,

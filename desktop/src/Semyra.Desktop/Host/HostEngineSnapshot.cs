@@ -22,7 +22,9 @@ public sealed record HostEngineSnapshot(
         bool accountActive = false,
         bool whipAvailable = false,
         bool localViewAvailable = false,
-        bool vodPublishAvailable = false)
+        bool vodPublishAvailable = false,
+        bool screenPublishAvailable = false,
+        bool screenAudioAvailable = false)
     {
         IReadOnlyList<string> capabilities;
         if (!accountActive)
@@ -38,6 +40,12 @@ public sealed record HostEngineSnapshot(
                 available.Add("media.whip");
                 available.Add("livekit.publish");
                 if (vodPublishAvailable) available.Add("livekit.publish-vod");
+            }
+            if (screenPublishAvailable)
+            {
+                available.Add("screen.targets");
+                available.Add("screen.publish");
+                if (screenAudioAvailable) available.Add("screen.audio");
             }
             capabilities = available.AsReadOnly();
         }

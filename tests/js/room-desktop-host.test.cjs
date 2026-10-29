@@ -111,6 +111,7 @@ test('normal browser and ineligible transmissions never request Host Session', a
     harness.hostReady();
     harness.presence(transmission({isOwner: false}));
     harness.presence(transmission({source: 'youtube'}));
+    harness.presence(transmission({source: 'screen'}));
     await flush();
     assert.equal(harness.requests.length, 0);
 });

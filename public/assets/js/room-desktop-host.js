@@ -112,7 +112,7 @@
             if (!response.ok
                 || typeof payload?.host_session_token !== 'string'
                 || !/^[a-f0-9]{32}\.[a-f0-9]{64}$/.test(payload.host_session_token)
-                || payload.permission !== 'media.publish'
+                || !['media.publish', 'screen.publish'].includes(payload.permission)
                 || payload.transmission_instance_id !== transmission.instanceId
                 || payload.transmission_revision !== transmission.revision
                 || typeof payload.expires_at !== 'string') {

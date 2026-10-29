@@ -5,11 +5,13 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 using Microsoft.Win32;
 using Semyra.Desktop.Desktop;
 using Semyra.Desktop.Host;
 using Semyra.Desktop.Iptv;
 using Semyra.Desktop.Media;
+using Semyra.Desktop.Screen;
 
 namespace Semyra.Desktop;
 
@@ -33,6 +35,7 @@ public partial class MainWindow : Window
             hidden => NativePlayerHost.SetCursorHidden(hidden));
         _cursorActivity.Activity += OnCursorActivity;
         _hostEngine.MediaStateChanged += OnMediaStateChanged;
+        _hostEngine.ScreenPublisherStateChanged += OnScreenPublisherStateChanged;
         _hostEngine.VodProgressChanged += OnVodProgressChanged;
         _hostEngine.NativeVideoGeometryChanged += OnNativeVideoGeometryChanged;
         _hostEngine.NativeVideoVisibilityChanged += OnNativeVideoVisibilityChanged;
@@ -49,6 +52,7 @@ public partial class MainWindow : Window
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         Loaded -= OnLoaded;
+        var startupStage = "inicialização nativa";
 
         try
         {
@@ -58,9 +62,14 @@ public partial class MainWindow : Window
             _hostEngine.Start();
             var configuration = SemyraWebConfiguration.Load();
             _navigationPolicy = new NavigationPolicy(configuration.BaseUri);
-            var environment = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: configuration.UserDataFolder);
-            await Browser.EnsureCoreWebView2Async(environment);
+            startupStage = "configuração do ambiente WebView2";
+            Browser.CreationProperties = new CoreWebView2CreationProperties
+            {
+                UserDataFolder = configuration.UserDataFolder,
+            };
+            startupStage = "criação do controller WebView2";
+            await WebView2Initialization.RunWithInvalidStateRetryAsync(
+                () => Browser.EnsureCoreWebView2Async());
 
 #if DEBUG
             Browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
@@ -71,6 +80,8 @@ public partial class MainWindow : Window
             Browser.CoreWebView2.NavigationStarting += OnNavigationStarting;
             Browser.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
             Browser.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+            startupStage = "proteção do compartilhamento de tela";
+            startupStage = "injeção do bridge Desktop";
             await Browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("""
                 (() => {
                     if (!Object.prototype.hasOwnProperty.call(window, 'semyraDesktop')) {
@@ -84,6 +95,7 @@ public partial class MainWindow : Window
                 })();
                 """);
 
+            startupStage = "navegação inicial";
             Browser.CoreWebView2.Navigate(configuration.BaseUri.AbsoluteUri);
         }
         catch (WebView2RuntimeNotFoundException)
@@ -92,11 +104,11 @@ public partial class MainWindow : Window
         }
         catch (InvalidOperationException exception)
         {
-            ShowFatalError(exception.Message);
+            ShowFatalError($"{exception.Message} Etapa: {startupStage}.");
         }
         catch (Exception exception)
         {
-            ShowFatalError($"Não foi possível iniciar o Semyra Desktop. {exception.Message}");
+            ShowFatalError($"Não foi possível iniciar o Semyra Desktop. {exception.Message} Etapa: {startupStage}.");
         }
     }
 
@@ -202,6 +214,7 @@ public partial class MainWindow : Window
         _shutdownStarted = true;
 
         _hostEngine.MediaStateChanged -= OnMediaStateChanged;
+        _hostEngine.ScreenPublisherStateChanged -= OnScreenPublisherStateChanged;
         _hostEngine.VodProgressChanged -= OnVodProgressChanged;
         _hostEngine.NativeVideoGeometryChanged -= OnNativeVideoGeometryChanged;
         _hostEngine.NativeVideoVisibilityChanged -= OnNativeVideoVisibilityChanged;
@@ -260,6 +273,18 @@ public partial class MainWindow : Window
             if (Browser.CoreWebView2 is not null)
             {
                 Browser.CoreWebView2.PostWebMessageAsJson(DesktopBridge.CreateMediaStateEvent(snapshot, _hostEngine.CurrentAccountContextId));
+            }
+        });
+    }
+
+    private void OnScreenPublisherStateChanged(object? sender, ScreenPublisherSnapshot snapshot)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (Browser.CoreWebView2 is not null)
+            {
+                Browser.CoreWebView2.PostWebMessageAsJson(
+                    DesktopBridge.CreateScreenPublisherStateEvent(snapshot, _hostEngine.CurrentAccountContextId));
             }
         });
     }

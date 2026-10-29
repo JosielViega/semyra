@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using Semyra.Desktop.Iptv;
 using Semyra.Desktop.Media;
+using Semyra.Desktop.Screen;
+using Semyra.Desktop.Desktop;
 
 namespace Semyra.Desktop.Host;
 
@@ -27,12 +29,18 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private nint _nativeVideoHost;
     private bool _disposed;
     private CancellationTokenSource? _authorizationClearCancellation;
+    private readonly GStreamerRuntime _screenRuntime;
+    private readonly ScreenCaptureTargetRegistry _screenTargets = new();
+    private readonly ScreenPublisher _screenPublisher;
+    private readonly IScreenPreviewCapture _screenPreview;
+    private CancellationTokenSource? _screenPreviewCancellation;
 
     public HostEngine()
         : this(
             IptvCatalogService.CreateDefault,
             catalog => MediaEngine.CreateDefault(catalog, GStreamerRuntime.DiscoverDefault()),
-            MpvRuntime.DiscoverDefault())
+            MpvRuntime.DiscoverDefault(),
+            screenRuntime: GStreamerRuntime.DiscoverDefault())
     {
     }
 
@@ -41,13 +49,22 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         Func<IptvCatalogService, MediaEngine> mediaFactory,
         MpvRuntime? mpvRuntime = null,
         Func<MpvRuntime, nint, MpvPlayer>? mpvFactory = null,
-        TimeSpan? vodProgressInterval = null)
+        TimeSpan? vodProgressInterval = null,
+        GStreamerRuntime? screenRuntime = null,
+        IDesktopPublishClient? screenPublishClient = null,
+        IScreenPreviewCapture? screenPreview = null)
     {
         _catalogFactory = catalogFactory;
         _mediaFactory = mediaFactory;
         _mpvRuntime = mpvRuntime ?? MpvRuntime.Unavailable();
         _mpvFactory = mpvFactory ?? ((runtime, handle) => new MpvPlayer(runtime, handle));
         _vodProgressInterval = vodProgressInterval ?? TimeSpan.FromSeconds(30);
+        _screenRuntime = screenRuntime ?? GStreamerRuntime.UnavailableForTests();
+        _screenPublisher = new ScreenPublisher(
+            _screenRuntime,
+            screenPublishClient ?? new DesktopPublishClient(() => SemyraWebConfiguration.Load().BaseUri));
+        _screenPreview = screenPreview ?? new ScreenPreviewCapture();
+        _screenPublisher.StateChanged += OnScreenPublisherStateChanged;
         if (_vodProgressInterval <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(vodProgressInterval));
     }
 
@@ -66,6 +83,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     public HostEngineState State { get; private set; } = HostEngineState.Stopped;
     public event EventHandler<MediaSnapshot>? MediaStateChanged;
+    public event EventHandler<ScreenPublisherSnapshot>? ScreenPublisherStateChanged;
     public event EventHandler<IptvVodProgressChanged>? VodProgressChanged;
     internal event EventHandler<MpvGeometry>? NativeVideoGeometryChanged;
     internal event EventHandler<bool>? NativeVideoVisibilityChanged;
@@ -155,11 +173,14 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     private async Task ClearAccountCoreAsync()
     {
+        CancelScreenPreview();
         FlushVodProgress();
         CancelVodProgressLoop();
         var media = _media;
         var mpv = _mpvPlayer;
         var catalog = _iptv;
+        await _screenPublisher.StopAsync();
+        _screenTargets.Invalidate();
         _accountContextId = null;
         _authorization = null;
         _media = null;
@@ -195,10 +216,13 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     private void FenceActiveAccount()
     {
+        CancelScreenPreview();
         FlushVodProgress();
         _accountContextId = null;
         _authorization = null;
         _media?.InvalidatePlaybackAndCancel();
+        _screenTargets.Invalidate();
+        _ = _screenPublisher.StopAsync();
     }
 
     public bool IsCurrentAccountContext(string? contextId) =>
@@ -208,25 +232,54 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
 
     public bool Authorize(HostAuthorization authorization)
     {
-        if (State != HostEngineState.Ready || authorization.ExpiresAt <= DateTimeOffset.UtcNow)
+        var lifetime = authorization.ExpiresAt - DateTimeOffset.UtcNow;
+        if (State != HostEngineState.Ready || lifetime <= TimeSpan.Zero)
         {
             return false;
         }
+        var current = _authorization;
+        if (current is not null && SameAuthorizationContext(current, authorization))
+        {
+            if (current.Token == authorization.Token && current.ExpiresAt == authorization.ExpiresAt)
+            {
+                CancelScheduledAuthorizationClear();
+                var duplicateLead = lifetime > TimeSpan.FromSeconds(1)
+                    ? TimeSpan.FromSeconds(1)
+                    : TimeSpan.FromTicks(lifetime.Ticks / 2);
+                ScheduleAuthorizationClear(lifetime - duplicateLead, authorization);
+                return true;
+            }
+            if (authorization.ExpiresAt <= current.ExpiresAt)
+            {
+                return false;
+            }
+        }
         CancelScheduledAuthorizationClear();
         _authorization = authorization;
+        _screenPublisher.RefreshAuthorization(authorization);
+        var cleanupLead = lifetime > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : TimeSpan.FromTicks(lifetime.Ticks / 2);
+        ScheduleAuthorizationClear(lifetime - cleanupLead, authorization);
         return true;
     }
 
     public void ScheduleAuthorizationClear(TimeSpan delay)
     {
         if (delay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(delay));
+        ScheduleAuthorizationClear(delay, _authorization);
+    }
+
+    private void ScheduleAuthorizationClear(TimeSpan delay, HostAuthorization? expected)
+    {
         CancelScheduledAuthorizationClear();
         var cancellation = new CancellationTokenSource();
         _authorizationClearCancellation = cancellation;
-        _ = ClearAuthorizationAfterAsync(delay, cancellation);
+        _ = ClearAuthorizationAfterAsync(delay, cancellation, expected);
     }
 
-    private async Task ClearAuthorizationAfterAsync(TimeSpan delay, CancellationTokenSource cancellation)
+    private async Task ClearAuthorizationAfterAsync(
+        TimeSpan delay,
+        CancellationTokenSource cancellation,
+        HostAuthorization? expected)
     {
         try
         {
@@ -234,7 +287,8 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
             if (ReferenceEquals(_authorizationClearCancellation, cancellation))
             {
                 _authorizationClearCancellation = null;
-                await ClearAuthorizationAsync();
+                if (ReferenceEquals(_authorization, expected))
+                    await ClearAuthorizationAsync();
             }
         }
         catch (OperationCanceledException) { }
@@ -255,6 +309,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         CancelScheduledAuthorizationClear();
         var media = _media?.Snapshot().Mode == "publish" ? _media : null;
         _authorization = null;
+        await _screenPublisher.StopAsync();
         if (media is not null)
         {
             media.InvalidatePlaybackAndCancel();
@@ -262,13 +317,71 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         }
     }
 
+    private static bool SameAuthorizationContext(HostAuthorization left, HostAuthorization right) =>
+        left.RoomCode == right.RoomCode
+        && left.TransmissionInstanceId == right.TransmissionInstanceId
+        && left.TransmissionRevision == right.TransmissionRevision
+        && left.Permission == right.Permission;
+
     public HostEngineSnapshot Snapshot() => HostEngineSnapshot.Create(
         State,
         _authorization,
         _accountContextId is not null,
         _media?.Runtime.IsWhipAvailable == true,
         MpvReady,
-        _media?.Runtime.IsVodPublishAvailable == true);
+        _media?.Runtime.IsVodPublishAvailable == true,
+        _screenRuntime.IsScreenVideoAvailable,
+        _screenRuntime.IsScreenAudioAvailable);
+
+    public IReadOnlyList<ScreenCaptureTargetSummary> ListScreenTargets(string contextId)
+    {
+        if (!IsCurrentAccountContext(contextId) || !_screenRuntime.IsScreenVideoAvailable)
+            throw new ScreenPublisherException("screen_runtime_unavailable");
+        return _screenTargets.Refresh(contextId);
+    }
+
+    public async Task<ScreenPreviewResult> PreviewScreenTargetAsync(
+        string contextId,
+        string targetId,
+        CancellationToken cancellationToken)
+    {
+        if (!IsCurrentAccountContext(contextId)) throw new ScreenPublisherException("account_context_changed");
+        var target = _screenTargets.Resolve(contextId, targetId);
+        var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var previous = Interlocked.Exchange(ref _screenPreviewCancellation, attempt);
+        previous?.Cancel();
+        previous?.Dispose();
+        try
+        {
+            return await _screenPreview.CaptureAsync(target, attempt.Token);
+        }
+        finally
+        {
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _screenPreviewCancellation, null, attempt), attempt))
+                attempt.Dispose();
+        }
+    }
+
+    public void CancelScreenPreview()
+    {
+        var cancellation = Interlocked.Exchange(ref _screenPreviewCancellation, null);
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+    }
+
+    public async Task<ScreenPublisherSnapshot> StartScreenPublishAsync(
+        string contextId, string targetId, string quality, bool audio, CancellationToken cancellationToken)
+    {
+        if (!IsCurrentAccountContext(contextId)) throw new ScreenPublisherException("account_context_changed");
+        var authorization = _authorization;
+        if (authorization is null || authorization.Permission != "screen.publish")
+            throw new ScreenPublisherException("host_authorization_required");
+        var target = _screenTargets.Resolve(contextId, targetId);
+        return await _screenPublisher.StartAsync(target, quality, audio, authorization, cancellationToken);
+    }
+
+    public Task<ScreenPublisherSnapshot> StopScreenPublishAsync() => _screenPublisher.StopAsync();
+    public ScreenPublisherSnapshot ScreenPublishSnapshot() => _screenPublisher.Snapshot();
 
     public IReadOnlyList<IptvSourceSummary> ListIptvSources() => Catalog().ListSources();
     public IptvSourceSummary AddIptvUrl(string name, string location) => Catalog().AddUrlSource(name, location);
@@ -552,6 +665,8 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     {
         if (ReferenceEquals(sender, _mpvPlayer)) NativeVideoVisibilityChanged?.Invoke(this, visible);
     }
+    private void OnScreenPublisherStateChanged(object? sender, ScreenPublisherSnapshot snapshot) =>
+        ScreenPublisherStateChanged?.Invoke(this, snapshot);
     private static bool ValidProfileId(string value) => value.Length == 64 && value.All(character => character is >= 'a' and <= 'f' or >= '0' and <= '9');
 
     public async ValueTask DisposeAsync()
@@ -568,6 +683,8 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         }
         finally
         {
+            _screenPublisher.StateChanged -= OnScreenPublisherStateChanged;
+            await _screenPublisher.DisposeAsync();
             _lifecycleGate.Dispose();
         }
     }

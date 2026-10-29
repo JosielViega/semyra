@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
+use App\Services\DesktopHostSessionService;
 use PDO;
 use PDOStatement;
 
@@ -40,8 +41,12 @@ final class DesktopHostSessionPdo extends PDO
             || (int) $current['room_id'] !== (int) $params['room_id']
             || $current['instance_id'] !== $params['transmission_instance_id']
             || (int) $current['revision'] !== (int) $params['transmission_revision']
-            || $current['source_type'] !== 'iptv'
-            || !in_array($current['media_mode'], ['live', 'vod'], true)) {
+            || !(($params['permission'] === DesktopHostSessionService::PERMISSION
+                    && $current['source_type'] === 'iptv'
+                    && in_array($current['media_mode'], ['live', 'vod'], true))
+                || ($params['permission'] === DesktopHostSessionService::SCREEN_PERMISSION
+                    && $current['source_type'] === 'screen'
+                    && $current['media_mode'] === 'live'))) {
             return false;
         }
         $ownerMatches = $current['owner_user_id'] !== null

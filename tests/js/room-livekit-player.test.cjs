@@ -83,6 +83,7 @@ const createHarness = ({status = 201, payload, debug = false} = {}) => {
         Room: FakeRoom,
         RoomEvent: {
             ParticipantConnected: 'participantConnected',
+            ParticipantDisconnected: 'participantDisconnected',
             TrackPublished: 'trackPublished',
             TrackSubscribed: 'trackSubscribed',
             TrackUnsubscribed: 'trackUnsubscribed',
@@ -92,7 +93,11 @@ const createHarness = ({status = 201, payload, debug = false} = {}) => {
             Disconnected: 'disconnected',
             AudioPlaybackStatusChanged: 'audioPlaybackStatusChanged',
         },
-        Track: {Kind: {Video: 'video', Audio: 'audio'}},
+        Track: {
+            Kind: {Video: 'video', Audio: 'audio'},
+            Source: {Unknown: 'unknown', Camera: 'camera', Microphone: 'microphone',
+                ScreenShare: 'screen_share', ScreenShareAudio: 'screen_share_audio'},
+        },
     };
     const storage = new Map();
     const window = {
@@ -117,6 +122,125 @@ const createHarness = ({status = 201, payload, debug = false} = {}) => {
 
 const iptv = (revision = 4, instanceId = 'a'.repeat(32)) => ({
     source: 'iptv', mediaMode: 'live', instanceId, revision,
+});
+
+const screen = (revision = 4, instanceId = 'a'.repeat(32)) => ({
+    source: 'screen', mediaMode: 'live', instanceId, revision,
+});
+
+test('screen viewers accept explicit and WHIP-normalized track sources only from the fenced publisher', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(screen());
+    const room = harness.FakeRoom.instances[0];
+    const publisher = {identity: `smy_i_${'a'.repeat(32)}`};
+    const subscriptions = [];
+
+    room.emit(harness.sdk.RoomEvent.TrackPublished,
+        {kind: 'video', source: 'camera', isSubscribed: false,
+            setSubscribed: (value) => subscriptions.push(['foreign-camera', value])},
+        {identity: `smy_i_${'b'.repeat(32)}`});
+
+    room.emit(harness.sdk.RoomEvent.TrackPublished,
+        {kind: 'video', source: 'camera', isSubscribed: false,
+            setSubscribed: (value) => subscriptions.push(['camera', value])}, publisher);
+    room.emit(harness.sdk.RoomEvent.TrackPublished,
+        {kind: 'video', source: 'screen_share', isSubscribed: false,
+            setSubscribed: (value) => subscriptions.push(['screen', value])}, publisher);
+    room.emit(harness.sdk.RoomEvent.TrackPublished,
+        {kind: 'audio', source: 'microphone', isSubscribed: false,
+            setSubscribed: (value) => subscriptions.push(['microphone', value])}, publisher);
+    room.emit(harness.sdk.RoomEvent.TrackPublished,
+        {kind: 'audio', source: 'screen_share_audio', isSubscribed: false,
+            setSubscribed: (value) => subscriptions.push(['screen-audio', value])}, publisher);
+    room.emit(harness.sdk.RoomEvent.TrackPublished,
+        {kind: 'video', source: undefined, isSubscribed: false,
+            setSubscribed: (value) => subscriptions.push(['whip-unknown', value])}, publisher);
+
+    assert.deepEqual(subscriptions, [
+        ['camera', true], ['screen', true], ['microphone', true],
+        ['screen-audio', true], ['whip-unknown', true],
+    ]);
+});
+
+test('screen viewer exposes only sanitized reception milestones for manual diagnosis', async () => {
+    const harness = createHarness({debug: true});
+    await harness.controller.applyTransmission(screen());
+    const room = harness.FakeRoom.instances[0];
+    const publisher = {identity: `smy_i_${'a'.repeat(32)}`};
+    const publication = {kind: 'video', source: 'camera', trackSid: 'TR_video'};
+    room.emit(harness.sdk.RoomEvent.TrackPublished, publication, publisher);
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'video', sid: 'TR_video', attach: () => element('video'), detach() {}},
+        publication, publisher);
+
+    assert.deepEqual(harness.window.SemyraLiveKitDebug.getViewerState(), {
+        connected: true, publisherExpected: true, videoAttached: true, audioAttached: false,
+    });
+    const phases = harness.window.SemyraLiveKitDebug.getViewerDiagnostics().map((entry) => entry.phase);
+    assert.deepEqual(phases, [
+        'viewer_livekit_transmission_detected', 'viewer_token_requested',
+        'viewer_token_issued', 'viewer_livekit_connected',
+        'viewer_video_track_discovered', 'viewer_video_element_attached',
+    ]);
+    const serialized = JSON.stringify(harness.window.SemyraLiveKitDebug.getViewerDiagnostics());
+    assert.equal(serialized.includes('secret-jwt'), false);
+    assert.equal(serialized.includes('wss://'), false);
+});
+
+test('screen audio attaches exactly once per publisher and track SID across duplicate and reconnect events', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(screen());
+    const room = harness.FakeRoom.instances[0];
+    const publisher = {identity: `smy_i_${'a'.repeat(32)}`};
+    const publication = {kind: 'audio', source: 'screen_share_audio', trackSid: 'TR_audio'};
+    const audio = element('audio');
+    let attachCalls = 0;
+    const audioTrack = {kind: 'audio', sid: 'TR_audio', attach: () => { ++attachCalls; return audio; }, detach() {}};
+
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, audioTrack, publication, publisher);
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, audioTrack, publication, publisher);
+    room.emit(harness.sdk.RoomEvent.Reconnecting);
+    room.emit(harness.sdk.RoomEvent.Reconnected);
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, audioTrack, publication, publisher);
+
+    assert.equal(attachCalls, 1);
+    assert.equal(harness.mount.children.filter((child) => child.tagName === 'AUDIO').length, 1);
+
+    room.emit(harness.sdk.RoomEvent.TrackUnsubscribed, audioTrack, publication, publisher);
+    assert.equal(harness.mount.children.filter((child) => child.tagName === 'AUDIO').length, 0);
+});
+
+test('screen audio cleanup is fenced by SID and removes media on unpublish or participant disconnect', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(screen());
+    const room = harness.FakeRoom.instances[0];
+    const publisher = {identity: `smy_i_${'a'.repeat(32)}`};
+    const publication = {kind: 'audio', source: 'screen_share_audio', trackSid: 'TR_audio'};
+    const audioTrack = {kind: 'audio', sid: 'TR_audio', attach: () => element('audio'), detach() {}};
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, audioTrack, publication, publisher);
+
+    room.emit(harness.sdk.RoomEvent.TrackUnpublished, publication, publisher);
+    assert.equal(harness.mount.children.filter((child) => child.tagName === 'AUDIO').length, 0);
+
+    const nextPublication = {kind: 'audio', source: 'screen_share_audio', trackSid: 'TR_audio_2'};
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', sid: 'TR_audio_2', attach: () => element('audio'), detach() {}},
+        nextPublication, publisher);
+    room.emit(harness.sdk.RoomEvent.ParticipantDisconnected, publisher);
+    assert.equal(harness.mount.children.filter((child) => child.tagName === 'AUDIO').length, 0);
+});
+
+test('two independent viewers each render exactly one screen audio element', async () => {
+    for (const harness of [createHarness(), createHarness()]) {
+        await harness.controller.applyTransmission(screen());
+        const publisher = {identity: `smy_i_${'a'.repeat(32)}`};
+        const publication = {kind: 'audio', source: 'screen_share_audio', trackSid: 'TR_audio'};
+        const track = {kind: 'audio', sid: 'TR_audio', attach: () => element('audio'), detach() {}};
+        harness.FakeRoom.instances.at(-1).emit(
+            harness.sdk.RoomEvent.TrackSubscribed, track, publication, publisher,
+        );
+        assert.equal(harness.mount.children.filter((child) => child.tagName === 'AUDIO').length, 1);
+    }
 });
 
 test('IPTV Live and VOD request revision-bound tokens and connect subscribe-only', async () => {

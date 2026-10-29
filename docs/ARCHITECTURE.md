@@ -77,7 +77,33 @@ HTML
 
 Dependências são montadas explicitamente em `bootstrap/app.php` ou `routes/web.php`. Se o projeto crescer muito, um container pode ser avaliado, mas não é necessário no estado atual do Semyra.
 
+## Comunicação da sala
+
+A comunicação existe no contexto da sala e não depende de uma transmissão ativa. O chat de texto segue `browser → PHP → MySQL`: `room_messages` guarda a identidade interna somente como SHA-256 da chave do participante, o `user_id` opcional e snapshots do nome/mensagem. O cliente nunca escolhe o remetente. `GET /room/{code}/chat/messages` fornece histórico limitado, cursores `before_id`/`after_id` e ordem cronológica; `POST` exige CSRF, participante válido, texto simples de até 1.000 caracteres, nonce idempotente e rate limit de sessão. O frontend usa `textContent`, polling de 3 s com painel ativo e 9 s em segundo plano, cancela requests obsoletas e não relê o histórico inteiro.
+
+Mensagens acompanham a vida da sala e são removidas por cascade quando a sala é removida. Nesta primeira versão, salas persistentes retêm o histórico até sua remoção; qualquer política temporal futura deve ser um job administrativo explícito, nunca uma varredura no polling HTTP.
+
+O chat de voz segue `microfone WebRTC → LiveKit → participantes`. Cada documento recebe uma identidade opaca derivada no backend de sala, participante e nonce efêmero da aba. O JWT curto permite `roomJoin`, subscribe e publish somente da source `microphone`; nega data, câmera, screen share, ingress e administração. A conexão de voz permanece separada da conexão subscribe-only usada pelo player de IPTV/Screen, evitando disputa de lifecycle ou permissões: troca e stop de mídia não reiniciam a voz. O microfone nasce desligado e só é capturado após clique, com echo cancellation, noise suppression e automatic gain control do WebRTC. Essas opções não alteram o WASAPI loopback do Screen Publisher.
+
+Tracks remotas só são assinadas quando declaradas como `microphone`; a própria track local nunca é reproduzida. Mute e volume de vozes são independentes de mute e volume da transmissão. A limitação conhecida de possível recaptura do áudio de sistema pelo Screen Publisher permanece pendente de teste entre dispositivos físicos.
+
 ## Planos de controle e mídia LiveKit
+
+### Compartilhamento de tela
+
+`source_type=screen` representa uma transmissão LiveKit, sempre `media_mode=live`. Somente uma conta Premium autenticada, presente na sala e usando o Semyra Desktop pode iniciar; contas Free, convidados e navegadores comuns recebem o mesmo token viewer subscribe-only e podem assistir.
+
+O plano de mídia é `Windows Graphics Capture/DXGI → GStreamer → WHIP → LiveKit → viewers`. A UI recebe apenas IDs opacos e metadados sanitizados de monitores/janelas; handles, URLs WHIP e credenciais não chegam ao JavaScript. O backend emite Host Session curta e cercada com permissão exclusiva `screen.publish`. A captura usa `d3d11screencapturesrc`, encoder H.264 disponível em ordem de preferência e, quando solicitado e disponível, loopback WASAPI convertido para Opus estéreo a 48 kHz. Os presets limitam a saída a 720p/15, 720p/30 ou 1080p/30. MPV não participa desse caminho e o navegador nunca chama `getDisplayMedia()`.
+
+O start de Screen emite atomicamente a Host Session inicial junto da nova transmissão; o fluxo genérico de autorização automática permanece exclusivo de IPTV, evitando dois tokens concorrentes para o mesmo contexto. Durante uma publicação longa, o módulo de Screen renova a sessão antes do vencimento e o Host Engine aceita somente uma autorização mais nova para a mesma sala, instância, revisão e permissão. O Screen Publisher recebe essa substituição para cleanup posterior; callbacks atrasados com validade menor são rejeitados. `401 host_session_expired` representa expiração real, enquanto sessão inválida ou revogada recebe diagnóstico separado, sem relaxar Premium ou fencing.
+
+Após criar o ingress, o Desktop só entra em `streaming` quando a consulta cercada pelo ingress ID, room, publisher, instância e revisão retorna `PUBLISHING`. `INACTIVE` e `BUFFERING` continuam aguardando; `ERROR` e `COMPLETE` falham. Como a listagem do LiveKit pode ainda não observar um ingress recém-criado, `ingress_not_found` e falhas transitórias de transporte recebem retry curto, limitado por contador, timeout individual e timeout total. Autorização, fencing e payload inválido falham imediatamente com códigos sanitizados distintos; stop cancela o polling e faz cleanup idempotente com tentativa limitada.
+
+O preview do seletor é uma captura Win32 estática do único target escolhido, reduzida para no máximo 400 px de largura e codificada como JPEG limitado em memória. A imagem atravessa somente o bridge local validado por origem e contexto de conta; não cria transmissão, Host Session ou Ingress, não toca o backend e nunca é persistida. Troca de target e fechamento do modal cancelam a geração corrente e respostas atrasadas são descartadas por geração.
+
+O módulo Screen assume o lease assim que o backend aceita o Start canônico e envia heartbeat a cada 1,5 segundo durante autorização, preparação, conexão e streaming. O heartbeat não espera `PUBLISHING`: essa confirmação pode legitimamente levar mais que o limite de abandono de cinco segundos. As observações de presence carregam o instante em que a consulta começou; uma resposta iniciada antes do Start não pode desfazer a instância recém-criada ao chegar atrasada, mas uma observação posterior com outro contexto ainda aciona o cleanup. Touch, stop e cleanup por timeout usam sala, owner autenticado, `instance_id`, revisão, fonte e modo na mesma operação SQL; falha ou cancelamento do Start interrompe o heartbeat e encerra somente a tentativa cercada. `track ended`, troca de transmissão, saída, reload, falha de conexão e crash encerram ou deixam expirar somente a instância observada, sem risco de apagar sua substituta.
+
+O viewer existente aceita `screen/live`, mas para essa fonte assina exclusivamente publicações de áudio/vídeo do publisher cercado da instância atual. O Ingress declara `SCREEN_SHARE`/`SCREEN_SHARE_AUDIO`; como versões do WHIP/LiveKit podem normalizar fonte desconhecida para `camera`/`microphone`, o viewer tolera esses rótulos somente sob a mesma identidade cercada, sem aceitar mídia de outro participante. Cada elemento é cercado por identidade do publisher e Track SID para impedir attach duplicado em reconnect. A filtragem IPTV anterior permanece inalterada. O WebView2 não intercepta nem autoriza captura de tela: toda a captura pertence ao Host Engine nativo.
 
 A fundação LiveKit separa responsabilidades sem mudar a fonte YouTube existente:
 
@@ -329,7 +355,7 @@ Room
     └── shared playback
 ```
 
-Para `source_type=youtube`, o `media_mode` torna-se `vod` ou `live`. YouTube permanece uma fonte permanente. Compartilhamento de tela será uma fonte adicional futura, sem arquitetura técnica definida nesta etapa.
+Para `source_type=youtube`, o `media_mode` torna-se `vod` ou `live`. YouTube permanece uma fonte permanente. Para `source_type=screen`, a mídia é sempre `live` e segue o caminho nativo GStreamer/WHIP descrito acima.
 
 ## Telemetria observacional do player
 

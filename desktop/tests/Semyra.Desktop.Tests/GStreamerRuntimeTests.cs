@@ -17,7 +17,11 @@ public sealed class GStreamerRuntimeTests : IDisposable
         Assert.True(runtime.IsAvailable);
         Assert.True(runtime.IsWhipAvailable);
         Assert.Equal("GStreamer 1.26.11", runtime.Snapshot.Version);
-        Assert.Equal([.. GStreamerRuntime.RequiredElements, "whipsink"], runner.Inspected);
+        Assert.Equal([.. GStreamerRuntime.RequiredElements, "whipsink", "d3d11screencapturesrc",
+            "d3d11download", "videoscale", "videorate", "wasapi2src", "nvh264enc", "mfh264enc", "x264enc"], runner.Inspected);
+        Assert.True(runtime.IsScreenVideoAvailable);
+        Assert.True(runtime.IsScreenAudioAvailable);
+        Assert.Equal(["nvh264enc", "mfh264enc", "x264enc"], runtime.ScreenEncoderCandidates);
         Assert.StartsWith(binaryDirectory, runtime.LaunchPath, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -30,6 +34,16 @@ public sealed class GStreamerRuntimeTests : IDisposable
         Assert.True(runtime.IsAvailable);
         Assert.False(runtime.IsWhipAvailable);
         Assert.Null(runtime.Snapshot.ErrorCode);
+        Assert.False(runtime.IsScreenVideoAvailable);
+    }
+
+    [Fact]
+    public void ScreenAudioAndVideoCapabilitiesRemainIndependent()
+    {
+        CreateExecutables();
+        var noAudio = GStreamerRuntime.Discover(_directory, new RecordingRunner("wasapi2src"));
+        Assert.True(noAudio.IsScreenVideoAvailable);
+        Assert.False(noAudio.IsScreenAudioAvailable);
     }
 
     [Fact]

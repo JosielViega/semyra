@@ -175,6 +175,20 @@ const flush = async () => {
     assert.equal(vodEvent.detail.transmission.source, 'iptv');
     assert.equal(vodEvent.detail.transmission.mediaMode, 'vod');
 
+    responsePayload.transmission = {
+        source: 'screen', instance_id: 'b'.repeat(32), youtube_video_id: null, revision: 9,
+        owner_name: 'Josiel', is_owner: false, media_mode: 'live', playback: null,
+    };
+    scheduled.shift()();
+    await flush();
+    const screenEvent = dispatched.filter((event) => event.type === 'semyra:presence-updated').at(-1);
+    assert.equal(screenEvent.detail.transmission.source, 'screen');
+    assert.equal(screenEvent.detail.transmission.instanceId, 'b'.repeat(32));
+    assert.equal(screenEvent.detail.transmission.videoId, null);
+    assert.equal(screenEvent.detail.transmission.mediaMode, 'live');
+    assert.equal(Number.isFinite(screenEvent.detail.requestStartedAt), true,
+        'presence observations carry their request start time for stale-response fencing');
+
     assert.equal(source.includes('localStorage'), false);
     assert.equal(source.includes('sessionStorage'), false);
     assert.equal(source.includes('document.cookie'), false);

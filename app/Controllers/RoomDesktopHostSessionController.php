@@ -60,17 +60,21 @@ final class RoomDesktopHostSessionController
         if ($identity === null) {
             return $this->jsonError('join_required', 403);
         }
-        if (!$this->premiumAccess->canPublishIptv($currentUser)) {
-            return $this->jsonError('premium_required', 403);
-        }
-
         $transmission = $this->transmissions->findByRoom((int) $room['id']);
         if ($transmission === null) {
             return $this->jsonError('transmission_not_found', 409);
         }
-        if (($transmission['source_type'] ?? null) !== 'iptv'
-            || !in_array(($transmission['media_mode'] ?? null), ['live', 'vod'], true)) {
+        $sourceType = $transmission['source_type'] ?? null;
+        $mediaMode = $transmission['media_mode'] ?? null;
+        if (!(($sourceType === 'iptv' && in_array($mediaMode, ['live', 'vod'], true))
+            || ($sourceType === 'screen' && $mediaMode === 'live'))) {
             return $this->jsonError('host_session_not_applicable', 409);
+        }
+        if ($sourceType === 'iptv' && !$this->premiumAccess->canPublishIptv($currentUser)) {
+            return $this->jsonError('premium_required', 403);
+        }
+        if ($sourceType === 'screen' && !$this->premiumAccess->canShareScreen($currentUser)) {
+            return $this->jsonError('premium_required', 403);
         }
         if (($transmission['owner_user_id'] ?? null) === null) {
             return $this->jsonError('authentication_required', 403);
@@ -102,6 +106,9 @@ final class RoomDesktopHostSessionController
                 $revision,
                 $currentUserId,
                 $participantKeyHash,
+                $sourceType === 'screen'
+                    ? DesktopHostSessionService::SCREEN_PERMISSION
+                    : DesktopHostSessionService::PERMISSION,
             );
             if ($issued === null) {
                 return $this->jsonError('transmission_changed', 409);

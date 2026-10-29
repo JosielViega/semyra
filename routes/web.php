@@ -9,15 +9,18 @@ use App\Controllers\DesktopAccountContextController;
 use App\Controllers\HomeController;
 use App\Controllers\MyRoomsController;
 use App\Controllers\RoomController;
+use App\Controllers\RoomCommunicationController;
 use App\Controllers\RoomDesktopHostSessionController;
 use App\Controllers\RoomDesktopMediaPublishController;
 use App\Controllers\RoomParticipantController;
 use App\Controllers\RoomLiveKitController;
+use App\Controllers\RoomScreenShareController;
 use App\Controllers\RoomTransmissionController;
 use App\Controllers\MediaBridgeController;
 use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\RoomParticipantRepository;
+use App\Repositories\RoomMessageRepository;
 use App\Repositories\DesktopHostSessionRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
@@ -33,6 +36,8 @@ use App\Services\DesktopMediaPublishService;
 use App\Services\RoomCodeGenerator;
 use App\Services\LiveKitRoomContext;
 use App\Services\LiveKitViewerTokenService;
+use App\Services\LiveKitVoiceTokenService;
+use App\Services\RoomChatRateLimiter;
 use App\Services\RoomParticipantSession;
 use App\Services\RoomPlaybackTelemetry;
 use App\Services\RoomTransmissionPresenter;
@@ -84,6 +89,7 @@ $desktopAccountContext = new DesktopAccountContextController($userRepository, $a
 $roomRepository = new RoomRepository($app['database']);
 $userRoomRepository = new UserRoomRepository($app['database']);
 $participantRepository = new RoomParticipantRepository($app['database']);
+$messageRepository = new RoomMessageRepository($app['database']);
 $transmissionRepository = new RoomTransmissionRepository($app['database']);
 $desktopHostSessionRepository = new DesktopHostSessionRepository($app['database']);
 $participantSession = new RoomParticipantSession($app['session']);
@@ -161,9 +167,34 @@ $roomLiveKit = new RoomLiveKitController(
     new LiveKitRoomContext($app['livekit']['namespace']),
     new LiveKitViewerTokenService($app['livekit']),
 );
+$roomCommunication = new RoomCommunicationController(
+    $app['request'],
+    $app['csrf'],
+    $roomRepository,
+    $participantRepository,
+    $messageRepository,
+    $participantSession,
+    $userRepository,
+    $authSession,
+    new RoomChatRateLimiter($app['session']),
+    new LiveKitRoomContext($app['livekit']['namespace']),
+    new LiveKitVoiceTokenService($app['livekit']),
+);
 $desktopHostSessions = new DesktopHostSessionService(
     $desktopHostSessionRepository,
     $app['config']['desktop']['host_session_ttl_seconds'],
+);
+$roomScreenShare = new RoomScreenShareController(
+    $app['request'],
+    $app['csrf'],
+    $roomRepository,
+    $transmissionRepository,
+    $participantSession,
+    $userRepository,
+    $authSession,
+    $premiumAccess,
+    $transmissionPresenter,
+    $desktopHostSessions,
 );
 $roomDesktopHostSessions = new RoomDesktopHostSessionController(
     $app['request'],
@@ -224,8 +255,15 @@ $router->post('/room/{code}/transmission/iptv', [$roomTransmissions, 'startIptv'
 $router->post('/room/{code}/transmission/end', [$roomTransmissions, 'end']);
 $router->post('/room/{code}/transmission/playback', [$roomTransmissions, 'playback']);
 $router->post('/room/{code}/livekit/viewer-token', [$roomLiveKit, 'viewerToken']);
+$router->post('/room/{code}/livekit/voice-token', [$roomCommunication, 'voiceToken']);
+$router->get('/room/{code}/chat/messages', [$roomCommunication, 'messages']);
+$router->post('/room/{code}/chat/messages', [$roomCommunication, 'send']);
+$router->post('/room/{code}/transmission/screen', [$roomScreenShare, 'start']);
+$router->post('/room/{code}/transmission/screen/heartbeat', [$roomScreenShare, 'heartbeat']);
+$router->post('/room/{code}/transmission/screen/stop', [$roomScreenShare, 'stop']);
 $router->post('/room/{code}/desktop/host-session', [$roomDesktopHostSessions, 'issue']);
 $router->post('/room/{code}/desktop/media-publish/start', [$roomDesktopMediaPublish, 'start']);
+$router->post('/room/{code}/desktop/media-publish/status', [$roomDesktopMediaPublish, 'status']);
 $router->post('/room/{code}/desktop/media-publish/stop', [$roomDesktopMediaPublish, 'stop']);
 $router->post('/internal/media-bridge/claim', [$mediaBridge, 'claim']);
 $router->post('/internal/media-bridge/heartbeat', [$mediaBridge, 'heartbeat']);

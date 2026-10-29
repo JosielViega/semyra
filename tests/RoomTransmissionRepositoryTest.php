@@ -184,14 +184,52 @@ final class RoomTransmissionRepositoryTest extends TestCase
 
     public function testEveryStartAndReplacementGetsANewOpaqueInstanceId(): void
     {
-        $this->repository->startOrReplace(7, 'owner-a', 'youtube', 'M7lc1UVf-VE', 'vod');
-        $first = $this->pdo->lastParams['instance_id'];
-        $this->repository->startOrReplace(7, 'owner-a', 'youtube', 'M7lc1UVf-VE', 'vod');
-        $second = $this->pdo->lastParams['instance_id'];
+        $first = $this->repository->startOrReplace(7, 'owner-a', 'youtube', 'M7lc1UVf-VE', 'vod');
+        $second = $this->repository->startOrReplace(7, 'owner-a', 'youtube', 'M7lc1UVf-VE', 'vod');
 
         self::assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $first);
         self::assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $second);
         self::assertNotSame($first, $second);
+        self::assertSame($second, $this->pdo->lastParams['instance_id']);
+    }
+
+    public function testScreenStartSetsPublisherHeartbeatWhileOtherSourcesClearIt(): void
+    {
+        $this->repository->startOrReplace(7, 'owner-a', 'screen', null, 'live', 42);
+        self::assertSame(1, $this->pdo->lastParams['screen_publisher']);
+        self::assertStringContainsString('publisher_last_seen_at', $this->pdo->lastQuery);
+
+        $this->repository->startOrReplace(7, 'owner-a', 'youtube', 'M7lc1UVf-VE', 'vod', 42);
+        self::assertSame(0, $this->pdo->lastParams['screen_publisher']);
+    }
+
+    public function testScreenHeartbeatAndStopRequireTheCompleteCurrentFence(): void
+    {
+        $this->pdo->put(7, 'owner-a', 4, source: 'screen', ownerUserId: 42);
+
+        self::assertTrue($this->repository->touchScreenPublisher(
+            7, 'fresh-key', self::INSTANCE_A, 4, 42,
+        ));
+        self::assertStringContainsString("source_type = 'screen'", $this->pdo->lastQuery);
+        self::assertStringContainsString("media_mode = 'live'", $this->pdo->lastQuery);
+        self::assertFalse($this->repository->endScreen(
+            7, 'owner-a', self::INSTANCE_B, 4, 42,
+        ));
+        self::assertTrue($this->pdo->has(7));
+        self::assertTrue($this->repository->endScreen(
+            7, 'fresh-key', self::INSTANCE_A, 4, 42,
+        ));
+        self::assertFalse($this->pdo->has(7));
+    }
+
+    public function testScreenLifecycleUsesPublisherHeartbeatInsteadOfRoomPresence(): void
+    {
+        $this->pdo->put(7, 'owner-a', source: 'screen', publisherStale: false);
+        self::assertNotNull((new RoomTransmissionLifecycle($this->repository))->reconcile(7));
+
+        $this->pdo->setPublisherStale(true);
+        self::assertNull((new RoomTransmissionLifecycle($this->repository))->reconcile(7));
+        self::assertFalse($this->pdo->has(7));
     }
 
     public function testAccountReplacementStoresOwnerUserAndGuestClearsIt(): void
@@ -269,24 +307,28 @@ final class TransmissionPdo extends PDO
     public array $lastParams = [];
     private bool $ownerActive = false;
     private bool $nonOwnerActive = false;
+    private bool $publisherStale = false;
     public function __construct() {}
     public function prepare(string $query, array $options = []): PDOStatement|false
     {
         $this->lastQuery = $query;
         return new TransmissionStatement($this, $query);
     }
-    public function put(int $roomId, string $owner, int $revision = 1, int $playbackRevision = 1, string $mode = 'vod', bool $atEdge = false, ?int $ownerUserId = null, string $instanceId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'): void
+    public function put(int $roomId, string $owner, int $revision = 1, int $playbackRevision = 1, string $mode = 'vod', bool $atEdge = false, ?int $ownerUserId = null, string $instanceId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', string $source = 'youtube', bool $publisherStale = false): void
     {
         $this->transmissions[$roomId] = ['owner' => $owner, 'instance_id' => $instanceId, 'transmission_revision' => $revision,
             'playback_revision' => $playbackRevision, 'media_mode' => $mode, 'state' => 'playing',
             'position_ms' => 0, 'at_live_edge' => $atEdge, 'live_edge_position_ms' => null,
-            'owner_user_id' => $ownerUserId];
+            'owner_user_id' => $ownerUserId, 'source_type' => $source,
+            'publisher_last_seen_at' => $publisherStale ? null : '2026-10-01 12:00:00.000'];
+        $this->publisherStale = $publisherStale;
     }
     public function has(int $roomId): bool { return isset($this->transmissions[$roomId]); }
     public function ownerFor(int $roomId): ?string { return $this->transmissions[$roomId]['owner'] ?? null; }
     public function transmissionFor(int $roomId): ?array { return $this->transmissions[$roomId] ?? null; }
     public function setOwnerActive(bool $active): void { $this->ownerActive = $active; }
     public function setNonOwnerActive(bool $active): void { $this->nonOwnerActive = $active; }
+    public function setPublisherStale(bool $stale): void { $this->publisherStale = $stale; }
     public function rowForFind(int $roomId): ?array
     {
         $current = $this->transmissions[$roomId] ?? null;
@@ -296,7 +338,7 @@ final class TransmissionPdo extends PDO
             'instance_id' => $current['instance_id'],
             'owner_participant_key_hash' => $current['owner'],
             'owner_user_id' => $current['owner_user_id'],
-            'source_type' => 'youtube',
+            'source_type' => $current['source_type'],
             'youtube_video_id' => 'M7lc1UVf-VE',
             'media_mode' => $current['media_mode'],
             'revision' => $current['transmission_revision'],
@@ -308,6 +350,7 @@ final class TransmissionPdo extends PDO
             'projected_live_edge_position_ms' => $current['live_edge_position_ms'],
             'started_at' => '2026-10-01 12:00:00.000',
             'updated_at' => '2026-10-01 12:00:00.000',
+            'publisher_last_seen_at' => $current['publisher_last_seen_at'],
             'owner_name' => 'Owner',
         ];
     }
@@ -328,10 +371,21 @@ final class TransmissionPdo extends PDO
         if (str_starts_with($query, 'DELETE')) {
             if (str_contains($query, 'NOT EXISTS (SELECT 1 FROM room_participants active_owner')
                 && $this->ownerActive) return 0;
+            if (str_contains($query, 'publisher_last_seen_at') && !$this->publisherStale) return 0;
+            if (str_contains($query, "source_type = 'screen'") && $current['source_type'] !== 'screen') return 0;
             if (!$authorized
                 || $current['instance_id'] !== ($params['transmission_instance_id'] ?? null)
                 || $current['transmission_revision'] !== (int) ($params['transmission_revision'] ?? 0)) return 0;
             unset($this->transmissions[$roomId]); return 1;
+        }
+        if (str_starts_with($query, 'UPDATE room_transmissions SET publisher_last_seen_at')) {
+            if (!$authorized || $current['source_type'] !== 'screen'
+                || $current['instance_id'] !== ($params['transmission_instance_id'] ?? null)
+                || $current['transmission_revision'] !== (int) ($params['transmission_revision'] ?? 0)) return 0;
+            $current['publisher_last_seen_at'] = '2026-10-01 12:00:01.000';
+            $this->transmissions[$roomId] = $current;
+            $this->publisherStale = false;
+            return 1;
         }
         if (!str_starts_with($query, 'UPDATE') || !$authorized
             || $current['instance_id'] !== ($params['transmission_instance_id'] ?? null)
@@ -372,6 +426,7 @@ final class TransmissionStatement extends PDOStatement
             throw new \LogicException('Mutation must use transmission instance CAS.');
         }
         if (str_starts_with($this->query, 'UPDATE')
+            && !str_contains($this->query, 'publisher_last_seen_at = CURRENT_TIMESTAMP')
             && !str_contains($this->query, 'SET owner_user_id = :user_id')) {
             foreach (['revision = :transmission_revision', 'playback_revision = :playback_revision'] as $condition) {
                 if (!str_contains($this->query, $condition)) throw new \LogicException('Mutation must use CAS revisions.');

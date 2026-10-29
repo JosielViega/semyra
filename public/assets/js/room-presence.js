@@ -101,6 +101,26 @@
                 },
             };
         }
+        if (transmission.source === 'screen') {
+            if (transmission.media_mode !== 'live'
+                || (transmission.youtube_video_id !== null
+                    && transmission.youtube_video_id !== undefined)) {
+                return null;
+            }
+            return {
+                source: 'screen',
+                instanceId: transmission.instance_id,
+                videoId: null,
+                revision: transmission.revision,
+                ownerName: transmission.owner_name,
+                isOwner: transmission.is_owner,
+                mediaMode: 'live',
+                playback: {
+                    state: 'playing', positionMs: null, revision: 1, atLiveEdge: false,
+                    liveEdgePositionMs: null, liveSyncPositionMs: null, liveSyncDelayMs: null,
+                },
+            };
+        }
         const liveEdgePositionMs = playback?.live_edge_position_ms === null
             ? null
             : Number(playback?.live_edge_position_ms);
@@ -212,6 +232,7 @@
         }
 
         requestInProgress = true;
+        const requestStartedAt = Date.now();
 
         try {
             latestTelemetry = null;
@@ -283,6 +304,7 @@
                 detail: {
                     participants: payload.participants,
                     transmission,
+                    requestStartedAt,
                 },
             }));
             updateStatus('Participantes atualizados.');
