@@ -108,6 +108,23 @@
 .room-voice-volume input::-moz-range-track { height: .35rem; border-radius: var(--radius-pill); background: var(--color-border-strong); }
 .room-voice-volume input::-moz-range-progress { height: .35rem; border-radius: var(--radius-pill); background: linear-gradient(90deg, var(--color-blue), var(--color-purple)); }
 .room-voice-volume input::-moz-range-thumb { width: .8rem; height: .8rem; border: 2px solid #fff; border-radius: 50%; background: var(--color-purple); }
+.room-voice-noise {
+    display: grid; gap: .5rem; margin: .2rem 0 .8rem; padding: .7rem .75rem;
+    border: 1px solid rgb(39 56 81 / 66%); border-radius: var(--radius-md); background: rgb(10 18 32 / 58%);
+}
+.room-voice-noise legend { padding: 0 .25rem; color: var(--color-text-soft); font-size: .78rem; font-weight: 800; }
+.room-voice-noise-options { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; }
+.room-voice-noise-options label { position: relative; margin: 0; cursor: pointer; }
+.room-voice-noise-options input { position: absolute; width: 1px; height: 1px; min-height: 0; opacity: 0; }
+.room-voice-noise-options span {
+    display: grid; place-items: center; min-height: 2.25rem; padding: .45rem .6rem;
+    border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm);
+    color: var(--color-text-muted); background: rgb(5 8 17 / 68%); font-size: .76rem;
+}
+.room-voice-noise-options input:checked + span { border-color: rgb(22 199 255 / 65%); color: #e9faff; background: rgb(17 62 96 / 65%); }
+.room-voice-noise-options input:focus-visible + span { outline: 3px solid var(--color-cyan); outline-offset: 2px; }
+.room-voice-noise-options input:disabled + span { cursor: not-allowed; filter: grayscale(.65); opacity: .48; }
+.room-voice-noise p { margin: 0; color: var(--color-text-muted); font-size: .69rem; line-height: 1.4; }
 .room-voice-participants { display: grid; gap: .55rem; margin: .8rem 0; padding: 0; list-style: none; }
 .room-voice-participants li {
     display: flex; align-items: center; gap: .7rem; min-width: 0; padding: .65rem .7rem;

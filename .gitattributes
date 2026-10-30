@@ -2,3 +2,6 @@
 
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# Preserve the byte-for-byte verified upstream RNNoise/Emscripten artifact.
+public/assets/vendor/rnnoise/rnnoise-sync.js whitespace=-trailing-space

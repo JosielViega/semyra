@@ -12,7 +12,7 @@ declare(strict_types=1);
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title><?= e($title ?? 'Semyra') ?></title>
     <link rel="stylesheet" href="/assets/css/tokens.css?v=8b-identity">
-    <link rel="stylesheet" href="/assets/css/room.css?v=12-1-ui-polish">
+    <link rel="stylesheet" href="/assets/css/room.css?v=12-2-rnnoise">
     <script src="/assets/js/desktop-bridge.js?v=11n-screen-native-r3" defer></script>
 </head>
 <body class="room-body">

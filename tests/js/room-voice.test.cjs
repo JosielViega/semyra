@@ -14,7 +14,7 @@ const element = () => {
         classList: {toggle(name, enabled) { enabled ? classes.add(name) : classes.delete(name); }, contains(name) { return classes.has(name); }},
         setAttribute(name, value) { this[name] = value; },
         addEventListener(type, listener) { listeners.set(type, listener); },
-        async emit(type, event = {}) { return listeners.get(type)?.(event); },
+        async emit(type, event = {}) { return listeners.get(type)?.({...event, currentTarget: this}); },
         listenerCount(type) { return listeners.has(type) ? 1 : 0; },
         append(...children) { this.children.push(...children); },
         replaceChildren(...children) { this.children = children; },
@@ -23,7 +23,7 @@ const element = () => {
     };
 };
 
-const harness = () => {
+const harness = ({enhancedSupported = false, enhancedFailure = null} = {}) => {
     const controls = new Map([
         ['[data-voice-microphone]', element()], ['[data-voice-microphone-label]', element()],
         ['[data-voice-microphone-icon]', element()], ['[data-voice-listen]', element()],
@@ -31,6 +31,9 @@ const harness = () => {
         ['[data-voice-volume]', element()], ['[data-voice-connection]', element()],
         ['[data-voice-status]', element()], ['[data-voice-participants]', element()],
         ['[data-voice-audio-mount]', element()],
+        ['[data-voice-noise-mode="standard"]', Object.assign(element(), {value: 'standard'})],
+        ['[data-voice-noise-mode="enhanced"]', Object.assign(element(), {value: 'enhanced'})],
+        ['[data-voice-noise-help]', element()],
     ]);
     const panel = {querySelector: (selector) => controls.get(selector) ?? null};
     const toolbarButton = element();
@@ -38,7 +41,8 @@ const harness = () => {
     const toolbarIndicator = element();
     const shell = {dataset: {
         livekitVoiceTokenUrl: '/room/ROOM1234/livekit/voice-token',
-        livekitClientSrc: '/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3', csrfToken: 'csrf',
+        livekitClientSrc: '/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3',
+        rnnoiseWorkletUrl: '/assets/vendor/rnnoise/rnnoise-worklet.js?v=test', csrfToken: 'csrf',
     }, querySelector(selector) {
         if (selector === '[data-voice-toolbar-button]') return toolbarButton;
         if (selector === '[data-voice-toolbar-icon]') return toolbarIcon;
@@ -58,8 +62,15 @@ const harness = () => {
     const window = {
         crypto: {getRandomValues(bytes) { bytes.fill(7); return bytes; }},
         setTimeout() { return 1; },
+        clearTimeout() {},
         addEventListener(type, listener) { windowListeners.set(type, listener); },
     };
+    const inputTrack = {stopped: 0, stop() { this.stopped += 1; }};
+    const captureRequests = [];
+    window.navigator = {mediaDevices: {getUserMedia: async (constraints) => {
+        captureRequests.push(constraints);
+        return {getAudioTracks: () => [inputTrack]};
+    }}};
     const requests = [];
     const fetch = async (url, options) => {
         requests.push({url, options, body: new URLSearchParams(options.body)});
@@ -78,6 +89,9 @@ const harness = () => {
                     this.localParticipant.calls.push(args);
                     if (FakeRoom.microphoneError) throw FakeRoom.microphoneError;
                 },
+                published: [], unpublished: [],
+                publishTrack: async (track, options) => this.localParticipant.published.push({track, options}),
+                unpublishTrack: async (track) => this.localParticipant.unpublished.push(track),
             };
             FakeRoom.instances.push(this);
         }
@@ -98,8 +112,24 @@ const harness = () => {
         },
         Track: {Source: {Microphone: 'microphone'}},
     };
-    const controller = createVoice({window, document, fetch, loadSdk: async () => sdk});
-    return {controller, controls, requests, FakeRoom, sdk, windowListeners, toolbarButton, toolbarIcon, toolbarIndicator};
+    const processedTrack = {stopped: 0, stop() { this.stopped += 1; }};
+    const pipeline = {track: processedTrack, stopped: 0, async stop() { this.stopped += 1; inputTrack.stop(); processedTrack.stop(); }};
+    let enhancedRuntimeError = null;
+    const noiseSuppression = {
+        isSupported: () => enhancedSupported,
+        create: async ({onError}) => {
+            if (enhancedFailure) throw enhancedFailure;
+            enhancedRuntimeError = onError;
+            return pipeline;
+        },
+    };
+    const controller = createVoice({window, document, fetch, loadSdk: async () => sdk, noiseSuppression});
+    return {
+        controller, controls, requests, FakeRoom, sdk, windowListeners, toolbarButton, toolbarIcon,
+        toolbarIndicator, inputTrack, processedTrack, pipeline,
+        captureRequests,
+        triggerEnhancedRuntimeError: () => enhancedRuntimeError?.(new Error('rnnoise_processing_failed')),
+    };
 };
 
 test('connects independently with a per-document identity and microphone initially disabled', async () => {
@@ -139,7 +169,9 @@ test('keeps panel and toolbar microphone state synchronized after confirmed acti
     await button.emit('click');
     const call = FakeRoom.instances[0].localParticipant.calls[0];
     assert.equal(call[0], true);
-    assert.deepEqual(call[1], {echoCancellation: true, noiseSuppression: true, autoGainControl: true});
+    assert.deepEqual(call[1], {
+        echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1,
+    });
     assert.equal(controller.state().microphoneEnabled, true);
     assert.equal(button['aria-pressed'], 'true');
     assert.equal(panelIcon.href, '#room-icon-mic');
@@ -155,6 +187,85 @@ test('keeps panel and toolbar microphone state synchronized after confirmed acti
     assert.equal(toolbarIcon.href, '#room-icon-mic-off');
     assert.equal(toolbarIndicator.hidden, true);
     assert.equal(button.listenerCount('click'), 1);
+});
+
+test('publishes only the RNNoise processed mono track as a microphone in enhanced mode', async () => {
+    const {controller, controls, FakeRoom, sdk, pipeline, processedTrack, captureRequests} = harness({enhancedSupported: true});
+    await tick(); await tick();
+    const room = FakeRoom.instances[0];
+    assert.equal(controller.state().noiseMode, 'enhanced');
+    await controls.get('[data-voice-microphone]').emit('click');
+    assert.equal(room.localParticipant.calls.length, 0, 'native capture must not publish a duplicate track');
+    assert.equal(room.localParticipant.published.length, 1);
+    assert.equal(room.localParticipant.published[0].track, processedTrack);
+    assert.equal(room.localParticipant.published[0].options.source, sdk.Track.Source.Microphone);
+    assert.deepEqual(captureRequests[0], {audio: {
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: false,
+        channelCount: {ideal: 1},
+        sampleRate: {ideal: 48000},
+    }, video: false});
+    assert.equal(controller.state().activeMicrophoneMode, 'enhanced');
+
+    await controls.get('[data-voice-microphone]').emit('click');
+    assert.deepEqual(room.localParticipant.unpublished, [processedTrack]);
+    assert.equal(pipeline.stopped, 1);
+    assert.equal(controller.state().hasEnhancedPipeline, false);
+});
+
+test('falls back once to standard processing when RNNoise initialization fails', async () => {
+    const {controller, controls, FakeRoom} = harness({
+        enhancedSupported: true,
+        enhancedFailure: new Error('worklet_failed'),
+    });
+    await tick(); await tick();
+    await controls.get('[data-voice-microphone]').emit('click');
+    const participant = FakeRoom.instances[0].localParticipant;
+    assert.equal(participant.published.length, 0);
+    assert.equal(participant.calls.length, 1);
+    assert.equal(participant.calls[0][0], true);
+    assert.equal(controller.state().noiseMode, 'standard');
+    assert.equal(controller.state().activeMicrophoneMode, 'standard');
+    assert.match(controls.get('[data-voice-status]').textContent, /Aprimorado indisponível/);
+});
+
+test('switching noise mode turns an active microphone off without reactivating it', async () => {
+    const {controller, controls, FakeRoom, pipeline} = harness({enhancedSupported: true});
+    await tick(); await tick();
+    await controls.get('[data-voice-microphone]').emit('click');
+    const standard = controls.get('[data-voice-noise-mode="standard"]');
+    standard.checked = true;
+    await standard.emit('change');
+    assert.equal(controller.state().noiseMode, 'standard');
+    assert.equal(controller.state().microphoneEnabled, false);
+    assert.equal(FakeRoom.instances[0].localParticipant.calls.length, 0);
+    assert.equal(pipeline.stopped, 1);
+});
+
+test('enhanced pipeline is released on LiveKit disconnect without duplicate unpublish', async () => {
+    const {controller, controls, FakeRoom, sdk, pipeline} = harness({enhancedSupported: true});
+    await tick(); await tick();
+    const room = FakeRoom.instances[0];
+    await controls.get('[data-voice-microphone]').emit('click');
+    room.emit(sdk.RoomEvent.Disconnected);
+    await tick();
+    assert.equal(controller.state().microphoneEnabled, false);
+    assert.equal(pipeline.stopped, 1);
+    assert.equal(room.localParticipant.unpublished.length, 0);
+});
+
+test('runtime worklet failure releases enhanced capture and requires a new explicit activation', async () => {
+    const {controller, controls, FakeRoom, pipeline, triggerEnhancedRuntimeError} = harness({enhancedSupported: true});
+    await tick(); await tick();
+    await controls.get('[data-voice-microphone]').emit('click');
+    triggerEnhancedRuntimeError();
+    await tick();
+    assert.equal(controller.state().microphoneEnabled, false);
+    assert.equal(controller.state().noiseMode, 'standard');
+    assert.equal(pipeline.stopped, 1);
+    assert.equal(FakeRoom.instances[0].localParticipant.calls.length, 0, 'fallback must not recapture automatically');
+    assert.match(controls.get('[data-voice-status]').textContent, /Ative novamente/);
 });
 
 test('keeps toolbar muted when microphone permission fails', async () => {

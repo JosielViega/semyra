@@ -22,6 +22,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Supressão de ruído local e gratuita no microfone do chat de voz com RNNoise 0.2, WebAssembly e AudioWorklet. O modo Aprimorado publica somente a track mono processada no LiveKit, preserva echo cancellation do navegador, evita noise suppression/AGC duplicados e retorna com cleanup ao modo Padrão quando o runtime não é compatível.
+
 - Comunicacao independente da midia nas salas: chat de texto persistente em MySQL com polling incremental, paginacao, idempotencia, rate limit, CSRF e renderizacao segura; e chat de voz WebRTC pelo LiveKit com token curto limitado exclusivamente a microfone, microfone inicialmente desligado, volume/mute recebido independentes e indicador de fala.
 
 - O seletor nativo de compartilhamento gera, somente após seleção, uma pré-visualização JPEG estática e limitada do monitor ou janela, mantida em memória no Desktop e descartada por geração sem backend, disco ou LiveKit.

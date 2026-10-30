@@ -32,7 +32,7 @@ Semyra é uma plataforma em desenvolvimento para amigos criarem salas virtuais e
 - `GET /health` disponível como health check simples;
 - verificação prévia, no backend, da existência ou do estado da Live ainda não implementada;
 - chat de texto persistente por sala, com histórico recente, paginação e polling incremental compatível com hospedagem compartilhada;
-- chat de voz LiveKit para contas Free, Premium e convidados válidos, com microfone opt-in e volume independente da transmissão;
+- chat de voz LiveKit para contas Free, Premium e convidados válidos, com microfone opt-in, volume independente da transmissão e redução de ruído local selecionável entre o modo Padrão do navegador e RNNoise Aprimorado;
 - correção contínua de drift ainda não implementada;
 - compartilhamento de tela Premium pelo Semyra Desktop, com seleção nativa de monitor ou janela, preview estático exclusivamente local, áudio do sistema opcional e presets Econômica/Padrão/Alta. O Host Engine captura no Windows e publica H.264 + Opus por GStreamer/WHIP no LiveKit; convidados e contas Free continuam podendo assistir, mas não iniciar.
 

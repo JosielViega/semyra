@@ -5,8 +5,13 @@
         module.exports = factory;
         return;
     }
-    factory({window: root, document: root.document, fetch: root.fetch.bind(root)});
-})(typeof window !== 'undefined' ? window : globalThis, ({window, document, fetch, loadSdk}) => {
+    factory({
+        window: root,
+        document: root.document,
+        fetch: root.fetch.bind(root),
+        noiseSuppression: root.SemyraNoiseSuppression,
+    });
+})(typeof window !== 'undefined' ? window : globalThis, ({window, document, fetch, loadSdk, noiseSuppression}) => {
     const shell = document.querySelector('[data-room-shell]');
     const panel = document.querySelector('[data-room-voice]');
     if (!shell || !panel) return null;
@@ -14,6 +19,7 @@
     const tokenUrl = shell.dataset.livekitVoiceTokenUrl ?? '';
     const sdkUrl = shell.dataset.livekitClientSrc ?? '';
     const csrfToken = shell.dataset.csrfToken ?? '';
+    const rnnoiseWorkletUrl = shell.dataset.rnnoiseWorkletUrl ?? '';
     const microphoneButton = panel.querySelector('[data-voice-microphone]');
     const microphoneLabel = panel.querySelector('[data-voice-microphone-label]');
     const microphoneIcon = panel.querySelector('[data-voice-microphone-icon]');
@@ -25,11 +31,15 @@
     const status = panel.querySelector('[data-voice-status]');
     const participantsList = panel.querySelector('[data-voice-participants]');
     const audioMount = panel.querySelector('[data-voice-audio-mount]');
+    const standardModeInput = panel.querySelector('[data-voice-noise-mode="standard"]');
+    const enhancedModeInput = panel.querySelector('[data-voice-noise-mode="enhanced"]');
+    const noiseHelp = panel.querySelector('[data-voice-noise-help]');
     const toolbarButton = shell.querySelector('[data-voice-toolbar-button]');
     const toolbarIcon = shell.querySelector('[data-voice-toolbar-icon]');
     const hudIndicator = shell.querySelector('[data-voice-button-indicator]');
     if (!tokenUrl || !sdkUrl || !csrfToken || !microphoneButton || !listenButton
-        || !volumeInput || !connection || !status || !participantsList || !audioMount) return null;
+        || !volumeInput || !connection || !status || !participantsList || !audioMount
+        || !standardModeInput || !enhancedModeInput || !noiseHelp) return null;
 
     let sdkPromise = null;
     let room = null;
@@ -39,8 +49,26 @@
     let receivedVolume = 100;
     let connecting = null;
     let destroyed = false;
+    let noiseMode = 'standard';
+    let activeMicrophoneMode = null;
+    let enhancedPipeline = null;
+    let enhancedTrack = null;
     const audioElements = new Map();
     const speaking = new Set();
+
+    const enhancedSupported = Boolean(
+        rnnoiseWorkletUrl
+        && noiseSuppression
+        && typeof noiseSuppression.isSupported === 'function'
+        && noiseSuppression.isSupported()
+    );
+    noiseMode = enhancedSupported ? 'enhanced' : 'standard';
+    enhancedModeInput.disabled = !enhancedSupported;
+    enhancedModeInput.checked = enhancedSupported;
+    standardModeInput.checked = !enhancedSupported;
+    if (!enhancedSupported) {
+        noiseHelp.textContent = 'Aprimorado indisponível neste navegador. O processamento Padrão continua ativo.';
+    }
 
     const randomId = () => {
         const bytes = new Uint8Array(16);
@@ -191,6 +219,78 @@
         }
         return payload;
     };
+
+    const stopEnhancedPipeline = async (participant, unpublish = true) => {
+        const pipeline = enhancedPipeline;
+        const track = enhancedTrack;
+        enhancedPipeline = null;
+        enhancedTrack = null;
+        if (unpublish && track && typeof participant?.unpublishTrack === 'function') {
+            try { await participant.unpublishTrack(track); } catch { }
+        }
+        if (pipeline) await pipeline.stop();
+    };
+    const disableMicrophone = async (participant, {disconnected = false} = {}) => {
+        const mode = activeMicrophoneMode;
+        activeMicrophoneMode = null;
+        microphoneEnabled = false;
+        updateMicrophone();
+        if (mode === 'enhanced' || enhancedPipeline || enhancedTrack) {
+            await stopEnhancedPipeline(participant, !disconnected);
+        } else if (mode === 'standard' && !disconnected) {
+            await participant?.setMicrophoneEnabled?.(false);
+        }
+    };
+    const enableStandardMicrophone = async (participant) => {
+        await participant.setMicrophoneEnabled(true, {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+        });
+        activeMicrophoneMode = 'standard';
+        microphoneEnabled = true;
+    };
+    const handleEnhancedRuntimeFailure = async () => {
+        if (activeMicrophoneMode !== 'enhanced' || destroyed) return;
+        noiseMode = 'standard';
+        standardModeInput.checked = true;
+        enhancedModeInput.checked = false;
+        await disableMicrophone(room?.localParticipant);
+        status.textContent = 'A redução Aprimorada foi interrompida. Ative novamente para usar o modo Padrão.';
+        if (room) renderParticipants(await ensureSdk());
+    };
+    const enableEnhancedMicrophone = async (participant, sdk) => {
+        const stream = await window.navigator.mediaDevices.getUserMedia({audio: {
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: {ideal: 1},
+            sampleRate: {ideal: 48000},
+        }, video: false});
+        const inputTrack = stream.getAudioTracks()[0] ?? null;
+        if (!inputTrack) throw new Error('microphone_track_missing');
+        let pipeline = null;
+        try {
+            pipeline = await noiseSuppression.create({
+                inputTrack,
+                workletUrl: rnnoiseWorkletUrl,
+                onError: () => void handleEnhancedRuntimeFailure(),
+            });
+            if (typeof participant.publishTrack !== 'function') throw new Error('publish_track_unavailable');
+            await participant.publishTrack(pipeline.track, {
+                source: sdk.Track.Source.Microphone,
+                name: 'semyra-voice-rnnoise',
+            });
+            enhancedPipeline = pipeline;
+            enhancedTrack = pipeline.track;
+            activeMicrophoneMode = 'enhanced';
+            microphoneEnabled = true;
+        } catch (error) {
+            if (pipeline) await pipeline.stop();
+            throw error;
+        }
+    };
     const connect = async () => {
         if (destroyed || room) return room;
         if (connecting) return connecting;
@@ -231,9 +331,8 @@
                 nextRoom.on(sdk.RoomEvent.Reconnecting, () => setConnection('Reconectando...', 'connecting'));
                 nextRoom.on(sdk.RoomEvent.Reconnected, () => setConnection('Conectado', 'connected'));
                 nextRoom.on(sdk.RoomEvent.Disconnected, () => {
+                    void disableMicrophone(nextRoom.localParticipant, {disconnected: true});
                     room = null;
-                    microphoneEnabled = false;
-                    updateMicrophone();
                     setConnection('Desconectado', 'error');
                     if (!destroyed) window.setTimeout(() => void connect(), 3000);
                 });
@@ -269,15 +368,25 @@
             if (!currentRoom) throw new Error('not_connected');
             if (!microphoneEnabled) {
                 await currentRoom.startAudio?.();
-                await currentRoom.localParticipant.setMicrophoneEnabled(true, {
-                    echoCancellation: true, noiseSuppression: true, autoGainControl: true,
-                });
-                microphoneEnabled = true;
-                status.textContent = 'Seu microfone esta ativo.';
+                if (noiseMode === 'enhanced') {
+                    try {
+                        await enableEnhancedMicrophone(currentRoom.localParticipant, await ensureSdk());
+                        status.textContent = 'Seu microfone está ativo com redução de ruído Aprimorada.';
+                    } catch (enhancedError) {
+                        noiseMode = 'standard';
+                        standardModeInput.checked = true;
+                        enhancedModeInput.checked = false;
+                        await stopEnhancedPipeline(currentRoom.localParticipant);
+                        await enableStandardMicrophone(currentRoom.localParticipant);
+                        status.textContent = 'Aprimorado indisponível; seu microfone está ativo no modo Padrão.';
+                    }
+                } else {
+                    await enableStandardMicrophone(currentRoom.localParticipant);
+                    status.textContent = 'Seu microfone está ativo no modo Padrão.';
+                }
             } else {
-                await currentRoom.localParticipant.setMicrophoneEnabled(false);
-                microphoneEnabled = false;
-                status.textContent = 'Seu microfone esta desligado.';
+                await disableMicrophone(currentRoom.localParticipant);
+                status.textContent = 'Seu microfone está desligado.';
             }
             updateMicrophone();
             renderParticipants(await ensureSdk());
@@ -294,6 +403,27 @@
             microphoneButton.disabled = false;
         }
     });
+    const changeNoiseMode = async (event) => {
+        const selected = event.currentTarget?.value;
+        if (selected !== 'standard' && selected !== 'enhanced') return;
+        if (selected === 'enhanced' && !enhancedSupported) {
+            standardModeInput.checked = true;
+            return;
+        }
+        if (microphoneEnabled) {
+            microphoneButton.disabled = true;
+            try {
+                await disableMicrophone(room?.localParticipant);
+                status.textContent = 'Modo alterado. Ative o microfone novamente quando quiser falar.';
+                if (room) renderParticipants(await ensureSdk());
+            } finally {
+                microphoneButton.disabled = false;
+            }
+        }
+        noiseMode = selected;
+    };
+    standardModeInput.addEventListener('change', changeNoiseMode);
+    enhancedModeInput.addEventListener('change', changeNoiseMode);
     listenButton.addEventListener('click', async () => {
         receivedMuted = !receivedMuted;
         if (!receivedMuted) {
@@ -313,7 +443,7 @@
         destroyed = true;
         for (const element of audioElements.values()) element.remove();
         audioElements.clear();
-        void room?.localParticipant?.setMicrophoneEnabled?.(false).catch(() => {});
+        void disableMicrophone(room?.localParticipant);
         void room?.disconnect?.();
         room = null;
     }, {once: true});
@@ -322,5 +452,8 @@
     updateListening();
     void connect();
 
-    return {connect, state: () => ({room, microphoneEnabled, receivedMuted, receivedVolume})};
+    return {connect, state: () => ({
+        room, microphoneEnabled, receivedMuted, receivedVolume, noiseMode, activeMicrophoneMode,
+        hasEnhancedPipeline: Boolean(enhancedPipeline),
+    })};
 });

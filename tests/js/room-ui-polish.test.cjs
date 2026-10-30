@@ -14,12 +14,16 @@ test('voice controls expose synchronized toolbar hooks and accessible state labe
     assert.match(view, /data-microphone-state="muted"/);
     assert.match(view, /data-voice-microphone[^>]+aria-pressed="false"[^>]+aria-label="Ativar microfone"/);
     assert.match(view, /data-voice-listen[^>]+aria-pressed="false"[^>]+aria-label="Silenciar participantes"/);
+    assert.match(view, /<legend>Redução de ruído<\/legend>/);
+    assert.match(view, /data-voice-noise-mode="standard"/);
+    assert.match(view, /data-voice-noise-mode="enhanced" checked/);
 });
 
 test('room communication panels have scoped responsive and stateful polish', () => {
     assert.match(css, /\.room-voice-button\[data-microphone-state="active"\]/);
     assert.match(css, /\.room-voice-control-button\[data-state="active"\]/);
     assert.match(css, /--voice-volume-progress/);
+    assert.match(css, /\.room-voice-noise-options/);
     assert.match(css, /\.room-chat-message\.is-you/);
     assert.match(css, /@media \(max-width: 390px\)/);
     assert.match(css, /@media \(max-height: 620px\)/);

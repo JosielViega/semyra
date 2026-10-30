@@ -67,12 +67,16 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-initial-instance-id=""', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
-        self::assertStringContainsString('/assets/css/room.css?v=12-1-ui-polish', $html);
+        self::assertStringContainsString('/assets/css/room.css?v=12-2-rnnoise', $html);
         self::assertStringContainsString('data-livekit-voice-token-url="/room/7MKP3WQH/livekit/voice-token"', $html);
         self::assertStringContainsString('data-chat-messages-url="/room/7MKP3WQH/chat/messages"', $html);
         self::assertStringContainsString('data-room-panel="voice"', $html);
         self::assertStringContainsString('data-room-panel="chat"', $html);
-        self::assertStringContainsString('/assets/js/room-voice.js?v=12-1-ui-polish', $html);
+        self::assertStringContainsString('data-rnnoise-worklet-url="/assets/vendor/rnnoise/rnnoise-worklet.js?v=0.2.1-semyra-1"', $html);
+        self::assertStringContainsString('/assets/js/room-noise-suppression.js?v=12-2-rnnoise', $html);
+        self::assertStringContainsString('/assets/js/room-voice.js?v=12-2-rnnoise', $html);
+        self::assertStringContainsString('data-voice-noise-mode="standard"', $html);
+        self::assertStringContainsString('data-voice-noise-mode="enhanced" checked', $html);
         self::assertStringContainsString('/assets/js/room-chat.js?v=12-chat-1', $html);
         self::assertStringContainsString('data-voice-toolbar-button data-microphone-state="muted"', $html);
         self::assertStringContainsString('data-voice-toolbar-icon href="#room-icon-mic-off"', $html);
