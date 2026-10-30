@@ -25,6 +25,8 @@
     const status = panel.querySelector('[data-voice-status]');
     const participantsList = panel.querySelector('[data-voice-participants]');
     const audioMount = panel.querySelector('[data-voice-audio-mount]');
+    const toolbarButton = shell.querySelector('[data-voice-toolbar-button]');
+    const toolbarIcon = shell.querySelector('[data-voice-toolbar-icon]');
     const hudIndicator = shell.querySelector('[data-voice-button-indicator]');
     if (!tokenUrl || !sdkUrl || !csrfToken || !microphoneButton || !listenButton
         || !volumeInput || !connection || !status || !participantsList || !audioMount) return null;
@@ -77,7 +79,15 @@
         microphoneButton.setAttribute('aria-pressed', String(microphoneEnabled));
         microphoneButton.dataset.state = microphoneEnabled ? 'active' : 'muted';
         microphoneLabel.textContent = microphoneEnabled ? 'Desativar microfone' : 'Ativar microfone';
+        microphoneButton.setAttribute('aria-label', microphoneLabel.textContent);
         microphoneIcon?.setAttribute('href', microphoneEnabled ? '#room-icon-mic' : '#room-icon-mic-off');
+        toolbarIcon?.setAttribute('href', microphoneEnabled ? '#room-icon-mic' : '#room-icon-mic-off');
+        if (toolbarButton) {
+            toolbarButton.dataset.microphoneState = microphoneEnabled ? 'active' : 'muted';
+            toolbarButton.setAttribute('aria-label', microphoneEnabled
+                ? 'Abrir chat de voz — microfone ativo'
+                : 'Abrir chat de voz — microfone desligado');
+        }
         if (hudIndicator) {
             hudIndicator.hidden = !microphoneEnabled;
             hudIndicator.dataset.state = microphoneEnabled ? 'active' : '';
@@ -85,8 +95,11 @@
     };
     const updateListening = () => {
         listenButton.setAttribute('aria-pressed', String(receivedMuted));
+        listenButton.dataset.state = receivedMuted ? 'muted' : 'listening';
         listenLabel.textContent = receivedMuted ? 'Ouvir participantes' : 'Silenciar participantes';
+        listenButton.setAttribute('aria-label', listenLabel.textContent);
         listenIcon?.setAttribute('href', receivedMuted ? '#room-icon-volume-x' : '#room-icon-volume');
+        volumeInput.style?.setProperty('--voice-volume-progress', `${receivedVolume}%`);
         for (const element of audioElements.values()) {
             element.muted = receivedMuted;
             element.volume = receivedVolume / 100;
@@ -125,6 +138,7 @@
             item.append(avatar, copy);
             item.classList.toggle('is-speaking', speaking.has(participant.identity));
             item.classList.toggle('is-muted', !active);
+            item.classList.toggle('is-you', isLocal);
             participantsList.append(item);
         });
     };

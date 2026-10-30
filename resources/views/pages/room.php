@@ -124,7 +124,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                 </div>
                 <nav class="room-hud-actions" aria-label="Ações da sala">
                     <button type="button" class="room-icon-button room-participants-button" data-panel-toggle="participants" aria-label="Mostrar participantes" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-users"></use></svg><strong id="room-participant-count"><?= count($participants) ?></strong></button>
-                    <button type="button" class="room-icon-button room-voice-button" data-panel-toggle="voice" aria-label="Abrir chat de voz" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-mic-off"></use></svg><span class="room-control-indicator" data-voice-button-indicator hidden></span></button>
+                    <button type="button" class="room-icon-button room-voice-button" data-panel-toggle="voice" data-voice-toolbar-button data-microphone-state="muted" aria-label="Abrir chat de voz — microfone desligado" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use data-voice-toolbar-icon href="#room-icon-mic-off"></use></svg><span class="room-control-indicator" data-voice-button-indicator hidden></span></button>
                     <button type="button" class="room-icon-button room-chat-button" data-panel-toggle="chat" aria-label="Abrir chat de texto" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-message"></use></svg><span class="room-unread-badge" data-chat-unread hidden>0</span></button>
                     <button type="button" class="room-icon-button" data-panel-toggle="share" aria-label="Compartilhar sala" aria-expanded="false"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-share"></use></svg></button>
                     <button type="button" class="room-icon-button" data-open-transmission aria-label="Iniciar ou trocar transmissão"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-video-plus"></use></svg></button>
@@ -189,13 +189,13 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
         <aside class="room-panel room-panel-voice" data-room-panel="voice" data-room-voice hidden aria-labelledby="voice-title">
             <div class="room-panel-heading"><div><h2 id="voice-title">Chat de voz</h2><p class="room-panel-eyebrow" data-voice-connection>Conectando...</p></div><button type="button" class="room-close-button" data-panel-close aria-label="Fechar chat de voz"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button></div>
             <div class="room-voice-controls">
-                <button type="button" class="room-text-button" data-voice-microphone aria-pressed="false" title="Ativar ou desativar seu microfone"><svg class="room-icon" aria-hidden="true"><use data-voice-microphone-icon href="#room-icon-mic-off"></use></svg><span data-voice-microphone-label>Ativar microfone</span></button>
-                <button type="button" class="room-secondary-button" data-voice-listen aria-pressed="false" title="Silenciar ou ouvir os outros participantes"><svg class="room-icon" aria-hidden="true"><use data-voice-listen-icon href="#room-icon-volume"></use></svg><span data-voice-listen-label>Silenciar participantes</span></button>
-                <label class="room-voice-volume" for="room-voice-volume"><span>Volume das vozes</span><input id="room-voice-volume" data-voice-volume type="range" min="0" max="100" value="100" aria-label="Volume das vozes"></label>
+                <button type="button" class="room-text-button room-voice-control-button" data-voice-microphone data-state="muted" aria-pressed="false" aria-label="Ativar microfone" title="Ativar ou desativar seu microfone"><svg class="room-icon" aria-hidden="true"><use data-voice-microphone-icon href="#room-icon-mic-off"></use></svg><span data-voice-microphone-label>Ativar microfone</span></button>
+                <button type="button" class="room-secondary-button room-voice-control-button" data-voice-listen data-state="listening" aria-pressed="false" aria-label="Silenciar participantes" title="Silenciar ou ouvir os outros participantes"><svg class="room-icon" aria-hidden="true"><use data-voice-listen-icon href="#room-icon-volume"></use></svg><span data-voice-listen-label>Silenciar participantes</span></button>
+                <label class="room-voice-volume" for="room-voice-volume"><span>Volume das vozes</span><input id="room-voice-volume" data-voice-volume type="range" min="0" max="100" value="100" style="--voice-volume-progress: 100%" aria-label="Volume das vozes"></label>
             </div>
             <p class="room-panel-status" data-voice-status role="status" aria-live="polite">O microfone inicia desligado.</p>
             <ul class="room-voice-participants" data-voice-participants aria-label="Participantes conectados ao chat de voz"></ul>
-            <p class="room-voice-warning">Ao compartilhar audio do sistema neste mesmo dispositivo, use fones de ouvido para reduzir o risco de realimentacao.</p>
+            <p class="room-voice-warning">Ao ouvir a sala no mesmo dispositivo que compartilha áudio do sistema, pode ocorrer realimentação. Fones reduzem o eco acústico, mas não isolam o WASAPI Loopback.</p>
             <div data-voice-audio-mount hidden></div>
         </aside>
 
@@ -206,8 +206,8 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
             <button type="button" class="room-chat-new" data-chat-new hidden>Novas mensagens</button>
             <form class="room-chat-form" data-chat-form>
                 <label class="room-visually-hidden" for="room-chat-message">Mensagem</label>
-                <textarea id="room-chat-message" data-chat-input rows="2" maxlength="1000" placeholder="Escreva uma mensagem" required></textarea>
-                <div class="room-chat-compose"><span data-chat-counter>0/1000</span><button type="submit" class="room-text-button" data-chat-send>Enviar</button></div>
+                <textarea id="room-chat-message" data-chat-input rows="2" maxlength="1000" placeholder="Escreva uma mensagem…" aria-describedby="room-chat-help" required></textarea>
+                <div class="room-chat-compose"><span id="room-chat-help" data-chat-counter>0/1000</span><button type="submit" class="room-text-button" data-chat-send>Enviar</button></div>
                 <p class="room-panel-status" data-chat-status role="status" aria-live="polite"></p>
             </form>
         </aside>
@@ -285,7 +285,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
     <script src="/assets/js/room-media.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-livekit-player.js?v=11n-screen-share-r3-7" defer></script>
-    <script src="/assets/js/room-voice.js?v=12-voice-1" defer></script>
+    <script src="/assets/js/room-voice.js?v=12-1-ui-polish" defer></script>
     <script src="/assets/js/room-chat.js?v=12-chat-1" defer></script>
     <?php if (is_array($currentUser)): ?><script src="/assets/js/room-screen-share.js?v=11n-screen-native-r3-6" defer></script><?php endif; ?>
     <script src="/assets/js/room-desktop-host.js?v=11n-screen-native-r3-5" defer></script>
