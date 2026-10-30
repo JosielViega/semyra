@@ -79,6 +79,36 @@ composer validate --strict
 - [ ] Saída HTTPS do PHP para a API LiveKit está permitida.
 - [ ] Navegadores conseguem acessar o endpoint LiveKit `wss://` e o transporte WebRTC/TURN exigido pelo provedor.
 
+### Checklist manual por fase
+
+#### Fase A — Verificações
+
+- [ ] Confirmar domínio, certificado HTTPS e Document Root configurável.
+- [ ] Confirmar PHP 8.2+, extensões requeridas e caminho do PHP CLI.
+- [ ] Confirmar MySQL 8.0+ ou validar separadamente a compatibilidade MariaDB.
+- [ ] Confirmar Terminal/SSH ou Cron Jobs e limites de CPU, memória, processos, disco e banco.
+
+#### Fase B — Instalação
+
+- [ ] Criar banco e usuário MySQL exclusivos, com privilégios somente no banco do Semyra.
+- [ ] Criar o diretório privado da aplicação e fazer o Document Root apontar para `public/`.
+- [ ] Enviar somente o ZIP revisado e preservar a estrutura relativa do pacote.
+- [ ] Criar o `.env` privado manualmente e configurar permissões mínimas de leitura/escrita.
+
+#### Fase C — Banco
+
+- [ ] Criar e verificar um backup restaurável antes da primeira migration.
+- [ ] Executar `php bin/migrate.php` pelo PHP CLI no diretório privado.
+- [ ] Confirmar tabelas, foreign keys e os 20 nomes completos na tabela `migrations`.
+- [ ] Executar o runner novamente e confirmar `No pending migrations.`.
+
+#### Fase D — Verificação
+
+- [ ] Validar `/health`, cadastro, login, logout, Remember Me e criação/entrada em sala.
+- [ ] Validar chat de texto, tokens LiveKit e recepção de mídia.
+- [ ] Validar chat de voz com microfone inicialmente desligado.
+- [ ] Executar manualmente o gate acústico do modo Padrão, RNNoise e fallback.
+
 ## 3. Estrutura segura de diretórios
 
 ### Opção preferida
@@ -205,7 +235,7 @@ O manifesto correto é `deploy/hostgator/config/deploy.php`. O builder usa allow
 
 Confirme no mirror:
 
-- `app/`, `bootstrap/`, `config/`, `database/migrations/`, `public/`, `resources/`, `routes/`, `vendor/`, `composer.json` e `composer.lock`;
+- `app/`, `bin/migrate.php`, `bootstrap/`, `config/`, `database/migrations/`, `public/`, `resources/`, `routes/`, `vendor/`, `composer.json` e `composer.lock`;
 - assets de YouTube, IPTV, Screen, chat de texto, chat de voz e LiveKit;
 - `room-noise-suppression.js`, os três arquivos RNNoise e as duas licenças;
 - migration `2026_10_29_000019_create_room_messages.sql`;
@@ -213,11 +243,13 @@ Confirme no mirror:
 
 Confirme a ausência de:
 
-- `.env*`, `.git/`, `.github/`, `tests/`, `docs/`, `bin/` e `desktop/`;
+- `.env*`, `.git/`, `.github/`, `tests/`, `docs/`, `desktop/` e qualquer ferramenta de `bin/` diferente de `bin/migrate.php`;
 - logs, cache, uploads privados, bancos, playlists, runtimes MPV/GStreamer e artefatos de build;
 - certificados, chaves, tokens, cookies ou credenciais.
 
 ## 7. Banco vazio e migrations
+
+O pacote inclui somente `bin/migrate.php` do diretório de ferramentas. Ele deve permanecer no diretório privado da aplicação, fora do Document Root. O runner resolve a raiz a partir da própria localização e carrega `vendor/autoload.php`, o `.env` privado, `config/database.php` e `database/migrations/` dessa mesma raiz.
 
 Os arquivos são executados em ordem lexicográfica pelo nome completo. Existem dois identificadores numéricos `000017`, mas os nomes completos e datas são distintos e a ordem permanece determinística. Não renomeie migrations publicadas.
 
@@ -226,8 +258,8 @@ Procedimento seguro:
 1. crie um banco vazio com `utf8mb4`;
 2. registre versão do servidor, charset e collation;
 3. tire um backup vazio ou estado inicial restaurável;
-4. configure temporariamente a CLI com o `.env` privado;
-5. execute `composer migrate` uma única vez;
+4. configure o `.env` privado antes de usar a CLI;
+5. no diretório privado da aplicação, execute `php bin/migrate.php` uma única vez;
 6. confirme 20 registros na tabela `migrations`, incluindo `2026_10_29_000019_create_room_messages.sql`;
 7. execute novamente e espere `No pending migrations.`;
 8. valide foreign keys, índices e tabelas sem inserir dados de desenvolvimento.
@@ -235,6 +267,16 @@ Procedimento seguro:
 As DDLs MySQL podem causar commit implícito. O runner registra o arquivo somente depois de executar todo o SQL e não oferece rollback automático. Se uma migration falhar parcialmente, pare: não edite a tabela `migrations` para forçar sucesso. Restaure o backup, corrija a causa em ambiente de ensaio e repita a partir de um estado conhecido.
 
 Nunca importe o banco local completo. Ele pode conter contas, sessões, tokens, mensagens, credenciais locais ou outros dados de teste.
+
+### Conta sem Terminal ou SSH
+
+Não crie um endpoint HTTP para migrations e não coloque credenciais na linha de comando. Verifique primeiro se o cPanel oferece **Cron Jobs** com PHP CLI. Se oferecer, crie temporariamente uma tarefa que entre no diretório privado e execute o mesmo runner:
+
+```text
+cd <APP_PRIVATE_ROOT> && /usr/local/bin/php bin/migrate.php
+```
+
+Confirme com a HostGator o caminho real do PHP CLI. Execute a tarefa uma vez, preserve a saída operacional sem segredos, confira a tabela `migrations` e remova a tarefa imediatamente. Se Cron Jobs ou PHP CLI não estiverem disponíveis, solicite ao suporte da hospedagem a execução assistida do comando no diretório privado. Não substitua esse fluxo por importação parcial no phpMyAdmin: isso pode aplicar DDL sem registrar corretamente o histórico. Se a hospedagem não oferecer nenhuma execução CLI segura, a publicação fica bloqueada até existir um procedimento que preserve a tabela `migrations`.
 
 ## 8. Chat de texto e carga de polling
 

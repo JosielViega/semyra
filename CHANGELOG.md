@@ -6,6 +6,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- O pacote HostGator agora inclui e exige somente o runner CLI `bin/migrate.php`, mantendo as demais ferramentas de desenvolvimento fora do mirror e permitindo migrations auditáveis a partir do diretório privado.
+
 - Conexões PDO agora fixam a sessão MySQL em UTC, impedindo que o fuso configurado pela hospedagem altere a validade de Host Sessions e a interpretação de timestamps de produção.
 
 - O Ingress WHIP de compartilhamento agora declara tracks como `SCREEN_SHARE`/`SCREEN_SHARE_AUDIO`; o viewer também tolera a normalização LiveKit para `camera`/`microphone` exclusivamente quando a track pertence ao publisher cercado da transmissão vigente, evitando que mídia publicada fique presa em “Aguardando transmissão”.

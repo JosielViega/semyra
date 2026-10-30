@@ -25,6 +25,7 @@ final class HostgatorMirrorBuilderTest extends TestCase
 
         foreach ([
             'app/.keep',
+            'bin/migrate.php',
             'bootstrap/app.php',
             'config/app.php',
             'config/database.php',
@@ -59,6 +60,7 @@ final class HostgatorMirrorBuilderTest extends TestCase
     public function testAcceptsCompleteProductionMirror(): void
     {
         $this->builder()->validate();
+        self::assertFileExists($this->mirror . '/bin/migrate.php');
         self::assertFileExists($this->mirror . '/vendor/autoload.php');
         self::assertFileExists($this->mirror . '/composer.lock');
     }

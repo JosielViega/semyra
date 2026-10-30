@@ -17,9 +17,20 @@ final class HostgatorDeployManifestTest extends TestCase
 
     public function testProductionAllowlistContainsRequiredApplicationItems(): void
     {
-        foreach (['app', 'bootstrap', 'config', 'public/index.php', 'resources', 'routes', 'composer.json', 'composer.lock'] as $item) {
+        foreach (['app', 'bin/migrate.php', 'bootstrap', 'config', 'public/index.php', 'resources', 'routes', 'composer.json', 'composer.lock'] as $item) {
             self::assertContains($item, $this->manifest['include']);
         }
+    }
+
+    public function testOnlyTheProductionMigrationRunnerIsIncludedFromBin(): void
+    {
+        $binItems = array_values(array_filter(
+            $this->manifest['include'],
+            static fn (string $item): bool => $item === 'bin' || str_starts_with($item, 'bin/'),
+        ));
+
+        self::assertSame(['bin/migrate.php'], $binItems);
+        self::assertContains('bin', $this->manifest['ignore']);
     }
 
     public function testSensitiveAndServerOwnedItemsAreProtected(): void

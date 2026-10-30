@@ -30,6 +30,7 @@ O manifesto versionado está em `deploy/hostgator/config/deploy.php`. Ao surgir 
 ## Conteúdo incluído
 
 - `app/`, `bootstrap/` e `config/` da aplicação;
+- somente o runner CLI `bin/migrate.php` do diretório `bin/`;
 - migrations SQL versionadas, sem executá-las;
 - `public/index.php` e assets públicos;
 - views e rotas;

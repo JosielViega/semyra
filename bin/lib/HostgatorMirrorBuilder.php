@@ -62,6 +62,7 @@ final class HostgatorMirrorBuilder
     {
         $required = [
             'app',
+            'bin/migrate.php',
             'bootstrap/app.php',
             'config/app.php',
             'config/database.php',

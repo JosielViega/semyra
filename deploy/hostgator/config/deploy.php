@@ -6,6 +6,7 @@ return [
     // Production application source is copied only from this allowlist.
     'include' => [
         'app',
+        'bin/migrate.php',
         'bootstrap',
         'config',
         'database/migrations',
