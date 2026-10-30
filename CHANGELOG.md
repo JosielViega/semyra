@@ -6,6 +6,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- Conexões PDO agora fixam a sessão MySQL em UTC, impedindo que o fuso configurado pela hospedagem altere a validade de Host Sessions e a interpretação de timestamps de produção.
+
 - O Ingress WHIP de compartilhamento agora declara tracks como `SCREEN_SHARE`/`SCREEN_SHARE_AUDIO`; o viewer também tolera a normalização LiveKit para `camera`/`microphone` exclusivamente quando a track pertence ao publisher cercado da transmissão vigente, evitando que mídia publicada fique presa em “Aguardando transmissão”.
 
 - O lease da transmissão de tela agora recebe heartbeat desde a aceitação do Start, incluindo as fases de autorização, preparação e conexão; o polling da sala não remove mais a própria transmissão após cinco segundos enquanto GStreamer/WHIP/LiveKit ainda aguardam `PUBLISHING`, e respostas de presence iniciadas antes do Start não desfazem o contexto recém-criado ao chegar atrasadas.

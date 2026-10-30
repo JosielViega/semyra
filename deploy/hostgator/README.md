@@ -25,7 +25,7 @@ composer deploy:hostgator
 
 O segundo comando também executa `composer check`, limpa somente o mirror local anterior, copia a allowlist de produção, instala dependências com o lockfile e valida a saída. Ao terminar, `deploy/hostgator/build-info.json` registra apenas data UTC, commit, versões das ferramentas, modo de instalação e quantidade de arquivos.
 
-O manifesto versionado está em `config/deploy.php`. Ao surgir uma nova área de produção, adicione-a conscientemente à lista `include`; o builder não adota diretórios novos automaticamente.
+O manifesto versionado está em `deploy/hostgator/config/deploy.php`. Ao surgir uma nova área de produção, adicione-a conscientemente à lista `include`; o builder não adota diretórios novos automaticamente.
 
 ## Conteúdo incluído
 

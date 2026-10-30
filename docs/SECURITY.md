@@ -31,6 +31,8 @@ Regenerar o ID da sessão após login e mudança de privilégio. Não guardar se
 
 Configure `APP_ENV=production`, `APP_DEBUG=false`, `SESSION_SECURE=true`, HTTPS e permissões mínimas. O usuário recebe erro genérico com referência; detalhes ficam em `storage/logs`. Proteja também logs e backups no servidor.
 
+Toda conexão PDO inicializa a sessão MySQL em UTC. Isso mantém expirações, leases e timestamps coerentes mesmo quando o servidor compartilhado usa outro fuso horário; `APP_TIMEZONE` continua controlando apenas o fuso da aplicação PHP.
+
 ## Uploads futuros
 
 A infraestrutura inicial apenas prepara `public/uploads` e bloqueia extensões PHP via Apache. Antes de aceitar arquivos, imponha tamanho máximo, use `finfo` no conteúdo, mapeie MIME a extensões permitidas, gere nomes com `random_bytes`, impeça sobrescrita e prefira armazenamento fora do Document Root quando downloads puderem passar por autorização.

@@ -37,16 +37,27 @@ final class Database
                 $dsn,
                 (string) $this->config['username'],
                 (string) $this->config['password'],
-                [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES => false,
-                ],
+                $this->connectionOptions(),
             );
         } catch (PDOException $exception) {
             throw new \RuntimeException('Database connection failed.', 0, $exception);
         }
 
         return $this->connection;
+    }
+
+    /** @return array<int, mixed> */
+    private function connectionOptions(): array
+    {
+        $initCommandAttribute = defined('Pdo\\Mysql::ATTR_INIT_COMMAND')
+            ? constant('Pdo\\Mysql::ATTR_INIT_COMMAND')
+            : constant('PDO::MYSQL_ATTR_INIT_COMMAND');
+
+        return [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+            $initCommandAttribute => "SET time_zone = '+00:00'",
+        ];
     }
 }

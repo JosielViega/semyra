@@ -250,9 +250,12 @@ Quando a hospedagem não permitir alterar o Document Root, mantenha o projeto fo
 
 `composer deploy:hostgator` gera um mirror com dependências de produção. Ele não inclui `.env`, `.htaccess`, configurações PHP do servidor, uploads, logs ou cache; também não envia arquivos, remove conteúdo remoto ou executa migrations. Consulte o [guia de deploy HostGator/cPanel](deploy/hostgator/README.md).
 
+Para a primeira instalação, siga o [checklist de primeira publicação](docs/HOSTGATOR_FIRST_DEPLOY.md). Ele separa preparação local, operações manuais no cPanel e validações posteriores, sem armazenar credenciais.
+
 ## Documentação técnica
 
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [Desenvolvimento local](docs/LOCAL_DEVELOPMENT.md)
 - [Segurança](docs/SECURITY.md)
 - [Deploy HostGator/cPanel](deploy/hostgator/README.md)
+- [Primeira publicação na HostGator](docs/HOSTGATOR_FIRST_DEPLOY.md)
