@@ -112,14 +112,30 @@ public sealed class GStreamerRuntimeTests : IDisposable
         Assert.Equal("media_runtime_unavailable", runtime.Snapshot.ErrorCode);
     }
 
+    [Fact]
+    public void ExplicitConfiguredHomeProvidesRuntimeOutsideApplicationDirectory()
+    {
+        var applicationDirectory = Path.Combine(_directory, "application");
+        var configuredHome = Path.Combine(_directory, "configured-gstreamer");
+        var binaryDirectory = CreateExecutables(configuredHome);
+
+        var runtime = GStreamerRuntime.Discover(applicationDirectory, new RecordingRunner(), configuredHome);
+
+        Assert.True(runtime.IsAvailable);
+        Assert.StartsWith(binaryDirectory, runtime.LaunchPath, StringComparison.OrdinalIgnoreCase);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
     }
 
-    private string CreateExecutables(bool includeDiscoverer = false)
+    private string CreateExecutables(bool includeDiscoverer = false) =>
+        CreateExecutables(Path.Combine(_directory, "runtime", "gstreamer"), includeDiscoverer);
+
+    private static string CreateExecutables(string runtimeHome, bool includeDiscoverer = false)
     {
-        var binaryDirectory = Path.Combine(_directory, "runtime", "gstreamer", "bin");
+        var binaryDirectory = Path.Combine(runtimeHome, "bin");
         Directory.CreateDirectory(binaryDirectory);
         File.WriteAllBytes(Path.Combine(binaryDirectory, "gst-launch-1.0.exe"), []);
         File.WriteAllBytes(Path.Combine(binaryDirectory, "gst-inspect-1.0.exe"), []);

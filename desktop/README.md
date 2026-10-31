@@ -40,6 +40,23 @@ dotnet run --project desktop\src\Semyra.Desktop\Semyra.Desktop.csproj
 
 Release não possui URL implícita e exige `SEMYRA_DESKTOP_URL` HTTPS. HTTP é aceito somente para `localhost` e `127.0.0.1` em Debug. Navegações externas abrem no navegador padrão.
 
+### Ambiente online HostGator
+
+A origem oficial é configurada explicitamente por processo, sem alterar variáveis globais do Windows:
+
+```powershell
+$env:SEMYRA_DESKTOP_URL = 'https://semyra.jzlcode.com.br/'
+$env:WEBVIEW2_USER_DATA_FOLDER = '<WORKTREE>\storage\cache\webview2-profile-13d-online'
+$env:SEMYRA_MPV_HOME = '<RUNTIME_MPV>'
+$env:SEMYRA_GSTREAMER_HOME = '<RUNTIME_GSTREAMER>'
+```
+
+O perfil WebView2 online é separado do perfil local; cookies, cache e sessão não são copiados entre ambientes. Essa pasta não altera o SQLite IPTV, que continua exclusivamente em `%LOCALAPPDATA%\Semyra\Data\Profiles\<desktop_profile_id>\semyra.db` e protegido por DPAPI `CurrentUser`.
+
+Os launchers locais ignorados `storage/cache/start-13d-online.cmd` e `storage/cache/start-13d-local.cmd` preparam, respectivamente, a origem HTTPS e o ambiente local já validado. `start-13d-online.cmd --check-only` verifica URL, .NET, build, WebView2 e runtimes sem abrir o aplicativo, iniciar PHP ou iniciar MySQL. MPV ou GStreamer ausentes desabilitam apenas as capabilities nativas correspondentes; site, autenticação e chat permanecem disponíveis.
+
+A política da WebView2 continua restrita ao mesmo scheme, host e port da URL configurada. Rotas internas permanecem na WebView2, destinos HTTP(S) externos seguem para o navegador padrão e mensagens nativas de outras origens são ignoradas.
+
 ## Catálogo IPTV local
 
 O recurso **Minha IPTV** exige uma conta Semyra autenticada, mas continua gratuito e sem qualquer regra Premium. O backend fornece ao Desktop somente um `desktop_profile_id` opaco, aleatório e estável; ele não é credencial nem autoriza operações. Cada ativação cria ainda um `accountContextId` efêmero que protege os comandos nativos contra páginas e `channelId` antigos.
@@ -80,7 +97,7 @@ Cada nova carga também limpa o estado transitório, força `pause=false` antes 
 
 O fullscreen pertence à janela WPF, não à Fullscreen API do DOM. A barra HTML ocupa uma faixa fora do HWND e desaparece após inatividade; Live oferece somente volume, mute, fullscreen e stop, enquanto VOD acrescenta play/pause, ±30 s, posição, duração e seek absoluto. Episódios acrescentam anterior/próximo e somente um EOF real do MPV inicia automaticamente o próximo episódio pelo mesmo resolver; com `--keep-open=yes`, tanto `end-file reason=eof` quanto a transição observada `eof-reached=false→true` convergem em um único encerramento natural por arquivo. Pause, seek, stop e a regra de conclusão do histórico nunca disparam autoplay. Trocas manuais e automáticas reutilizam o sidecar/handle e preservam exatamente o estado fullscreen anterior. O Host Engine salva a posição canônica aproximadamente a cada 30 segundos e também antes de pause, stop, seek, troca de conteúdo, Live, logout, troca de conta, fechamento e EOF natural; um generation/session fence impede gravações tardias no item seguinte. Após cada persistência válida, um evento sanitizado atualiza somente o episódio correspondente no detalhe aberto. Conteúdo com menos de 5 segundos não cria histórico e 90% ou os últimos 5 segundos marcam conclusão. Sem um runtime MPV válido e o host de vídeo nativo pronto, `iptv.local-view` não é anunciado.
 
-O aplicativo procura primeiro `runtime/mpv/mpv.exe`. Em Debug, `SEMYRA_MPV_HOME` ou o `PATH` podem fornecer o executável. Separadamente, GStreamer continua sendo a engine exclusiva de publicação WHIP/LiveKit: `SEMYRA_GSTREAMER_HOME` e `runtime/gstreamer/bin` permanecem válidos. A presença do MPV nunca habilita capacidades de publicação, e a presença do GStreamer nunca habilita reprodução visual local.
+O aplicativo procura primeiro `runtime/mpv/mpv.exe`. `SEMYRA_MPV_HOME` pode fornecer explicitamente o executável em Debug ou Release; a busca genérica pelo `PATH` permanece limitada a Debug. Separadamente, GStreamer continua sendo a engine exclusiva de publicação WHIP/LiveKit: `runtime/gstreamer/bin` ou `SEMYRA_GSTREAMER_HOME` explícito permanecem válidos em Debug e Release, enquanto a busca genérica pelo sistema continua limitada a Debug. A presença do MPV nunca habilita capacidades de publicação, e a presença do GStreamer nunca habilita reprodução visual local.
 
 O MPV não é distribuído neste commit. O empacotamento e a conformidade de licenças do runtime serão definidos antes de qualquer distribuição binária do Desktop; esta implementação é independente e não incorpora código de players de terceiros.
 

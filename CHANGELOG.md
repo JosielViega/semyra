@@ -4,6 +4,10 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ## [Unreleased]
 
+### Added
+
+- O Desktop agora possui preparação explícita e isolada para a origem HTTPS oficial: perfis WebView2 Local/Online independentes, launcher ONLINE com `--check-only` e descoberta configurada de GStreamer também em Release, sem alterar o SQLite/DPAPI da IPTV.
+
 ### Fixed
 
 - O pacote HostGator agora inclui e exige somente o runner CLI `bin/migrate.php`, mantendo as demais ferramentas de desenvolvimento fora do mirror e permitindo migrations auditáveis a partir do diretório privado.

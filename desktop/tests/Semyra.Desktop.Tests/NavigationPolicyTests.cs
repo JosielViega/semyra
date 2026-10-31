@@ -14,6 +14,17 @@ public sealed class NavigationPolicyTests
         Assert.False(policy.IsAllowed(new Uri("https://semyra.example:8443/")));
     }
 
+    [Fact]
+    public void ProductionOriginAllowsInternalRoutesButRejectsLookalikes()
+    {
+        var policy = new NavigationPolicy(new Uri("https://semyra.jzlcode.com.br/"));
+
+        Assert.True(policy.IsAllowed(new Uri("https://semyra.jzlcode.com.br/rooms/ABC?tab=chat")));
+        Assert.False(policy.IsAllowed(new Uri("https://evil.example/?next=https://semyra.jzlcode.com.br/")));
+        Assert.False(policy.IsAllowed(new Uri("https://semyra.jzlcode.com.br.evil.example/")));
+        Assert.False(policy.IsAllowed(new Uri("http://semyra.jzlcode.com.br/")));
+    }
+
     [Theory]
     [InlineData("http://localhost:8010/")]
     [InlineData("http://127.0.0.1:8010/room/ABC")]

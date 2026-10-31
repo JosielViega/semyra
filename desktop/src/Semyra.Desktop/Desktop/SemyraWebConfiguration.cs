@@ -9,18 +9,34 @@ public sealed record SemyraWebConfiguration(Uri BaseUri, string UserDataFolder)
         var configuredUrl = Environment.GetEnvironmentVariable("SEMYRA_DESKTOP_URL");
 
 #if DEBUG
-        var value = string.IsNullOrWhiteSpace(configuredUrl) ? "http://localhost:8010/" : configuredUrl.Trim();
+        const string defaultUrl = "http://localhost:8010/";
         const bool allowLocalHttp = true;
 #else
-        if (string.IsNullOrWhiteSpace(configuredUrl))
+        const string? defaultUrl = null;
+        const bool allowLocalHttp = false;
+#endif
+
+        return Create(
+            configuredUrl,
+            Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER"),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            allowLocalHttp,
+            defaultUrl);
+    }
+
+    internal static SemyraWebConfiguration Create(
+        string? configuredUrl,
+        string? configuredFolder,
+        string localApplicationData,
+        bool allowLocalHttp,
+        string? defaultUrl)
+    {
+        var value = string.IsNullOrWhiteSpace(configuredUrl) ? defaultUrl : configuredUrl.Trim();
+        if (string.IsNullOrWhiteSpace(value))
         {
             throw new InvalidOperationException(
                 "Configure SEMYRA_DESKTOP_URL com a URL HTTPS do Semyra antes de iniciar a aplicação.");
         }
-
-        var value = configuredUrl.Trim();
-        const bool allowLocalHttp = false;
-#endif
 
         if (!NavigationPolicy.TryCreateBaseUri(value, allowLocalHttp, out var baseUri) || baseUri is null)
         {
@@ -29,8 +45,8 @@ public sealed record SemyraWebConfiguration(Uri BaseUri, string UserDataFolder)
         }
 
         var userDataFolder = ResolveUserDataFolder(
-            Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER"),
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+            configuredFolder,
+            localApplicationData);
 
         return new SemyraWebConfiguration(baseUri, userDataFolder);
     }

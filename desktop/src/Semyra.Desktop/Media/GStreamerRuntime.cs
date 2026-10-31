@@ -81,12 +81,18 @@ public sealed class GStreamerRuntime
 
     public static GStreamerRuntime DiscoverDefault()
     {
-        return Discover(AppContext.BaseDirectory, new GStreamerCommandRunner());
+        return Discover(
+            AppContext.BaseDirectory,
+            new GStreamerCommandRunner(),
+            Environment.GetEnvironmentVariable("SEMYRA_GSTREAMER_HOME"));
     }
 
-    internal static GStreamerRuntime Discover(string appDirectory, IGStreamerCommandRunner runner)
+    internal static GStreamerRuntime Discover(
+        string appDirectory,
+        IGStreamerCommandRunner runner,
+        string? configuredHome = null)
     {
-        foreach (var directory in CandidateDirectories(appDirectory))
+        foreach (var directory in CandidateDirectories(appDirectory, configuredHome))
         {
             var launch = Path.Combine(directory, "gst-launch-1.0.exe");
             var inspect = Path.Combine(directory, "gst-inspect-1.0.exe");
@@ -164,16 +170,15 @@ public sealed class GStreamerRuntime
         }
     }
 
-    private static IEnumerable<string> CandidateDirectories(string appDirectory)
+    private static IEnumerable<string> CandidateDirectories(string appDirectory, string? configuredHome)
     {
         yield return Path.Combine(appDirectory, "runtime", "gstreamer", "bin");
-#if DEBUG
-        var developmentHome = Environment.GetEnvironmentVariable("SEMYRA_GSTREAMER_HOME");
-        if (!string.IsNullOrWhiteSpace(developmentHome))
+        if (!string.IsNullOrWhiteSpace(configuredHome))
         {
-            yield return Path.Combine(developmentHome, "bin");
-            yield return developmentHome;
+            yield return Path.Combine(configuredHome, "bin");
+            yield return configuredHome;
         }
+#if DEBUG
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "gstreamer", "1.0", "msvc_x86_64", "bin");
         foreach (var item in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
