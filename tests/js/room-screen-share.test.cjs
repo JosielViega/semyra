@@ -199,6 +199,20 @@ test('unexpected native pipeline failure fences and removes the active transmiss
     assert.ok(h.calls.some(x=>x.type==='fetch'&&x.url==='/stop'));
 });
 
+test('screen presents sanitized HTTP status and content category', async () => {
+    const h=harness();
+    const targetPromise=h.controller.loadTargets(); h.answer('targets',{targets:[{id:'d'.repeat(32),type:'monitor',name:'Principal',width:1920,height:1080,available:true}]}); await targetPromise;
+    selectFirst(h);
+    const startPromise=h.controller.start(); await new Promise(resolve=>setImmediate(resolve));
+    h.windowListeners.get('semyra:host-authorized')?.(new CustomEvent('semyra:host-authorized',{detail:{permission:'screen.publish',transmissionInstanceId:'a'.repeat(32),transmissionRevision:3}}));
+    await new Promise(resolve=>setImmediate(resolve)); h.answer('start',{state:'streaming',audio:false,encoder:'x264enc'}); await startPromise;
+    h.windowListeners.get('semyra:screen-state')?.(new CustomEvent('semyra:screen-state',{detail:{state:'failed',errorCode:'screen_ingress_http_403_html'}}));
+    await new Promise(resolve=>setImmediate(resolve)); h.answer('stop',{state:'idle'}); await new Promise(resolve=>setImmediate(resolve));
+    assert.match(h.status.textContent,/screen_ingress_http_403_html/);
+    assert.match(h.status.textContent,/servidor recusou/i);
+    assert.doesNotMatch(h.status.textContent,/<html|authorization|bearer/i);
+});
+
 test('loads only the selected native preview and discards a stale response', async () => {
     const h=harness();
     const targetPromise=h.controller.loadTargets();

@@ -81,6 +81,137 @@ public sealed class ScreenPipelineTests
     }
 
     [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, "text/html", "ingress_http_401_html")]
+    [InlineData(HttpStatusCode.Forbidden, "text/html", "ingress_http_403_html")]
+    [InlineData(HttpStatusCode.NotFound, "text/html", "ingress_http_404_html")]
+    [InlineData(HttpStatusCode.NotAcceptable, "text/html", "ingress_http_406_html")]
+    [InlineData(HttpStatusCode.TooManyRequests, "text/plain", "ingress_http_429_text")]
+    [InlineData(HttpStatusCode.InternalServerError, "text/html", "ingress_http_500_html")]
+    [InlineData(HttpStatusCode.BadGateway, "text/html", "ingress_http_502_html")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "text/html", "ingress_http_503_html")]
+    [InlineData(HttpStatusCode.GatewayTimeout, "text/html", "ingress_http_504_html")]
+    [InlineData(HttpStatusCode.Forbidden, "application/json", "ingress_http_403_json")]
+    public async Task DesktopPublishStartClassifiesUnexpectedHttpResponses(
+        HttpStatusCode status, string mediaType, string expected)
+    {
+        using var http = new HttpClient(new StatusHandler(_ => Content(status, "blocked", mediaType)));
+        var client = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), http);
+
+        var error = await Assert.ThrowsAsync<MediaEngineException>(() =>
+            client.StartAsync(Authorization(), CancellationToken.None));
+
+        Assert.Equal(expected, error.Code);
+        Assert.DoesNotContain("blocked", error.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DesktopPublishStartDistinguishesBackendContractAndRedirects()
+    {
+        using var backendHttp = new HttpClient(new StatusHandler(_ =>
+            Json(HttpStatusCode.Forbidden, "{\"error\":\"unknown_safe_code\"}")));
+        var backend = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), backendHttp);
+        var backendError = await Assert.ThrowsAsync<MediaEngineException>(() =>
+            backend.StartAsync(Authorization(), CancellationToken.None));
+        Assert.Equal("ingress_backend_http_403", backendError.Code);
+
+        using var redirectHttp = new HttpClient(new StatusHandler(_ => new HttpResponseMessage(HttpStatusCode.Found)
+        {
+            Headers = { Location = new Uri("https://different.invalid/") },
+        }));
+        var redirect = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), redirectHttp);
+        var redirectError = await Assert.ThrowsAsync<MediaEngineException>(() =>
+            redirect.StartAsync(Authorization(), CancellationToken.None));
+        Assert.Equal("ingress_http_redirect_302_location", redirectError.Code);
+        Assert.DoesNotContain("different.invalid", redirectError.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DesktopPublishStartDistinguishesRedirectWithoutLocation()
+    {
+        using var http = new HttpClient(new StatusHandler(_ => new HttpResponseMessage(HttpStatusCode.TemporaryRedirect)));
+        var client = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), http);
+
+        var error = await Assert.ThrowsAsync<MediaEngineException>(() =>
+            client.StartAsync(Authorization(), CancellationToken.None));
+
+        Assert.Equal("ingress_http_redirect_307_no_location", error.Code);
+    }
+
+    [Theory]
+    [InlineData("not-json", "ingress_success_invalid_json")]
+    [InlineData("{}", "ingress_success_missing_ingress_id")]
+    [InlineData("{\"ingress_id\":7}", "ingress_success_invalid_ingress_id")]
+    [InlineData("{\"ingress_id\":\"INGRESS\"}", "ingress_success_missing_whip_endpoint")]
+    [InlineData("{\"ingress_id\":\"INGRESS\",\"whip_endpoint\":\"http://unsafe.invalid\"}", "ingress_success_invalid_whip_endpoint")]
+    [InlineData("{\"ingress_id\":\"INGRESS\",\"whip_endpoint\":\"https://whip.invalid/path\"}", "ingress_success_missing_transmission_instance_id")]
+    [InlineData("{\"ingress_id\":\"INGRESS\",\"whip_endpoint\":\"https://whip.invalid/path\",\"transmission_instance_id\":\"wrong\"}", "ingress_success_invalid_transmission_instance_id")]
+    [InlineData("{\"ingress_id\":\"INGRESS\",\"whip_endpoint\":\"https://whip.invalid/path\",\"transmission_instance_id\":\"cccccccccccccccccccccccccccccccc\"}", "ingress_success_missing_transmission_revision")]
+    [InlineData("{\"ingress_id\":\"INGRESS\",\"whip_endpoint\":\"https://whip.invalid/path\",\"transmission_instance_id\":\"cccccccccccccccccccccccccccccccc\",\"transmission_revision\":4}", "ingress_success_invalid_transmission_revision")]
+    public async Task DesktopPublishStartRejectsInvalidSuccessContract(string body, string expected)
+    {
+        using var http = new HttpClient(new StatusHandler(_ => Json(HttpStatusCode.OK, body)));
+        var client = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), http);
+
+        var error = await Assert.ThrowsAsync<MediaEngineException>(() =>
+            client.StartAsync(Authorization(), CancellationToken.None));
+
+        Assert.Equal(expected, error.Code);
+        Assert.DoesNotContain("unsafe.invalid", error.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DesktopPublishStartRejectsSuccessfulHtmlWithoutParsingItsBody()
+    {
+        using var http = new HttpClient(new StatusHandler(_ =>
+            Content(HttpStatusCode.OK, "<html>sensitive proxy page</html>", "text/html")));
+        var client = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), http);
+
+        var error = await Assert.ThrowsAsync<MediaEngineException>(() =>
+            client.StartAsync(Authorization(), CancellationToken.None));
+
+        Assert.Equal("ingress_success_http_200_html", error.Code);
+        Assert.DoesNotContain("sensitive", error.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DesktopPublishStartAcceptsTheExactSuccessContract()
+    {
+        var authorization = Authorization();
+        var body = JsonSerializer.Serialize(new
+        {
+            ingress_id = "INGRESS_TEST",
+            whip_endpoint = "https://whip.invalid/secret-path",
+            transmission_instance_id = authorization.TransmissionInstanceId,
+            transmission_revision = authorization.TransmissionRevision,
+        });
+        using var http = new HttpClient(new StatusHandler(_ => Json(HttpStatusCode.Created, body)));
+        var client = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), http);
+
+        var lease = await client.StartAsync(authorization, CancellationToken.None);
+
+        Assert.Equal("INGRESS_TEST", lease.IngressId);
+        Assert.Equal("https://whip.invalid/secret-path", lease.WhipEndpoint.AbsoluteUri);
+    }
+
+    [Theory]
+    [InlineData(true, "ingress_http_timeout")]
+    [InlineData(false, "ingress_http_transport_failed")]
+    public async Task DesktopPublishStartClassifiesFailuresBeforeHttpResponse(bool timeout, string expected)
+    {
+        Exception failure = timeout
+            ? new TaskCanceledException("sensitive timeout detail")
+            : new HttpRequestException("sensitive transport detail");
+        using var http = new HttpClient(new ThrowingHandler(failure));
+        var client = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), http);
+
+        var error = await Assert.ThrowsAsync<MediaEngineException>(() =>
+            client.StartAsync(Authorization(), CancellationToken.None));
+
+        Assert.Equal(expected, error.Code);
+        Assert.DoesNotContain("sensitive", error.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("ingress_quota_exceeded", "screen_ingress_quota_exceeded")]
     [InlineData("ingress_api_dns_failed", "screen_ingress_api_dns_failed")]
     [InlineData("ingress_api_tls_failed", "screen_ingress_api_tls_failed")]
@@ -88,6 +219,10 @@ public sealed class ScreenPipelineTests
     [InlineData("ingress_list_failed", "screen_ingress_list_failed")]
     [InlineData("ingress_cleanup_failed", "screen_ingress_cleanup_failed")]
     [InlineData("ingress_create_failed", "screen_ingress_create_failed")]
+    [InlineData("ingress_http_403_html", "screen_ingress_http_403_html")]
+    [InlineData("ingress_http_redirect_302_location", "screen_ingress_http_redirect_302_location")]
+    [InlineData("ingress_backend_http_503", "screen_ingress_backend_http_503")]
+    [InlineData("ingress_success_missing_ingress_id", "screen_ingress_success_missing_ingress_id")]
     public void ScreenStartMapsSanitizedBackendFailures(string code, string expected)
     {
         Assert.Equal(expected, ScreenPublisher.MapStartError(code));
@@ -339,10 +474,22 @@ public sealed class ScreenPipelineTests
         Content = new StringContent(body, Encoding.UTF8, "application/json"),
     };
 
+    private static HttpResponseMessage Content(HttpStatusCode status, string body, string mediaType) => new(status)
+    {
+        Content = new StringContent(body, Encoding.UTF8, mediaType),
+    };
+
     private sealed class StatusHandler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken) => Task.FromResult(response(request));
+    }
+
+    private sealed class ThrowingHandler(Exception exception) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) => Task.FromException<HttpResponseMessage>(exception);
     }
 }

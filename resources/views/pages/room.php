@@ -297,9 +297,9 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
     <script src="/assets/js/room-noise-suppression.js?v=12-2-rnnoise" defer></script>
     <script src="/assets/js/room-voice.js?v=12-2-rnnoise" defer></script>
     <script src="/assets/js/room-chat.js?v=12-chat-1" defer></script>
-    <?php if (is_array($currentUser)): ?><script src="/assets/js/room-screen-share.js?v=13e-ingress-diagnostics" defer></script><?php endif; ?>
+    <?php if (is_array($currentUser)): ?><script src="/assets/js/room-screen-share.js?v=13g-http-diagnostics" defer></script><?php endif; ?>
     <script src="/assets/js/room-desktop-host.js?v=11n-screen-native-r3-5" defer></script>
-    <script src="/assets/js/room-desktop-iptv.js?v=13e-ingress-diagnostics" defer></script>
+    <script src="/assets/js/room-desktop-iptv.js?v=13g-http-diagnostics" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
     <script src="/assets/js/room-playback.js?v=11m-c-vod-controls-r7" defer></script>

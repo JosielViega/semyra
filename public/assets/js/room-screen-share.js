@@ -40,6 +40,19 @@
         status.textContent = message;
         status.classList.toggle('is-error', error);
     };
+    const httpDiagnosticMessage = (code) => {
+        if (code === 'screen_ingress_http_timeout') return 'A requisição ao servidor expirou.';
+        if (code === 'screen_ingress_http_transport_failed') return 'O Desktop não conseguiu conectar ao servidor.';
+        if (/^screen_ingress_http_redirect_\d{3}_(?:location|no_location)$/.test(code))
+            return 'O servidor redirecionou inesperadamente a publicação.';
+        if (/^screen_ingress_http_\d{3}_(?:json|html|text|other|unknown)$/.test(code))
+            return 'O servidor recusou a publicação antes de retornar o contrato esperado.';
+        if (/^screen_ingress_backend_http_\d{3}$/.test(code))
+            return 'O backend recusou a publicação com um código não reconhecido.';
+        if (/^screen_ingress_success_/.test(code))
+            return 'A resposta de sucesso do servidor não corresponde ao contrato esperado.';
+        return null;
+    };
     const setPhase = (next) => {
         phase = next;
         const busy = ['authorizing', 'preparing', 'connecting', 'stopping'].includes(next);
@@ -347,7 +360,7 @@
                 screen_pipeline_exited: 'O pipeline de compartilhamento foi interrompido.',
             };
             const code = typeof error?.message === 'string' && /^screen_[a-z0-9_]+$/.test(error.message) ? error.message : 'screen_publish_failed';
-            setPhase('error'); setStatus(`${messages[code] || 'Não foi possível iniciar o compartilhamento.'} Código: ${code}.`, true);
+            setPhase('error'); setStatus(`${messages[code] || httpDiagnosticMessage(code) || 'Não foi possível iniciar o compartilhamento.'} Código: ${code}.`, true);
         }
     }
 
@@ -387,7 +400,7 @@
             };
             void cleanup(true).then(() => {
                 setPhase('error');
-                setStatus(`${messages[code] || 'O compartilhamento foi interrompido no Desktop.'} Código: ${code}.`, true);
+                setStatus(`${messages[code] || httpDiagnosticMessage(code) || 'O compartilhamento foi interrompido no Desktop.'} Código: ${code}.`, true);
             });
         }
     });

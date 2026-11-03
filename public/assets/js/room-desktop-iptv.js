@@ -30,6 +30,19 @@
         return value;
     };
     const current = (scope, value) => state.requestTokens.get(scope) === value;
+    const httpDiagnosticMessage = (code) => {
+        if (code === 'ingress_http_timeout') return `A requisição ao servidor expirou. Código: ${code}.`;
+        if (code === 'ingress_http_transport_failed') return `O Desktop não conseguiu conectar ao servidor. Código: ${code}.`;
+        if (/^ingress_http_redirect_\d{3}_(?:location|no_location)$/.test(code))
+            return `O servidor redirecionou inesperadamente a publicação. Código: ${code}.`;
+        if (/^ingress_http_\d{3}_(?:json|html|text|other|unknown)$/.test(code))
+            return `O servidor recusou a publicação antes de retornar o contrato esperado. Código: ${code}.`;
+        if (/^ingress_backend_http_\d{3}$/.test(code))
+            return `O backend recusou a publicação com um código não reconhecido. Código: ${code}.`;
+        if (/^ingress_success_/.test(code))
+            return `A resposta de sucesso do servidor não corresponde ao contrato esperado. Código: ${code}.`;
+        return null;
+    };
     const errorMessage = (code) => ({
         premium_required: 'Transmitir IPTV para uma sala requer Premium.',
         whip_runtime_unavailable: 'O runtime de publicação WHIP não está disponível.',
@@ -62,7 +75,7 @@
         invalid_request: 'A solicitação de transmissão é inválida.',
         media_publish_failed: 'Não foi possível publicar o conteúdo.',
         publish_failed: 'Não foi possível publicar o conteúdo.',
-    }[code] || 'Não foi possível concluir a publicação.');
+    }[code] || httpDiagnosticMessage(code) || 'Não foi possível concluir a publicação.');
 
     const publishStatus = (detail) => {
         if (!detail?.ok) return errorMessage(detail?.errorCode || detail?.error);

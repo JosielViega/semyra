@@ -36,6 +36,9 @@ final class Logger
             PHP_EOL,
         );
 
-        error_log($entry, 3, $this->logDirectory . DIRECTORY_SEPARATOR . date('Y-m-d') . '.log');
+        $written = @error_log($entry, 3, $this->logDirectory . DIRECTORY_SEPARATOR . date('Y-m-d') . '.log');
+        if ($written === false) {
+            error_log(sprintf('Semyra %s log fallback: %s', $level, str_replace(["\r", "\n"], ' ', $message)));
+        }
     }
 }

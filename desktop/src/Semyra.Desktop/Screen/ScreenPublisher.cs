@@ -238,6 +238,9 @@ internal sealed class ScreenPublisher : IAsyncDisposable
         "host_authorization_expired" => "screen_authorization_expired",
         "host_authorization_required" => "screen_authorization_required",
         "host_authorization_invalid" => "screen_authorization_rejected",
+        _ when code.StartsWith("ingress_http_", StringComparison.Ordinal)
+            || code.StartsWith("ingress_backend_http_", StringComparison.Ordinal)
+            || code.StartsWith("ingress_success_", StringComparison.Ordinal) => $"screen_{code}",
         _ => "screen_publish_failed",
     };
 

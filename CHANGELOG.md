@@ -10,6 +10,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- O Desktop agora distingue respostas HTTP inesperadas da HostGator por status, categoria segura de `Content-Type` e redirecionamento, valida cada campo do contrato 2xx de criação de Ingress e preserva separadamente códigos legítimos do backend. O endpoint PHP registra somente marcos sanitizados de chegada, rejeição e conclusão, com fallback seguro quando o arquivo operacional não pode ser gravado.
+
 - Falhas de publicação IPTV/Screen agora preservam diagnósticos sanitizados distintos para API LiveKit (DNS, TLS, timeout, autenticação, permissão, quota, listagem, cleanup e criação) e para o transporte WHIP no Desktop, mantendo detalhes internos somente no log operacional protegido e sem expor endpoints ou tokens.
 
 - O pacote HostGator agora inclui e exige somente o runner CLI `bin/migrate.php`, mantendo as demais ferramentas de desenvolvimento fora do mirror e permitindo migrations auditáveis a partir do diretório privado.

@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Http;
+using System.IO;
 using System.Text.Json;
 using Semyra.Desktop.Desktop;
 using Semyra.Desktop.Host;
@@ -35,35 +36,19 @@ internal sealed class DesktopPublishClient(Func<Uri> baseUri, HttpClient? httpCl
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new MediaEngineException("ingress_api_timeout");
+            throw new MediaEngineException("ingress_http_timeout");
         }
-        catch (HttpRequestException exception)
+        catch (HttpRequestException)
         {
-            throw new MediaEngineException("ingress_api_transport_failed", exception);
+            throw new MediaEngineException("ingress_http_transport_failed");
         }
         using (response)
         {
             if (!response.IsSuccessStatusCode)
             {
-                var upstreamCode = await ReadErrorCodeAsync(response, cancellationToken);
-                throw new MediaEngineException(MapStartError(response.StatusCode, upstreamCode));
+                throw new MediaEngineException(await ClassifyStartFailureAsync(response, cancellationToken));
             }
-            using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
-            var root = json.RootElement;
-            var ingressId = root.GetProperty("ingress_id").GetString();
-            var endpointValue = root.GetProperty("whip_endpoint").GetString();
-            var instanceId = root.GetProperty("transmission_instance_id").GetString();
-            var revision = root.GetProperty("transmission_revision").GetInt64();
-            if (string.IsNullOrWhiteSpace(ingressId)
-                || ingressId.Length > 128
-                || instanceId != authorization.TransmissionInstanceId
-                || revision != authorization.TransmissionRevision
-                || !Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint)
-                || endpoint.Scheme != Uri.UriSchemeHttps)
-            {
-                throw new MediaEngineException("ingress_create_failed");
-            }
-            return new DesktopPublishLease(ingressId, endpoint);
+            return await ReadStartSuccessAsync(response, authorization, cancellationToken);
         }
     }
 
@@ -141,9 +126,16 @@ internal sealed class DesktopPublishClient(Func<Uri> baseUri, HttpClient? httpCl
             using var json = await JsonDocument.ParseAsync(
                 await response.Content.ReadAsStreamAsync(cancellationToken),
                 cancellationToken: cancellationToken);
-            return json.RootElement.TryGetProperty("error", out var error) ? error.GetString() : null;
+            return json.RootElement.ValueKind == JsonValueKind.Object
+                && json.RootElement.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.String
+                    ? error.GetString()
+                    : null;
         }
-        catch (JsonException) { return null; }
+        catch (Exception exception) when (exception is JsonException or HttpRequestException or IOException or InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     internal static string MapUnauthorizedError(string? upstreamCode) => upstreamCode switch
@@ -153,7 +145,10 @@ internal sealed class DesktopPublishClient(Func<Uri> baseUri, HttpClient? httpCl
         _ => "host_authorization_invalid",
     };
 
-    internal static string MapStartError(System.Net.HttpStatusCode status, string? upstreamCode)
+    internal static string MapStartError(
+        System.Net.HttpStatusCode status,
+        string? upstreamCode,
+        string contentCategory = "json")
     {
         if (status == System.Net.HttpStatusCode.Unauthorized
             && upstreamCode is "host_session_expired" or "host_session_required" or "invalid_host_session")
@@ -164,8 +159,99 @@ internal sealed class DesktopPublishClient(Func<Uri> baseUri, HttpClient? httpCl
                 or "ingress_api_timeout" or "ingress_api_unavailable" or "ingress_api_dns_failed"
                 or "ingress_api_tls_failed" or "ingress_api_transport_failed" or "ingress_list_failed"
                 or "ingress_cleanup_failed" or "ingress_create_failed" => upstreamCode,
-            _ => "ingress_create_failed",
+            _ when !string.IsNullOrWhiteSpace(upstreamCode) => $"ingress_backend_http_{(int)status}",
+            _ => $"ingress_http_{(int)status}_{contentCategory}",
         };
+    }
+
+    private static async Task<string> ClassifyStartFailureAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        var status = (int)response.StatusCode;
+        if (status is >= 300 and < 400)
+        {
+            var location = response.Headers.Location is null ? "no_location" : "location";
+            return $"ingress_http_redirect_{status}_{location}";
+        }
+        var contentCategory = ContentCategory(response);
+        var upstreamCode = contentCategory == "json"
+            ? await ReadErrorCodeAsync(response, cancellationToken)
+            : null;
+        return MapStartError(response.StatusCode, upstreamCode, contentCategory);
+    }
+
+    private static async Task<DesktopPublishLease> ReadStartSuccessAsync(
+        HttpResponseMessage response,
+        HostAuthorization authorization,
+        CancellationToken cancellationToken)
+    {
+        var category = ContentCategory(response);
+        if (category != "json")
+            throw new MediaEngineException($"ingress_success_http_{(int)response.StatusCode}_{category}");
+
+        JsonDocument json;
+        try
+        {
+            json = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken),
+                cancellationToken: cancellationToken);
+        }
+        catch (JsonException)
+        {
+            throw new MediaEngineException("ingress_success_invalid_json");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new MediaEngineException("ingress_http_timeout");
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        {
+            throw new MediaEngineException("ingress_success_read_failed");
+        }
+        using (json)
+        {
+            var root = json.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                throw new MediaEngineException("ingress_success_invalid_json");
+
+            if (!root.TryGetProperty("ingress_id", out var ingressProperty))
+                throw new MediaEngineException("ingress_success_missing_ingress_id");
+            var ingressId = ingressProperty.ValueKind == JsonValueKind.String ? ingressProperty.GetString() : null;
+            if (string.IsNullOrWhiteSpace(ingressId) || ingressId.Length > 128)
+                throw new MediaEngineException("ingress_success_invalid_ingress_id");
+
+            if (!root.TryGetProperty("whip_endpoint", out var endpointProperty))
+                throw new MediaEngineException("ingress_success_missing_whip_endpoint");
+            var endpointValue = endpointProperty.ValueKind == JsonValueKind.String ? endpointProperty.GetString() : null;
+            if (!Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint)
+                || endpoint.Scheme != Uri.UriSchemeHttps)
+                throw new MediaEngineException("ingress_success_invalid_whip_endpoint");
+
+            if (!root.TryGetProperty("transmission_instance_id", out var instanceProperty))
+                throw new MediaEngineException("ingress_success_missing_transmission_instance_id");
+            var instanceId = instanceProperty.ValueKind == JsonValueKind.String ? instanceProperty.GetString() : null;
+            if (instanceId != authorization.TransmissionInstanceId)
+                throw new MediaEngineException("ingress_success_invalid_transmission_instance_id");
+
+            if (!root.TryGetProperty("transmission_revision", out var revisionProperty))
+                throw new MediaEngineException("ingress_success_missing_transmission_revision");
+            if (!revisionProperty.TryGetInt64(out var revision)
+                || revision != authorization.TransmissionRevision)
+                throw new MediaEngineException("ingress_success_invalid_transmission_revision");
+
+            return new DesktopPublishLease(ingressId, endpoint);
+        }
+    }
+
+    private static string ContentCategory(HttpResponseMessage response)
+    {
+        var mediaType = response.Content.Headers.ContentType?.MediaType?.Trim().ToLowerInvariant();
+        if (mediaType is "application/json" || (mediaType?.EndsWith("+json", StringComparison.Ordinal) ?? false))
+            return "json";
+        if (mediaType is "text/html" or "application/xhtml+xml") return "html";
+        if (mediaType?.StartsWith("text/", StringComparison.Ordinal) == true) return "text";
+        return string.IsNullOrWhiteSpace(mediaType) ? "unknown" : "other";
     }
 
     private HttpRequestMessage CreateRequest(HostAuthorization authorization, string action, object body)

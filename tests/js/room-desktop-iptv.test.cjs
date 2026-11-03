@@ -185,6 +185,14 @@ test('sanitized Host Session failures have understandable messages', () => {
     page.hostSessionError('vod_codec_unsupported'); assert.match(page.status.textContent, /codecs/);
 });
 
+test('sanitized HTTP diagnostics expose category and code without response bodies', () => {
+    const page = harness(); page.hostReady();
+    page.result('publish-start', {ok: false, errorCode: 'ingress_http_403_html'});
+    assert.match(page.status.textContent, /servidor recusou/i);
+    assert.match(page.status.textContent, /ingress_http_403_html/);
+    assert.doesNotMatch(page.status.textContent, /<html|response body|authorization/i);
+});
+
 test('IPTV searches never submit the sibling YouTube form', () => {
     const page = harness(); page.hostReady(); page.chooseIptv(); page.listResult();
     assert.equal(page.submitSearch('live'), true);

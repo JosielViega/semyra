@@ -6,6 +6,7 @@ namespace Tests;
 
 use App\Controllers\RoomDesktopMediaPublishController;
 use App\Core\Database;
+use App\Core\Logger;
 use App\Core\Request;
 use App\Repositories\DesktopHostSessionRepository;
 use App\Repositories\RoomRepository;
@@ -44,7 +45,26 @@ final class RoomDesktopMediaPublishControllerTest extends TestCase
         self::assertSame(422, $extra->start('ROOM2345')->status());
     }
 
-    private function controller(bool $omitBearer, bool $extraChannel = false): array
+    public function testStartWritesOnlySanitizedReachAndOutcomeDiagnostics(): void
+    {
+        $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'semyra-http-log-' . bin2hex(random_bytes(6));
+        $logger = new Logger($directory);
+        [$controller] = $this->controller(false, false, $logger);
+
+        self::assertSame(201, $controller->start('ROOM2345')->status());
+
+        $path = $directory . DIRECTORY_SEPARATOR . date('Y-m-d') . '.log';
+        $contents = (string) file_get_contents($path);
+        self::assertStringContainsString('request reached PHP', $contents);
+        self::assertStringContainsString('request completed in PHP', $contents);
+        self::assertStringNotContainsString('Bearer', $contents);
+        self::assertStringNotContainsString(str_repeat('a', 32), $contents);
+        self::assertStringNotContainsString(str_repeat('b', 64), $contents);
+        unlink($path);
+        rmdir($directory);
+    }
+
+    private function controller(bool $omitBearer, bool $extraChannel = false, ?Logger $logger = null): array
     {
         $instance = str_repeat('a', 32);
         $owner = str_repeat('b', 64);
@@ -70,8 +90,8 @@ final class RoomDesktopMediaPublishControllerTest extends TestCase
         $gateway = new ControllerDesktopPublishGateway();
         $context = new LiveKitRoomContext('testing');
         $service = new DesktopMediaPublishService($sessions, new RoomTransmissionRepository($database), $gateway,
-            $context, new DesktopMediaIngressIdentity('testing'), new UserRepository($database), new PremiumAccess(), true);
-        return [new RoomDesktopMediaPublishController($request, new RoomRepository($database), $service), $gateway];
+            $context, new DesktopMediaIngressIdentity('testing'), new UserRepository($database), new PremiumAccess(), true, $logger);
+        return [new RoomDesktopMediaPublishController($request, new RoomRepository($database), $service, $logger), $gateway];
     }
 }
 

@@ -63,7 +63,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-livekit-viewer-token-url="/room/7MKP3WQH/livekit/viewer-token"', $html);
         self::assertStringContainsString('data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"', $html);
         self::assertStringContainsString('/assets/js/room-livekit-player.js?v=11n-screen-share-r3-7', $html);
-        self::assertStringContainsString('/assets/js/room-desktop-iptv.js?v=13e-ingress-diagnostics', $html);
+        self::assertStringContainsString('/assets/js/room-desktop-iptv.js?v=13g-http-diagnostics', $html);
         self::assertStringContainsString('data-initial-instance-id=""', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
         self::assertStringContainsString('/assets/css/tokens.css?v=8b-identity', $html);
@@ -170,7 +170,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('<option value="standard" selected>', $html);
         self::assertStringContainsString('A captura é feita localmente pelo Semyra Desktop.', $html);
         self::assertStringContainsString('data-screen-share-start', $html);
-        self::assertStringContainsString('/assets/js/room-screen-share.js?v=13e-ingress-diagnostics', $html);
+        self::assertStringContainsString('/assets/js/room-screen-share.js?v=13g-http-diagnostics', $html);
         self::assertStringContainsString('/transmission/screen/heartbeat', $html);
         self::assertStringContainsString('/transmission/screen/stop', $html);
         self::assertStringNotContainsString('participant_token', $html);

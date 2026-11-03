@@ -221,6 +221,7 @@ $roomDesktopMediaPublish = new RoomDesktopMediaPublishController(
         ($app['livekit']['enabled'] ?? false) === true,
         $app['logger'],
     ),
+    $app['logger'],
 );
 $mediaBridgeJobs = new MediaBridgeJobRepository($app['database']);
 $mediaBridge = new MediaBridgeController(
