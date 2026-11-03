@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Core\Logger;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
 use Throwable;
@@ -19,6 +20,7 @@ final class DesktopMediaPublishService
         private readonly UserRepository $users,
         private readonly PremiumAccess $premiumAccess,
         private readonly bool $liveKitAvailable,
+        private readonly ?Logger $logger = null,
     ) {
     }
 
@@ -55,17 +57,26 @@ final class DesktopMediaPublishService
         $roomName = $this->context->roomName($roomId);
         $ingressName = $this->identity->name($roomId);
         try {
-            foreach ($this->ingress->findIngressIdsByRoomAndName($roomName, $ingressName) as $staleId) {
+            $staleIds = $this->ingress->findIngressIdsByRoomAndName($roomName, $ingressName);
+        } catch (Throwable $exception) {
+            $this->failIngressOperation($exception, 'list', 'ingress_list_failed');
+        }
+        try {
+            foreach ($staleIds as $staleId) {
                 $this->ingress->deleteIngress($staleId);
             }
+        } catch (Throwable $exception) {
+            $this->failIngressOperation($exception, 'delete', 'ingress_cleanup_failed');
+        }
+        try {
             $created = $this->ingress->createWhipIngress(
                 $ingressName,
                 $roomName,
                 $this->context->publisherIdentity($roomId, $instanceId),
                 $sourceType === 'screen',
             );
-        } catch (Throwable) {
-            throw new DesktopMediaPublishException('ingress_create_failed', 503);
+        } catch (Throwable $exception) {
+            $this->failIngressOperation($exception, 'create', 'ingress_create_failed');
         }
 
         return $created + [
@@ -85,8 +96,8 @@ final class DesktopMediaPublishService
             if (in_array($ingressId, $owned, true)) {
                 $this->ingress->deleteIngress($ingressId);
             }
-        } catch (Throwable) {
-            throw new DesktopMediaPublishException('ingress_cleanup_failed', 503);
+        } catch (Throwable $exception) {
+            $this->failIngressOperation($exception, 'delete', 'ingress_cleanup_failed');
         }
     }
 
@@ -111,8 +122,8 @@ final class DesktopMediaPublishService
                 $this->context->publisherIdentity($roomId, $instanceId),
                 $ingressId,
             );
-        } catch (Throwable) {
-            throw new DesktopMediaPublishException('ingress_status_failed', 503);
+        } catch (Throwable $exception) {
+            $this->failIngressOperation($exception, 'status', 'ingress_status_failed');
         }
         if ($state === null) {
             throw new DesktopMediaPublishException('ingress_not_found', 404);
@@ -158,5 +169,22 @@ final class DesktopMediaPublishService
         }
 
         return $validation['session'];
+    }
+
+    private function failIngressOperation(Throwable $exception, string $operation, string $fallback): never
+    {
+        $failure = $exception instanceof LiveKitIngressOperationException
+            ? $exception
+            : null;
+        $this->logger?->error('LiveKit ingress operation failed.', [
+            'operation' => $failure?->operation ?? $operation,
+            'diagnostic_code' => $failure?->diagnosticCode ?? 'livekit_ingress_unknown_failure',
+            'public_code' => $failure?->publicCode ?? $fallback,
+            'exception' => $exception::class,
+        ]);
+        throw new DesktopMediaPublishException(
+            $failure?->publicCode ?? $fallback,
+            $failure?->status ?? 503,
+        );
     }
 }

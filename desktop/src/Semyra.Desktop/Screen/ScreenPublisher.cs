@@ -105,7 +105,12 @@ internal sealed class ScreenPublisher : IAsyncDisposable
         catch (Exception exception)
         {
             await StopLockedAsync();
-            var code = exception is ScreenPublisherException screen ? screen.Code : "screen_publish_failed";
+            var code = exception switch
+            {
+                ScreenPublisherException screen => screen.Code,
+                MediaEngineException media => MapStartError(media.Code),
+                _ => "screen_publish_failed",
+            };
             SetSnapshot(_snapshot with { State = "failed", ErrorCode = code, DiagnosticCode = "screen_publish_failed" });
             if (exception is ScreenPublisherException) throw;
             throw new ScreenPublisherException(code, exception);
@@ -217,6 +222,25 @@ internal sealed class ScreenPublisher : IAsyncDisposable
         _ => "screen_ingress_status_request_failed",
     };
 
+    internal static string MapStartError(string code) => code switch
+    {
+        "ingress_quota_exceeded" => "screen_ingress_quota_exceeded",
+        "ingress_api_unauthorized" => "screen_ingress_api_unauthorized",
+        "ingress_api_forbidden" => "screen_ingress_api_forbidden",
+        "ingress_api_timeout" => "screen_ingress_api_timeout",
+        "ingress_api_unavailable" => "screen_ingress_api_unavailable",
+        "ingress_api_dns_failed" => "screen_ingress_api_dns_failed",
+        "ingress_api_tls_failed" => "screen_ingress_api_tls_failed",
+        "ingress_api_transport_failed" => "screen_ingress_api_transport_failed",
+        "ingress_list_failed" => "screen_ingress_list_failed",
+        "ingress_cleanup_failed" => "screen_ingress_cleanup_failed",
+        "ingress_create_failed" => "screen_ingress_create_failed",
+        "host_authorization_expired" => "screen_authorization_expired",
+        "host_authorization_required" => "screen_authorization_required",
+        "host_authorization_invalid" => "screen_authorization_rejected",
+        _ => "screen_publish_failed",
+    };
+
     private async Task HandleUnexpectedExitAsync(Process process)
     {
         await _gate.WaitAsync();
@@ -303,12 +327,21 @@ internal sealed class ScreenPipelineDiagnostics
             || text.Contains("audio", StringComparison.OrdinalIgnoreCase)) return "screen_audio_failed";
         if (text.Contains("d3d11screen", StringComparison.OrdinalIgnoreCase)
             || text.Contains("capture", StringComparison.OrdinalIgnoreCase)) return "screen_capture_failed";
+        if (ContainsAny(text, "certificate", "tls", "ssl")) return "screen_whip_tls_failed";
+        if (ContainsAny(text, "could not resolve", "getaddrinfo", "name or service not known")) return "screen_whip_dns_failed";
+        if (ContainsAny(text, "timed out", "timeout")) return "screen_whip_timeout";
+        if (ContainsAny(text, "401", "403", "unauthorized", "forbidden")) return "screen_whip_authorization_failed";
+        if (ContainsAny(text, "429", "resource exhausted", "quota")) return "screen_whip_quota_exceeded";
+        if (ContainsAny(text, "connection refused", "could not connect", "network is unreachable")) return "screen_whip_transport_failed";
         if (text.Contains("whip", StringComparison.OrdinalIgnoreCase)
             || text.Contains("webrtc", StringComparison.OrdinalIgnoreCase)) return "screen_whip_failed";
         if (text.Contains("264enc", StringComparison.OrdinalIgnoreCase)
             || text.Contains("encoder", StringComparison.OrdinalIgnoreCase)) return "screen_encoder_failed";
         return "screen_pipeline_exited";
     }
+
+    private static bool ContainsAny(string text, params string[] values) =>
+        values.Any(value => text.Contains(value, StringComparison.OrdinalIgnoreCase));
 
     internal void Complete(Process process)
     {

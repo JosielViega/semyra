@@ -6,6 +6,7 @@ namespace Tests;
 
 use Agence104\LiveKit\IngressServiceClient;
 use App\Services\SdkLiveKitIngressGateway;
+use App\Services\LiveKitIngressOperationException;
 use Livekit\IngressInfo;
 use Livekit\IngressInput;
 use Livekit\IngressState;
@@ -89,6 +90,34 @@ final class SdkLiveKitIngressGatewayTest extends TestCase
         self::assertSame(['ALREADY_GONE'], $client->deleted);
     }
 
+    public function testCreatePreservesSanitizedQuotaFailure(): void
+    {
+        $client = new RecordingIngressClient();
+        $client->createError = TwirpError::newError(ErrorCode::ResourceExhausted, 'sensitive quota detail');
+        $gateway = new SdkLiveKitIngressGateway($this->config(), $client);
+
+        $failure = self::expectExceptionObjectFrom(static fn() =>
+            $gateway->createWhipIngress('name', 'room', 'publisher'));
+
+        self::assertSame('ingress_quota_exceeded', $failure->publicCode);
+        self::assertSame('livekit_quota_exhausted', $failure->diagnosticCode);
+    }
+
+    public function testListAndStatusFailuresRemainDistinct(): void
+    {
+        $client = new RecordingIngressClient();
+        $client->listError = TwirpError::newError(ErrorCode::Unavailable, 'sensitive outage detail');
+        $gateway = new SdkLiveKitIngressGateway($this->config(), $client);
+
+        $list = self::expectExceptionObjectFrom(static fn() =>
+            $gateway->findIngressIdsByRoomAndName('room', 'name'));
+        self::assertSame('list', $list->operation);
+
+        $status = self::expectExceptionObjectFrom(static fn() =>
+            $gateway->findIngressStatus('room', 'name', 'publisher', 'INGRESS'));
+        self::assertSame('status', $status->operation);
+    }
+
     public function testStatusRequiresExactOwnedIngressAndReturnsOnlySanitizedState(): void
     {
         $client = new RecordingIngressClient();
@@ -148,6 +177,16 @@ final class SdkLiveKitIngressGatewayTest extends TestCase
     {
         return ['enabled' => true, 'url' => 'wss://unit-test.invalid', 'api_key' => 'TEST_KEY', 'api_secret' => 'TEST_SECRET'];
     }
+
+    private static function expectExceptionObjectFrom(callable $callback): LiveKitIngressOperationException
+    {
+        try {
+            $callback();
+        } catch (LiveKitIngressOperationException $exception) {
+            return $exception;
+        }
+        self::fail('Expected LiveKitIngressOperationException.');
+    }
 }
 
 final class RecordingIngressClient extends IngressServiceClient
@@ -157,6 +196,8 @@ final class RecordingIngressClient extends IngressServiceClient
     public array $listed = [];
     public array $listArgs = [];
     public ?TwirpError $deleteError = null;
+    public ?TwirpError $createError = null;
+    public ?TwirpError $listError = null;
     public function __construct() {}
     public function createIngress(
         int $inputType,
@@ -170,6 +211,7 @@ final class RecordingIngressClient extends IngressServiceClient
         ?string $url = null,
     ): IngressInfo {
         $this->createArgs = func_get_args();
+        if ($this->createError !== null) throw $this->createError;
         return new IngressInfo([
             'ingress_id' => 'INGRESS_TEST',
             'input_type' => IngressInput::WHIP_INPUT,
@@ -189,6 +231,7 @@ final class RecordingIngressClient extends IngressServiceClient
     public function listIngress(string $roomName = '', string $ingressId = ''): ListIngressResponse
     {
         $this->listArgs[] = [$roomName, $ingressId];
+        if ($this->listError !== null) throw $this->listError;
         return new ListIngressResponse(['items' => $this->listed]);
     }
 }

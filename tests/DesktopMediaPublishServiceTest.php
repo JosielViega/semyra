@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use App\Core\Database;
+use App\Core\Logger;
 use App\Repositories\DesktopHostSessionRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
@@ -13,10 +14,13 @@ use App\Services\DesktopMediaIngressIdentity;
 use App\Services\DesktopMediaPublishException;
 use App\Services\DesktopMediaPublishService;
 use App\Services\LiveKitIngressGateway;
+use App\Services\LiveKitIngressOperationException;
 use App\Services\LiveKitRoomContext;
 use App\Services\PremiumAccess;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Livekit\TwirpError;
+use Twirp\ErrorCode;
 use Tests\Support\DesktopHostSessionPdo;
 
 final class DesktopMediaPublishServiceTest extends TestCase
@@ -204,7 +208,56 @@ final class DesktopMediaPublishServiceTest extends TestCase
         self::assertSame([], $gateway->created);
     }
 
-    private function fixture(string $source = 'iptv'): array
+    public function testStartKeepsListAndQuotaFailuresDistinct(): void
+    {
+        [$service, $token, $gateway] = $this->fixture();
+        $gateway->listError = new \RuntimeException('opaque list failure');
+        try {
+            $service->start($token, 7, self::INSTANCE, 3);
+            self::fail('Expected list failure.');
+        } catch (DesktopMediaPublishException $exception) {
+            self::assertSame('ingress_list_failed', $exception->errorCode);
+        }
+
+        [$service, $token, $gateway] = $this->fixture();
+        $gateway->createError = LiveKitIngressOperationException::from(
+            'create',
+            TwirpError::newError(ErrorCode::ResourceExhausted, 'sensitive quota detail'),
+        );
+        try {
+            $service->start($token, 7, self::INSTANCE, 3);
+            self::fail('Expected quota failure.');
+        } catch (DesktopMediaPublishException $exception) {
+            self::assertSame('ingress_quota_exceeded', $exception->errorCode);
+            self::assertSame(429, $exception->status);
+        }
+    }
+
+    public function testOperationalLogContainsOnlySanitizedIngressDiagnostics(): void
+    {
+        $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'semyra-ingress-log-' . bin2hex(random_bytes(6));
+        $logger = new Logger($directory);
+        [$service, $token, $gateway] = $this->fixture('iptv', $logger);
+        $gateway->createError = LiveKitIngressOperationException::from(
+            'create',
+            TwirpError::newError(ErrorCode::Unavailable, 'sensitive upstream body and token'),
+        );
+
+        try {
+            $service->start($token, 7, self::INSTANCE, 3);
+            self::fail('Expected LiveKit failure.');
+        } catch (DesktopMediaPublishException) {
+        }
+
+        $contents = (string) file_get_contents($directory . DIRECTORY_SEPARATOR . date('Y-m-d') . '.log');
+        self::assertStringContainsString('livekit_api_unavailable', $contents);
+        self::assertStringNotContainsString('sensitive', $contents);
+        self::assertStringNotContainsString('token', $contents);
+        unlink($directory . DIRECTORY_SEPARATOR . date('Y-m-d') . '.log');
+        rmdir($directory);
+    }
+
+    private function fixture(string $source = 'iptv', ?Logger $logger = null): array
     {
         $pdo = new DesktopHostSessionPdo();
         $pdo->seedUser(7);
@@ -221,7 +274,7 @@ final class DesktopMediaPublishServiceTest extends TestCase
         $identity = new DesktopMediaIngressIdentity('testing');
         $repository = new RoomTransmissionRepository($database);
         return [new DesktopMediaPublishService($sessions, $repository, $gateway, $context, $identity,
-            new UserRepository($database), new PremiumAccess(), true),
+            new UserRepository($database), new PremiumAccess(), true, $logger),
             $issued['token'], $gateway, $identity, $context, $pdo, $sessions, $repository];
     }
 
@@ -238,14 +291,18 @@ final class DesktopPublishGateway implements LiveKitIngressGateway
     public array $items = [];
     public array $deleted = [];
     public array $created = [];
+    public ?\Throwable $listError = null;
+    public ?\Throwable $createError = null;
     public function createWhipIngress(string $name, string $roomName, string $publisherIdentity, bool $screenShare = false): array
     {
+        if ($this->createError !== null) throw $this->createError;
         $this->created[] = compact('name', 'roomName', 'publisherIdentity', 'screenShare');
         return ['ingress_id' => 'INGRESS_NEW', 'whip_endpoint' => 'https://whip.invalid/test'];
     }
     public function findOwnedIngressIds(string $roomName, string $ingressName, string $publisherIdentity): array { return []; }
     public function findIngressIdsByRoomAndName(string $roomName, string $ingressName): array
     {
+        if ($this->listError !== null) throw $this->listError;
         return array_values(array_map(static fn(array $item): string => $item['id'], array_filter(
             $this->items,
             static fn(array $item): bool => $item['room'] === $roomName && $item['name'] === $ingressName,

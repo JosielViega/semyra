@@ -28,29 +28,43 @@ internal sealed class DesktopPublishClient(Func<Uri> baseUri, HttpClient? httpCl
             transmission_instance_id = authorization.TransmissionInstanceId,
             transmission_revision = authorization.TransmissionRevision,
         });
-        using var response = await _http.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        HttpResponseMessage response;
+        try
         {
-            var upstreamCode = await ReadErrorCodeAsync(response, cancellationToken);
-            throw new MediaEngineException(response.StatusCode == System.Net.HttpStatusCode.Unauthorized
-                ? MapUnauthorizedError(upstreamCode) : "ingress_create_failed");
+            response = await _http.SendAsync(request, cancellationToken);
         }
-        using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
-        var root = json.RootElement;
-        var ingressId = root.GetProperty("ingress_id").GetString();
-        var endpointValue = root.GetProperty("whip_endpoint").GetString();
-        var instanceId = root.GetProperty("transmission_instance_id").GetString();
-        var revision = root.GetProperty("transmission_revision").GetInt64();
-        if (string.IsNullOrWhiteSpace(ingressId)
-            || ingressId.Length > 128
-            || instanceId != authorization.TransmissionInstanceId
-            || revision != authorization.TransmissionRevision
-            || !Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint)
-            || endpoint.Scheme != Uri.UriSchemeHttps)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new MediaEngineException("ingress_create_failed");
+            throw new MediaEngineException("ingress_api_timeout");
         }
-        return new DesktopPublishLease(ingressId, endpoint);
+        catch (HttpRequestException exception)
+        {
+            throw new MediaEngineException("ingress_api_transport_failed", exception);
+        }
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                var upstreamCode = await ReadErrorCodeAsync(response, cancellationToken);
+                throw new MediaEngineException(MapStartError(response.StatusCode, upstreamCode));
+            }
+            using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+            var root = json.RootElement;
+            var ingressId = root.GetProperty("ingress_id").GetString();
+            var endpointValue = root.GetProperty("whip_endpoint").GetString();
+            var instanceId = root.GetProperty("transmission_instance_id").GetString();
+            var revision = root.GetProperty("transmission_revision").GetInt64();
+            if (string.IsNullOrWhiteSpace(ingressId)
+                || ingressId.Length > 128
+                || instanceId != authorization.TransmissionInstanceId
+                || revision != authorization.TransmissionRevision
+                || !Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint)
+                || endpoint.Scheme != Uri.UriSchemeHttps)
+            {
+                throw new MediaEngineException("ingress_create_failed");
+            }
+            return new DesktopPublishLease(ingressId, endpoint);
+        }
     }
 
     public async Task StopAsync(HostAuthorization authorization, string ingressId, CancellationToken cancellationToken)
@@ -138,6 +152,21 @@ internal sealed class DesktopPublishClient(Func<Uri> baseUri, HttpClient? httpCl
         "host_session_required" => "host_authorization_required",
         _ => "host_authorization_invalid",
     };
+
+    internal static string MapStartError(System.Net.HttpStatusCode status, string? upstreamCode)
+    {
+        if (status == System.Net.HttpStatusCode.Unauthorized
+            && upstreamCode is "host_session_expired" or "host_session_required" or "invalid_host_session")
+            return MapUnauthorizedError(upstreamCode);
+        return upstreamCode switch
+        {
+            "ingress_quota_exceeded" or "ingress_api_unauthorized" or "ingress_api_forbidden"
+                or "ingress_api_timeout" or "ingress_api_unavailable" or "ingress_api_dns_failed"
+                or "ingress_api_tls_failed" or "ingress_api_transport_failed" or "ingress_list_failed"
+                or "ingress_cleanup_failed" or "ingress_create_failed" => upstreamCode,
+            _ => "ingress_create_failed",
+        };
+    }
 
     private HttpRequestMessage CreateRequest(HostAuthorization authorization, string action, object body)
     {

@@ -11,6 +11,7 @@ use Livekit\IngressState\Status;
 use Livekit\IngressVideoOptions;
 use Livekit\TrackSource;
 use RuntimeException;
+use Throwable;
 use Twirp\Error;
 use Twirp\ErrorCode;
 
@@ -37,16 +38,20 @@ final class SdkLiveKitIngressGateway implements LiveKitIngressGateway
             'name' => 'screen-video',
             'source' => TrackSource::SCREEN_SHARE,
         ]) : null;
-        $info = $this->client()->createIngress(
-            IngressInput::WHIP_INPUT,
-            $name,
-            $roomName,
-            $publisherIdentity,
-            '',
-            $audio,
-            $video,
-            true,
-        );
+        try {
+            $info = $this->client()->createIngress(
+                IngressInput::WHIP_INPUT,
+                $name,
+                $roomName,
+                $publisherIdentity,
+                '',
+                $audio,
+                $video,
+                true,
+            );
+        } catch (Throwable $exception) {
+            throw LiveKitIngressOperationException::from('create', $exception);
+        }
         $ingressId = trim($info->getIngressId());
         $url = trim($info->getUrl());
         $streamKey = trim($info->getStreamKey());
@@ -72,9 +77,12 @@ final class SdkLiveKitIngressGateway implements LiveKitIngressGateway
         try {
             $this->client()->deleteIngress($ingressId);
         } catch (Error $exception) {
-            if ($exception->getErrorCode() !== ErrorCode::NotFound) {
-                throw $exception;
+            if ($exception->getErrorCode() === ErrorCode::NotFound) {
+                return;
             }
+            throw LiveKitIngressOperationException::from('delete', $exception);
+        } catch (Throwable $exception) {
+            throw LiveKitIngressOperationException::from('delete', $exception);
         }
     }
 
@@ -85,7 +93,12 @@ final class SdkLiveKitIngressGateway implements LiveKitIngressGateway
         }
 
         $ids = [];
-        foreach ($this->client()->listIngress($roomName)->getItems() as $info) {
+        try {
+            $items = $this->client()->listIngress($roomName)->getItems();
+        } catch (Throwable $exception) {
+            throw LiveKitIngressOperationException::from('list', $exception);
+        }
+        foreach ($items as $info) {
             if ($info->getRoomName() !== $roomName
                 || $info->getName() !== $ingressName
                 || $info->getParticipantIdentity() !== $publisherIdentity
@@ -107,7 +120,12 @@ final class SdkLiveKitIngressGateway implements LiveKitIngressGateway
             throw new RuntimeException('LiveKit ingress ownership context is invalid.');
         }
         $ids = [];
-        foreach ($this->client()->listIngress($roomName)->getItems() as $info) {
+        try {
+            $items = $this->client()->listIngress($roomName)->getItems();
+        } catch (Throwable $exception) {
+            throw LiveKitIngressOperationException::from('list', $exception);
+        }
+        foreach ($items as $info) {
             if ($info->getRoomName() !== $roomName
                 || $info->getName() !== $ingressName
                 || $info->getInputType() !== IngressInput::WHIP_INPUT) {
@@ -126,7 +144,12 @@ final class SdkLiveKitIngressGateway implements LiveKitIngressGateway
         if ($roomName === '' || $ingressName === '' || $publisherIdentity === '' || $ingressId === '') {
             throw new RuntimeException('LiveKit ingress status context is invalid.');
         }
-        foreach ($this->client()->listIngress('', $ingressId)->getItems() as $info) {
+        try {
+            $items = $this->client()->listIngress('', $ingressId)->getItems();
+        } catch (Throwable $exception) {
+            throw LiveKitIngressOperationException::from('status', $exception);
+        }
+        foreach ($items as $info) {
             if ($info->getIngressId() !== $ingressId
                 || $info->getRoomName() !== $roomName
                 || $info->getName() !== $ingressName

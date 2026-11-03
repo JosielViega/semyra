@@ -10,6 +10,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- Falhas de publicação IPTV/Screen agora preservam diagnósticos sanitizados distintos para API LiveKit (DNS, TLS, timeout, autenticação, permissão, quota, listagem, cleanup e criação) e para o transporte WHIP no Desktop, mantendo detalhes internos somente no log operacional protegido e sem expor endpoints ou tokens.
+
 - O pacote HostGator agora inclui e exige somente o runner CLI `bin/migrate.php`, mantendo as demais ferramentas de desenvolvimento fora do mirror e permitindo migrations auditáveis a partir do diretório privado.
 
 - Conexões PDO agora fixam a sessão MySQL em UTC, impedindo que o fuso configurado pela hospedagem altere a validade de Host Sessions e a interpretação de timestamps de produção.

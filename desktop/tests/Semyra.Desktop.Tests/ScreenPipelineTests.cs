@@ -63,6 +63,37 @@ public sealed class ScreenPipelineTests
     }
 
     [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, "ingress_quota_exceeded")]
+    [InlineData(HttpStatusCode.Unauthorized, "ingress_api_unauthorized")]
+    [InlineData(HttpStatusCode.Forbidden, "ingress_api_forbidden")]
+    [InlineData(HttpStatusCode.GatewayTimeout, "ingress_api_timeout")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "ingress_api_unavailable")]
+    public async Task DesktopPublishStartPreservesAllowlistedBackendDiagnostics(
+        HttpStatusCode status, string code)
+    {
+        using var http = new HttpClient(new StatusHandler(_ => Json(status, $"{{\"error\":\"{code}\"}}")));
+        var client = new DesktopPublishClient(() => new Uri("https://semyra.invalid/"), http);
+
+        var error = await Assert.ThrowsAsync<MediaEngineException>(() =>
+            client.StartAsync(Authorization(), CancellationToken.None));
+
+        Assert.Equal(code, error.Code);
+    }
+
+    [Theory]
+    [InlineData("ingress_quota_exceeded", "screen_ingress_quota_exceeded")]
+    [InlineData("ingress_api_dns_failed", "screen_ingress_api_dns_failed")]
+    [InlineData("ingress_api_tls_failed", "screen_ingress_api_tls_failed")]
+    [InlineData("ingress_api_timeout", "screen_ingress_api_timeout")]
+    [InlineData("ingress_list_failed", "screen_ingress_list_failed")]
+    [InlineData("ingress_cleanup_failed", "screen_ingress_cleanup_failed")]
+    [InlineData("ingress_create_failed", "screen_ingress_create_failed")]
+    public void ScreenStartMapsSanitizedBackendFailures(string code, string expected)
+    {
+        Assert.Equal(expected, ScreenPublisher.MapStartError(code));
+    }
+
+    [Theory]
     [InlineData("ingress_not_found", true, "screen_ingress_not_found")]
     [InlineData("ingress_status_request_failed", true, "screen_ingress_status_request_failed")]
     [InlineData("ingress_status_invalid", false, "screen_ingress_status_invalid")]
@@ -208,11 +239,32 @@ public sealed class ScreenPipelineTests
     [InlineData("ERROR from wasapi2src: device is unavailable", "screen_audio_failed")]
     [InlineData("d3d11screencapturesrc failed to capture", "screen_capture_failed")]
     [InlineData("whipsink WebRTC negotiation failed", "screen_whip_failed")]
+    [InlineData("whipsink TLS certificate validation failed", "screen_whip_tls_failed")]
+    [InlineData("whipsink could not resolve cloud host", "screen_whip_dns_failed")]
+    [InlineData("whipsink connection timed out", "screen_whip_timeout")]
+    [InlineData("WHIP server returned HTTP 403 forbidden", "screen_whip_authorization_failed")]
+    [InlineData("WHIP server returned HTTP 429 quota", "screen_whip_quota_exceeded")]
+    [InlineData("whipsink connection refused", "screen_whip_transport_failed")]
     [InlineData("nvh264enc encoder could not initialize", "screen_encoder_failed")]
     [InlineData("pipeline stopped", "screen_pipeline_exited")]
     public void DiagnosticsExposeOnlyStableSanitizedFailureCodes(string line, string expected)
     {
         var diagnostics = new ScreenPipelineDiagnostics();
+        diagnostics.Observe(line);
+        Assert.Equal(expected, diagnostics.ErrorCode());
+    }
+
+    [Theory]
+    [InlineData("TLS certificate validation failed", "whip_tls_failed")]
+    [InlineData("could not resolve LiveKit host", "whip_dns_failed")]
+    [InlineData("connection timed out", "whip_timeout")]
+    [InlineData("HTTP 401 unauthorized", "whip_authorization_failed")]
+    [InlineData("HTTP 429 resource exhausted", "whip_quota_exceeded")]
+    [InlineData("connection refused", "whip_transport_failed")]
+    [InlineData("whipsink negotiation failed", "whip_publish_failed")]
+    public void IptvPipelineDiagnosticsExposeOnlyStableCodes(string line, string expected)
+    {
+        var diagnostics = new MediaPipelineDiagnostics();
         diagnostics.Observe(line);
         Assert.Equal(expected, diagnostics.ErrorCode());
     }
