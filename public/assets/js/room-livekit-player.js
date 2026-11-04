@@ -175,6 +175,22 @@
         removeAttached('audio');
     };
 
+    const applyLocalAudioState = () => {
+        const volume = Math.min(1, Math.max(0, selectedVolume / 100));
+        const effectiveVolume = locallyMuted ? 0 : volume;
+        if (audioTrack && typeof audioTrack.setVolume === 'function') {
+            try {
+                audioTrack.setVolume(effectiveVolume);
+            } catch {
+                // The attached media element remains the compatibility fallback.
+            }
+        }
+        if (audioElement) {
+            audioElement.volume = volume;
+            audioElement.muted = locallyMuted;
+        }
+    };
+
     const disconnectRoom = async () => {
         const previousRoom = room;
         room = null;
@@ -362,6 +378,7 @@
             audioTrack = track;
             audioElement = element;
             currentAttachmentKeys.audio = key;
+            applyLocalAudioState();
             emitAudioState();
             if (!locallyMuted) void preserveAudiblePlayback(element, capturedGeneration);
         }
@@ -534,19 +551,16 @@
                 selectedVolume = media.playerUnmuteVolume(selectedVolume, restoreVolume);
                 restoreVolume = selectedVolume;
                 media.writeStoredPlayerVolume(volumeStorage, selectedVolume);
-                if (audioElement) {
-                    audioElement.volume = selectedVolume / 100;
-                    audioElement.muted = false;
-                }
                 locallyMuted = false;
+                applyLocalAudioState();
             } catch {
                 locallyMuted = true;
-                if (audioElement) audioElement.muted = true;
+                applyLocalAudioState();
                 updateStatus('O navegador bloqueou o áudio. Tente ativar o som novamente.', true);
             }
         } else {
             locallyMuted = true;
-            if (audioElement) audioElement.muted = true;
+            applyLocalAudioState();
         }
         emitAudioState();
     });
@@ -565,10 +579,7 @@
                 updateStatus('O navegador bloqueou o áudio. Tente ativar o som novamente.', true);
             }
         }
-        if (audioElement) {
-            audioElement.volume = selectedVolume / 100;
-            audioElement.muted = locallyMuted;
-        }
+        applyLocalAudioState();
         emitAudioState();
     });
 

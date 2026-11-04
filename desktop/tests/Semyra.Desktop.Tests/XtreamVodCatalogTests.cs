@@ -96,6 +96,38 @@ public sealed class XtreamVodCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task SeriesEpisodesUsePlaybackStreamIdentityAndOptionalNestedMetadata()
+    {
+        const string response = """
+            {"episodes":{"1":[
+                {"id":501,"stream_id":901,"episode_num":1,"title":"MP4","container_extension":"mp4"},
+                {"id":502,"episode_num":2,"title":"MKV","info":{"stream_id":902,"container_extension":"mkv"}},
+                {"id":503,"episode_num":3,"title":"TS","extension":"ts"},
+                {"id":504,"episode_num":4,"title":"Default"},
+                {"episode_num":5,"title":"Missing identity"},
+                {"id":505}
+            ]}}
+            """;
+        var store = new IptvStore(DatabasePath(), _protector); store.Initialize();
+        var handler = new VodHandler(response);
+        using var http = new HttpClient(handler);
+        using var catalog = new IptvCatalogService(store, _protector, new M3uParser(), new HttpClient(), http);
+        var source = await catalog.AddXtreamSourceAsync("Provider", "https://provider.example", "alice", "secret", default);
+        await catalog.SyncVodAsync(source.Id, default);
+        var series = Assert.Single(catalog.SearchSeries(source.Id, "Series A", null, 0, 100).Items);
+
+        var details = await catalog.GetSeriesDetailsAsync(series.Id, false, default);
+
+        Assert.Equal(5, details.Episodes.Count);
+        var byName = details.Episodes.ToDictionary(item => item.Name, StringComparer.Ordinal);
+        Assert.EndsWith("/series/alice/secret/901.mp4", catalog.ResolveEpisodeForPlayback(byName["MP4"].Id).AbsoluteUri);
+        Assert.EndsWith("/series/alice/secret/902.mkv", catalog.ResolveEpisodeForPlayback(byName["MKV"].Id).AbsoluteUri);
+        Assert.EndsWith("/series/alice/secret/503.ts", catalog.ResolveEpisodeForPlayback(byName["TS"].Id).AbsoluteUri);
+        Assert.EndsWith("/series/alice/secret/504.mp4", catalog.ResolveEpisodeForPlayback(byName["Default"].Id).AbsoluteUri);
+        Assert.Contains("Episódio 505", byName.Keys);
+    }
+
+    [Fact]
     public async Task SourceRemovalCascadesVodAndCancelsAnActiveSyncWithoutRecreatingState()
     {
         var database = DatabasePath(); var store = new IptvStore(database, _protector); store.Initialize();

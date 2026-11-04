@@ -167,10 +167,18 @@ internal sealed class XtreamClient
             if (!int.TryParse(season.Name, out var seasonNumber) || seasonNumber < 0 || season.Value.ValueKind != JsonValueKind.Array) continue;
             foreach (var item in season.Value.EnumerateArray())
             {
-                if (!TryScalarString(item, "id", out var id) || string.IsNullOrWhiteSpace(id)) continue; id = id.Trim(); if (result.ContainsKey(id)) continue;
-                var number = ParseInt(Value(item, "episode_num")); var name = Value(item, "title") ?? $"Episódio {number?.ToString() ?? id}";
                 var info = item.TryGetProperty("info", out var nested) && nested.ValueKind == JsonValueKind.Object ? nested : item;
-                result.Add(id, new(id, seasonNumber, number, name.Trim(), SafeExtension(Value(item, "container_extension")), Value(info, "duration"), Value(info, "plot"), Value(item, "added")));
+                var id = Value(item, "stream_id") ?? Value(info, "stream_id") ?? Value(item, "id") ?? Value(info, "id");
+                if (id is null) continue;
+                id = id.Trim();
+                if (result.ContainsKey(id)) continue;
+                var number = ParseInt(Value(item, "episode_num") ?? Value(info, "episode_num"));
+                var name = Value(item, "title") ?? Value(info, "title") ?? $"Episódio {number?.ToString() ?? id}";
+                var extension = SafeExtension(Value(item, "container_extension")
+                    ?? Value(info, "container_extension")
+                    ?? Value(item, "extension")
+                    ?? Value(info, "extension"));
+                result.Add(id, new(id, seasonNumber, number, name.Trim(), extension, Value(info, "duration"), Value(info, "plot"), Value(item, "added") ?? Value(info, "added")));
             }
         }
         return result.Values.OrderBy(x => x.SeasonNumber).ThenBy(x => x.EpisodeNumber ?? int.MaxValue).ThenBy(x => x.EpisodeId, StringComparer.Ordinal).ToArray();

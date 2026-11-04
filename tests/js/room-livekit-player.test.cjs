@@ -346,6 +346,44 @@ test('same transmission audio replacement preserves unmuted state and volume 70'
     assert.equal(harness.dispatched.filter((event) => event.type === 'semyra:player-audio-state').at(-1).detail.muted, false);
 });
 
+test('viewer volume controls the LiveKit remote audio gain at 0, 50 and 100 percent', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    const audio = element('audio');
+    const gains = [];
+    const track = {
+        kind: 'audio',
+        attach: () => audio,
+        detach() {},
+        setVolume: (value) => gains.push(value),
+    };
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, track, {kind: 'audio'}, expected);
+    assert.equal(gains.at(-1), 0, 'new transmissions start locally muted');
+
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 50}}));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(audio.volume, 0.5);
+    assert.equal(audio.muted, false);
+    assert.equal(gains.at(-1), 0.5);
+
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 100}}));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(audio.volume, 1);
+    assert.equal(gains.at(-1), 1);
+
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-mute-toggle'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(audio.muted, true);
+    assert.equal(gains.at(-1), 0);
+
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-mute-toggle'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(audio.muted, false);
+    assert.equal(gains.at(-1), 1);
+});
+
 test('same transmission audio replacement preserves muted state', async () => {
     const harness = createHarness();
     await harness.controller.applyTransmission(iptv());
