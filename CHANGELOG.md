@@ -10,6 +10,9 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- Episódios Xtream voltam a usar `id` como identidade canônica de playback, mantendo `stream_id` apenas como fallback. O refresh reconcilia a troca de identidade por temporada/episódio para preservar IDs locais, progresso e histórico, rejeita payloads sem identidade sem apagar o cache last-good e exibe somente códigos MPV sanitizados no diagnóstico manual.
+- O volume local de transmissões LiveKit agora usa `RemoteAudioTrack.setVolume()` como autoridade quando disponível e só altera o elemento de áudio como fallback, evitando dupla atenuação e preservando o sink Web Audio gerenciado pelo SDK.
+
 - O Desktop agora distingue respostas HTTP inesperadas da HostGator por status, categoria segura de `Content-Type` e redirecionamento, valida cada campo do contrato 2xx de criação de Ingress e preserva separadamente códigos legítimos do backend. O endpoint PHP registra somente marcos sanitizados de chegada, rejeição e conclusão, com fallback seguro quando o arquivo operacional não pode ser gravado.
 
 - Falhas de publicação IPTV/Screen agora preservam diagnósticos sanitizados distintos para API LiveKit (DNS, TLS, timeout, autenticação, permissão, quota, listagem, cleanup e criação) e para o transporte WHIP no Desktop, mantendo detalhes internos somente no log operacional protegido e sem expor endpoints ou tokens.

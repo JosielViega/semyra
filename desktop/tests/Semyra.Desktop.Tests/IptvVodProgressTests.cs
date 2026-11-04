@@ -191,7 +191,7 @@ public sealed class IptvVodProgressTests : IDisposable
 
         var refreshed = store.ReplaceSeriesEpisodes(series.Id, Episodes());
         var sameEpisode = refreshed.Episodes.Single(value => value.SeasonNumber == 1 && value.EpisodeNumber == 2);
-        Assert.NotEqual(episode.Id, sameEpisode.Id);
+        Assert.Equal(episode.Id, sameEpisode.Id);
         Assert.Equal(900, sameEpisode.Position);
         Assert.Equal(37.5, sameEpisode.ProgressPercent);
         Assert.True(sameEpisode.ContinueHere);
@@ -199,6 +199,31 @@ public sealed class IptvVodProgressTests : IDisposable
 
         store.SaveVodProgress(store.ResolveEpisodeForPlayback(sameEpisode.Id), 2397, 2400);
         Assert.True(store.GetSeriesDetails(series.Id).Episodes.Single(value => value.Id == sameEpisode.Id).Completed);
+    }
+
+    [Fact]
+    public void EpisodeIdentityCorrectionPreservesInternalIdStableKeyAndProgressBySeasonPosition()
+    {
+        var store = NewStore(DatabasePath());
+        var source = AddCatalog(store);
+        var series = Assert.Single(store.SearchSeries(source.Id, "Series", null, 0, 10).Items);
+        var initial = store.ReplaceSeriesEpisodes(series.Id,
+            [new XtreamEpisode("wrong-stream-id", 1, 1, "One", "mp4", null, null, null)]);
+        var before = Assert.Single(initial.Episodes);
+        var beforePlayback = store.ResolveEpisodeForPlayback(before.Id);
+        store.SaveVodProgress(beforePlayback, 600, 1200);
+
+        var refreshed = store.ReplaceSeriesEpisodes(series.Id,
+            [new XtreamEpisode("canonical-id", 1, 1, "One", "mp4", null, null, null)]);
+        var after = Assert.Single(refreshed.Episodes);
+        var afterPlayback = store.ResolveEpisodeForPlayback(after.Id);
+
+        Assert.Equal(before.Id, after.Id);
+        Assert.Equal(beforePlayback.StableKey, afterPlayback.StableKey);
+        Assert.Equal("canonical-id", afterPlayback.ExternalId);
+        Assert.Equal(600, after.Position);
+        Assert.Equal(600, store.ResumePosition(afterPlayback));
+        Assert.Equal(source.Id, afterPlayback.SourceId);
     }
 
     [Fact]

@@ -90,13 +90,14 @@ public sealed class XtreamVodCatalogTests : IDisposable
         Assert.Equal(3, (await catalog.GetSeriesDetailsAsync(series.Id, true, default)).Episodes.Count);
         var stale = await catalog.GetSeriesDetailsAsync(series.Id, true, default);
         Assert.True(stale.Stale);
+        Assert.Equal("xtream_connect_failed", stale.DiagnosticCode);
         Assert.Equal(3, stale.Episodes.Count);
         Assert.Equal(3, store.GetSeriesDetails(series.Id).Episodes.Count);
         Assert.Equal(3, handler.SeriesInfoRequests);
     }
 
     [Fact]
-    public async Task SeriesEpisodesUsePlaybackStreamIdentityAndOptionalNestedMetadata()
+    public async Task SeriesEpisodesPreferCanonicalIdAndUseStreamIdOnlyAsFallback()
     {
         const string response = """
             {"episodes":{"1":[
@@ -104,7 +105,8 @@ public sealed class XtreamVodCatalogTests : IDisposable
                 {"id":502,"episode_num":2,"title":"MKV","info":{"stream_id":902,"container_extension":"mkv"}},
                 {"id":503,"episode_num":3,"title":"TS","extension":"ts"},
                 {"id":504,"episode_num":4,"title":"Default"},
-                {"episode_num":5,"title":"Missing identity"},
+                {"stream_id":903,"episode_num":5,"title":"Stream-only","container_extension":"mkv"},
+                {"episode_num":6,"title":"Missing identity"},
                 {"id":505}
             ]}}
             """;
@@ -118,13 +120,36 @@ public sealed class XtreamVodCatalogTests : IDisposable
 
         var details = await catalog.GetSeriesDetailsAsync(series.Id, false, default);
 
-        Assert.Equal(5, details.Episodes.Count);
+        Assert.Equal(6, details.Episodes.Count);
         var byName = details.Episodes.ToDictionary(item => item.Name, StringComparer.Ordinal);
-        Assert.EndsWith("/series/alice/secret/901.mp4", catalog.ResolveEpisodeForPlayback(byName["MP4"].Id).AbsoluteUri);
-        Assert.EndsWith("/series/alice/secret/902.mkv", catalog.ResolveEpisodeForPlayback(byName["MKV"].Id).AbsoluteUri);
+        Assert.EndsWith("/series/alice/secret/501.mp4", catalog.ResolveEpisodeForPlayback(byName["MP4"].Id).AbsoluteUri);
+        Assert.EndsWith("/series/alice/secret/502.mkv", catalog.ResolveEpisodeForPlayback(byName["MKV"].Id).AbsoluteUri);
         Assert.EndsWith("/series/alice/secret/503.ts", catalog.ResolveEpisodeForPlayback(byName["TS"].Id).AbsoluteUri);
         Assert.EndsWith("/series/alice/secret/504.mp4", catalog.ResolveEpisodeForPlayback(byName["Default"].Id).AbsoluteUri);
+        Assert.EndsWith("/series/alice/secret/903.mkv", catalog.ResolveEpisodeForPlayback(byName["Stream-only"].Id).AbsoluteUri);
         Assert.Contains("Episódio 505", byName.Keys);
+    }
+
+    [Fact]
+    public async Task SeriesResponseWithOnlyInvalidEpisodeIdentitiesPreservesLastGoodCache()
+    {
+        var store = new IptvStore(DatabasePath(), _protector); store.Initialize();
+        var handler = new VodHandler(
+            "{\"episodes\":{\"1\":[{\"id\":301,\"episode_num\":1,\"title\":\"One\"}]}}",
+            "{\"episodes\":{\"1\":[{\"episode_num\":1,\"title\":\"Missing\"}]}}");
+        using var http = new HttpClient(handler);
+        using var catalog = new IptvCatalogService(store, _protector, new M3uParser(), new HttpClient(), http);
+        var source = await catalog.AddXtreamSourceAsync("Provider", "https://provider.example", "alice", "secret", default);
+        await catalog.SyncVodAsync(source.Id, default);
+        var series = Assert.Single(catalog.SearchSeries(source.Id, "Series A", null, 0, 100).Items);
+
+        var initial = await catalog.GetSeriesDetailsAsync(series.Id, false, default);
+        var stale = await catalog.GetSeriesDetailsAsync(series.Id, true, default);
+
+        Assert.Single(initial.Episodes);
+        Assert.Single(stale.Episodes);
+        Assert.True(stale.Stale);
+        Assert.Equal("episode_identity_invalid", stale.DiagnosticCode);
     }
 
     [Fact]

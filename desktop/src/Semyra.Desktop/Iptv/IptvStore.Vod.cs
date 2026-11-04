@@ -262,11 +262,74 @@ public sealed partial class IptvStore
     {
         using var c = Open(); using var tx = c.BeginTransaction(); long source; using (var find = c.CreateCommand()) { find.Transaction = tx; find.CommandText = "SELECT source_id FROM iptv_series WHERE id=$id"; find.Parameters.AddWithValue("$id", seriesId); source = Convert.ToInt64(find.ExecuteScalar() ?? throw new IptvValidationException("Série não encontrada."), CultureInfo.InvariantCulture); }
         string externalSeries; using (var series = c.CreateCommand()) { series.Transaction = tx; series.CommandText = "SELECT external_series_id FROM iptv_series WHERE id=$id"; series.Parameters.AddWithValue("$id", seriesId); externalSeries = Convert.ToString(series.ExecuteScalar(), CultureInfo.InvariantCulture) ?? throw new IptvValidationException("Série não encontrada."); }
+        var existing = ReadExistingEpisodes(c, tx, seriesId);
+        var byExternalId = existing.GroupBy(item => item.ExternalId, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var byPosition = existing.Where(item => item.EpisodeNumber is not null)
+            .GroupBy(item => (item.SeasonNumber, item.EpisodeNumber!.Value))
+            .ToDictionary(group => group.Key, group => group.ToArray());
+        var usedRows = new HashSet<long>();
+        var reconciled = new List<(XtreamEpisode Episode, ExistingEpisode? Existing, string StableKey)>();
+        foreach (var episode in episodes)
+        {
+            ExistingEpisode? matched = null;
+            if (byExternalId.TryGetValue(episode.EpisodeId, out var exact))
+                matched = exact.FirstOrDefault(item => !usedRows.Contains(item.Id));
+            if (matched is null && episode.EpisodeNumber is { } number
+                && byPosition.TryGetValue((episode.SeasonNumber, number), out var positional)
+                && positional.Length == 1 && !usedRows.Contains(positional[0].Id))
+                matched = positional[0];
+            if (matched is not null) usedRows.Add(matched.Id);
+            reconciled.Add((episode, matched, matched?.StableKey ?? "xtream:episode:" + externalSeries + ":" + episode.EpisodeId));
+        }
         using (var del = c.CreateCommand()) { del.Transaction = tx; del.CommandText = "DELETE FROM iptv_series_episodes WHERE series_id=$id"; del.Parameters.AddWithValue("$id", seriesId); del.ExecuteNonQuery(); }
-        using (var ins = c.CreateCommand()) { ins.Transaction = tx; ins.CommandText = "INSERT OR IGNORE INTO iptv_series_episodes(source_id,series_id,external_episode_id,stable_key,season_number,episode_number,name,container_extension,duration,plot,added) VALUES($s,$series,$id,$key,$season,$episode,$n,$e,$duration,$plot,$added)"; foreach (var p in new[] { "$s", "$series", "$id", "$key", "$season", "$episode", "$n", "$e", "$duration", "$plot", "$added" }) ins.Parameters.Add(new SqliteParameter(p, SqliteType.Text)); foreach (var x in episodes) { ins.Parameters["$s"].Value = source; ins.Parameters["$series"].Value = seriesId; ins.Parameters["$id"].Value = x.EpisodeId; ins.Parameters["$key"].Value = "xtream:episode:" + externalSeries + ":" + x.EpisodeId; ins.Parameters["$season"].Value = x.SeasonNumber; ins.Parameters["$episode"].Value = (object?)x.EpisodeNumber ?? DBNull.Value; ins.Parameters["$n"].Value = x.Name; ins.Parameters["$e"].Value = (object?)x.ContainerExtension ?? DBNull.Value; ins.Parameters["$duration"].Value = (object?)x.Duration ?? DBNull.Value; ins.Parameters["$plot"].Value = (object?)x.Plot ?? DBNull.Value; ins.Parameters["$added"].Value = (object?)x.Added ?? DBNull.Value; ins.ExecuteNonQuery(); } }
+        InsertReconciledEpisodes(c, tx, source, seriesId, reconciled);
         var now = _utcNow().ToString("O", CultureInfo.InvariantCulture); using (var up = c.CreateCommand()) { up.Transaction = tx; up.CommandText = "UPDATE iptv_series SET episodes_synced_at=$now WHERE id=$id"; up.Parameters.AddWithValue("$now", now); up.Parameters.AddWithValue("$id", seriesId); up.ExecuteNonQuery(); }
         tx.Commit(); return GetSeriesDetails(seriesId);
     }
+
+    private static List<ExistingEpisode> ReadExistingEpisodes(SqliteConnection connection, SqliteTransaction transaction, long seriesId)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT id,external_episode_id,stable_key,season_number,episode_number FROM iptv_series_episodes WHERE series_id=$id";
+        command.Parameters.AddWithValue("$id", seriesId);
+        using var rows = command.ExecuteReader();
+        var result = new List<ExistingEpisode>();
+        while (rows.Read()) result.Add(new(rows.GetInt64(0), rows.GetString(1), rows.GetString(2), rows.GetInt32(3), rows.IsDBNull(4) ? null : rows.GetInt32(4)));
+        return result;
+    }
+
+    private static void InsertReconciledEpisodes(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long sourceId,
+        long seriesId,
+        IReadOnlyList<(XtreamEpisode Episode, ExistingEpisode? Existing, string StableKey)> episodes)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "INSERT INTO iptv_series_episodes(id,source_id,series_id,external_episode_id,stable_key,season_number,episode_number,name,container_extension,duration,plot,added) VALUES($row,$source,$series,$id,$key,$season,$episode,$name,$extension,$duration,$plot,$added)";
+        foreach (var parameter in new[] { "$row", "$source", "$series", "$season", "$episode" }) command.Parameters.Add(new SqliteParameter(parameter, SqliteType.Integer));
+        foreach (var parameter in new[] { "$id", "$key", "$name", "$extension", "$duration", "$plot", "$added" }) command.Parameters.Add(new SqliteParameter(parameter, SqliteType.Text));
+        foreach (var item in episodes)
+        {
+            command.Parameters["$row"].Value = (object?)item.Existing?.Id ?? DBNull.Value;
+            command.Parameters["$source"].Value = sourceId;
+            command.Parameters["$series"].Value = seriesId;
+            command.Parameters["$id"].Value = item.Episode.EpisodeId;
+            command.Parameters["$key"].Value = item.StableKey;
+            command.Parameters["$season"].Value = item.Episode.SeasonNumber;
+            command.Parameters["$episode"].Value = (object?)item.Episode.EpisodeNumber ?? DBNull.Value;
+            command.Parameters["$name"].Value = item.Episode.Name;
+            command.Parameters["$extension"].Value = (object?)item.Episode.ContainerExtension ?? DBNull.Value;
+            command.Parameters["$duration"].Value = (object?)item.Episode.Duration ?? DBNull.Value;
+            command.Parameters["$plot"].Value = (object?)item.Episode.Plot ?? DBNull.Value;
+            command.Parameters["$added"].Value = (object?)item.Episode.Added ?? DBNull.Value;
+            command.ExecuteNonQuery();
+        }
+    }
+
+    private sealed record ExistingEpisode(long Id, string ExternalId, string StableKey, int SeasonNumber, int? EpisodeNumber);
 
     public IptvSeriesDetails GetSeriesDetails(long seriesId)
     { using var c = Open(); DateTimeOffset? synced = null; using (var h = c.CreateCommand()) { h.CommandText = "SELECT episodes_synced_at FROM iptv_series WHERE id=$id"; h.Parameters.AddWithValue("$id", seriesId); var raw = h.ExecuteScalar(); if (raw is null) throw new IptvValidationException("Série não encontrada."); if (raw is string value && DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt)) synced = dt; } using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT e.id,e.season_number,e.episode_number,e.name,e.duration,e.plot,COALESCE(p.position_seconds,0),COALESCE(p.duration_seconds,0),COALESCE(p.completed,0),p.last_watched_at FROM iptv_series_episodes e LEFT JOIN iptv_vod_progress p ON p.source_id=e.source_id AND p.media_type='episode' AND p.stable_key=e.stable_key WHERE e.series_id=$id ORDER BY e.season_number,e.episode_number,e.id"; cmd.Parameters.AddWithValue("$id", seriesId); using var r = cmd.ExecuteReader(); var rawItems = new List<(IptvEpisodeSummary Item,string? Watched)>(); while (r.Read()) { var position=r.GetDouble(6); var duration=r.GetDouble(7); rawItems.Add((new(r.GetInt64(0), r.GetInt32(1), r.IsDBNull(2) ? null : r.GetInt32(2), r.GetString(3), Null(r, 4), Null(r, 5), position, Percent(position,duration), r.GetInt64(8)==1), r.IsDBNull(9)?null:r.GetString(9))); } var continueId=rawItems.Where(x=>!x.Item.Completed&&x.Item.Position>=5).OrderByDescending(x=>x.Watched).Select(x=>x.Item.Id).FirstOrDefault(); return new(seriesId, rawItems.Select(x=>x.Item with { ContinueHere=x.Item.Id==continueId }).ToArray(), synced); }

@@ -29,7 +29,7 @@ final class DesktopIptvViewTest extends TestCase
         self::assertStringContainsString('data-iptv-channel-list aria-live="polite" aria-busy="false"', $html);
         self::assertStringContainsString('data-iptv-source-loading aria-live="polite" aria-busy="true"', $html);
         self::assertStringContainsString('data-iptv-browser-notice role="status" hidden', $html);
-        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=11l-b-dismiss-gate', $html);
+        self::assertStringContainsString('/assets/js/desktop-iptv.js?v=14c-series-diagnostics', $html);
         self::assertStringContainsString('data-iptv-xtream-form', $html);
         self::assertStringContainsString('type="password"', $html);
         self::assertStringContainsString('Adicionar Xtream', $html);

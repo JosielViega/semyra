@@ -20,6 +20,9 @@ assert.equal(iptv.mediaStatusLabel('buffering'), 'Armazenando dados...');
 assert.equal(iptv.mediaStatusLabel('reconnecting'), 'Reconectando…');
 assert.equal(iptv.mediaStatusLabel('failed', 'media_runtime_unavailable'), 'Player local indisponível neste dispositivo.');
 assert.equal(iptv.mediaStatusLabel('failed', 'invalid_mpegts'), 'Não foi possível reproduzir este conteúdo.');
+assert.equal(iptv.safeDiagnosticCode('mpv_http_error'), 'mpv_http_error');
+assert.equal(iptv.safeDiagnosticCode('https://provider.example/private'), null);
+assert.equal(iptv.safeDiagnosticCode('error with details'), null);
 assert.equal(iptv.channelMonogram('Globo News'), 'GN');
 assert.equal(iptv.channelMonogram('Band'), 'BA');
 assert.equal(iptv.channelMonogram(''), 'TV');
@@ -1209,6 +1212,7 @@ rootListeners.get('semyra:iptv-media-state')({detail: {
 }});
 assert.equal(registry.get('[data-iptv-player-error]').hidden, false);
 assert.equal(registry.get('[data-iptv-error-title]').textContent, 'Não foi possível reproduzir este conteúdo.');
+assert.match(registry.get('[data-iptv-error-copy]').textContent, /Código: mpv_http_error\./);
 assert.equal(registry.get('[data-iptv-native-controls]').hidden, true);
 assert.deepEqual(requests.findLast((item) => item.action === 'player-geometry'), {
     action: 'player-geometry', sessionId: 'e'.repeat(32), x: 0, y: 0, width: 0, height: 0,

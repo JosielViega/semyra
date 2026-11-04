@@ -178,14 +178,19 @@
     const applyLocalAudioState = () => {
         const volume = Math.min(1, Math.max(0, selectedVolume / 100));
         const effectiveVolume = locallyMuted ? 0 : volume;
+        let trackControlled = false;
         if (audioTrack && typeof audioTrack.setVolume === 'function') {
             try {
                 audioTrack.setVolume(effectiveVolume);
+                trackControlled = true;
             } catch {
                 // The attached media element remains the compatibility fallback.
             }
         }
-        if (audioElement) {
+        // LiveKit's RemoteAudioTrack.setVolume already updates attached elements when it
+        // does not use Web Audio, or its gain node when it does. Applying the same factor
+        // to the element would attenuate twice and can unmute the SDK's Web Audio sink.
+        if (audioElement && !trackControlled) {
             audioElement.volume = volume;
             audioElement.muted = locallyMuted;
         }
@@ -372,8 +377,6 @@
         } else {
             element.autoplay = true;
             element.controls = false;
-            element.volume = Math.min(1, Math.max(0, selectedVolume / 100));
-            element.muted = locallyMuted;
             element.classList.add('room-livekit-audio');
             audioTrack = track;
             audioElement = element;

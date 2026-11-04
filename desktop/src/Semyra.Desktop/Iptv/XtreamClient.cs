@@ -162,14 +162,25 @@ internal sealed class XtreamClient
         using var document = await GetJsonAsync(configuration, "get_series_info", new Dictionary<string, string> { { "series_id", seriesId } }, cancellationToken).ConfigureAwait(false);
         if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("episodes", out var groups) || groups.ValueKind != JsonValueKind.Object) throw new XtreamException("xtream_invalid_response");
         var result = new Dictionary<string, XtreamEpisode>(StringComparer.Ordinal);
+        var episodeCandidates = 0;
+        var invalidIdentities = 0;
         foreach (var season in groups.EnumerateObject())
         {
             if (!int.TryParse(season.Name, out var seasonNumber) || seasonNumber < 0 || season.Value.ValueKind != JsonValueKind.Array) continue;
             foreach (var item in season.Value.EnumerateArray())
             {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                episodeCandidates++;
                 var info = item.TryGetProperty("info", out var nested) && nested.ValueKind == JsonValueKind.Object ? nested : item;
-                var id = Value(item, "stream_id") ?? Value(info, "stream_id") ?? Value(item, "id") ?? Value(info, "id");
-                if (id is null) continue;
+                // Xtream's series endpoint uses `id` as the playback identity. Some compatible
+                // providers expose only `stream_id`, so it remains a fallback rather than taking
+                // precedence over the canonical field.
+                var id = Value(item, "id") ?? Value(info, "id") ?? Value(item, "stream_id") ?? Value(info, "stream_id");
+                if (id is null)
+                {
+                    invalidIdentities++;
+                    continue;
+                }
                 id = id.Trim();
                 if (result.ContainsKey(id)) continue;
                 var number = ParseInt(Value(item, "episode_num") ?? Value(info, "episode_num"));
@@ -180,6 +191,10 @@ internal sealed class XtreamClient
                     ?? Value(info, "extension"));
                 result.Add(id, new(id, seasonNumber, number, name.Trim(), extension, Value(info, "duration"), Value(info, "plot"), Value(item, "added") ?? Value(info, "added")));
             }
+        }
+        if (episodeCandidates > 0 && result.Count == 0 && invalidIdentities > 0)
+        {
+            throw new XtreamException("episode_identity_invalid");
         }
         return result.Values.OrderBy(x => x.SeasonNumber).ThenBy(x => x.EpisodeNumber ?? int.MaxValue).ThenBy(x => x.EpisodeId, StringComparer.Ordinal).ToArray();
     }

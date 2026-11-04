@@ -37,6 +37,15 @@
         return 'Não foi possível reproduzir este conteúdo.';
     }
 
+    function safeDiagnosticCode(value) {
+        return typeof value === 'string' && /^[a-z][a-z0-9_]{1,63}$/.test(value) ? value : null;
+    }
+
+    function diagnosticCopy(value) {
+        const code = safeDiagnosticCode(value);
+        return code ? ' Código: ' + code + '.' : '';
+    }
+
     function localViewAvailable(snapshot) {
         return Boolean(snapshot && Array.isArray(snapshot.capabilities)
             && snapshot.capabilities.includes('iptv.local-view'));
@@ -346,10 +355,10 @@
             return row;
         }
 
-        function renderSeriesEpisodes(episodes, stale) {
+        function renderSeriesEpisodes(episodes, stale, diagnosticCode) {
             const container = element('[data-iptv-series-episodes]'); if (!container) return; container.replaceChildren();
             vodState.series.episodes = episodes.slice(); vodState.series.detailsStale = stale;
-            if (stale) container.appendChild(node('p', 'iptv-vod-warning', 'Não foi possível atualizar agora. Exibindo os episódios salvos.'));
+            if (stale) container.appendChild(node('p', 'iptv-vod-warning', 'Não foi possível atualizar agora. Exibindo os episódios salvos.' + diagnosticCopy(diagnosticCode)));
             if (!episodes.length) { container.appendChild(node('p', '', 'Nenhum episódio disponível.')); return; }
             const grouped = groupEpisodesBySeason(episodes);
             const context = vodState.series.continueContext;
@@ -1118,7 +1127,7 @@
             if (errorTitle) errorTitle.textContent = runtimeUnavailable ? 'Player local indisponível.' : 'Não foi possível reproduzir este conteúdo.';
             if (errorCopy) errorCopy.textContent = runtimeUnavailable
                 ? 'Este dispositivo não possui os componentes necessários para a reprodução local.'
-                : 'Tente novamente ou escolha outro conteúdo do catálogo.';
+                : 'Tente novamente ou escolha outro conteúdo do catálogo.' + diagnosticCopy(detail.errorCode);
             if (retry) retry.hidden = runtimeUnavailable || !currentChannelId;
             if (nativeSessionId) {
                 const wasPaused = nativePaused;
@@ -1465,7 +1474,7 @@
                     if (list) list.replaceChildren(vodEmpty(vodView, 'Não foi possível carregar este catálogo.'));
                 } else if (detail.action === 'vod-series-details') {
                     const episodes = element('[data-iptv-series-episodes]');
-                    if (episodes) episodes.replaceChildren(node('p', 'iptv-vod-warning', 'Não foi possível carregar os episódios. Tente novamente.'));
+                    if (episodes) episodes.replaceChildren(node('p', 'iptv-vod-warning', 'Não foi possível carregar os episódios. Tente novamente.' + diagnosticCopy(detail.error)));
                 }
                 else if (['search', 'favorites', 'recents'].includes(detail.action)) {
                     setCatalogLoading(false);
@@ -1597,7 +1606,7 @@
                 vodState[vodView].hasMore = detail.hasMore === true;
                 renderVod(vodView);
             } else if (detail.action === 'vod-series-details') {
-                renderSeriesEpisodes(detail.episodes || [], detail.stale === true);
+                renderSeriesEpisodes(detail.episodes || [], detail.stale === true, detail.diagnosticCode);
             } else if (detail.action === 'vod-continue') {
                 continueState.movies = detail.movies || [];
                 continueState.series = detail.series || [];
@@ -1969,5 +1978,6 @@
         syncRangeVisual,
         groupEpisodesBySeason,
         displayEpisodeDuration,
+        safeDiagnosticCode,
     });
 }));

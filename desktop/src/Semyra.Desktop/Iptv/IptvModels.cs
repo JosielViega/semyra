@@ -42,7 +42,8 @@ public sealed record IptvSeriesSummary(long Id, string Name, string? CategoryId,
 public sealed record IptvVodSearchResult<T>(IReadOnlyList<T> Items, int Offset, int Limit, bool HasMore);
 public sealed record IptvEpisodeSummary(long Id, int SeasonNumber, int? EpisodeNumber, string Name, string? Duration, string? Plot = null,
     double Position = 0, double ProgressPercent = 0, bool Completed = false, bool ContinueHere = false);
-public sealed record IptvSeriesDetails(long SeriesId, IReadOnlyList<IptvEpisodeSummary> Episodes, DateTimeOffset? LastSyncedAt, bool Stale = false);
+public sealed record IptvSeriesDetails(long SeriesId, IReadOnlyList<IptvEpisodeSummary> Episodes,
+    DateTimeOffset? LastSyncedAt, bool Stale = false, string? DiagnosticCode = null);
 internal sealed record IptvVodPlaybackItem(long Id, long SourceId, string Name, string ExternalId, string? ContainerExtension,
     string Kind, string StableKey, string? SeriesStableKey = null, long? SeriesId = null, int? SeasonNumber = null, int? EpisodeNumber = null);
 internal sealed record IptvVodPlaybackTarget(long Id, long SourceId, string Name, Uri StreamUri, string Kind,

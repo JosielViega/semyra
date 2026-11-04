@@ -60,7 +60,7 @@ public sealed partial class IptvCatalogService
         catch (XtreamException exception)
         {
             var cached = _store.GetSeriesDetails(seriesId);
-            if (cached.LastSyncedAt is not null) return cached with { Stale = true };
+            if (cached.LastSyncedAt is not null) return cached with { Stale = true, DiagnosticCode = exception.Code };
             throw new IptvRefreshException(exception.Code, exception);
         }
         finally { lock (_vodGate) { _seriesOperations.Remove(key); } }

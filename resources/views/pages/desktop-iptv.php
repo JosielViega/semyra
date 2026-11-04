@@ -167,4 +167,4 @@
         </div>
     </dialog>
 </section>
-<script src="/assets/js/desktop-iptv.js?v=11l-b-dismiss-gate" defer></script>
+<script src="/assets/js/desktop-iptv.js?v=14c-series-diagnostics" defer></script>

@@ -352,6 +352,8 @@ test('viewer volume controls the LiveKit remote audio gain at 0, 50 and 100 perc
     const room = harness.FakeRoom.instances[0];
     const expected = {identity: `smy_i_${'a'.repeat(32)}`};
     const audio = element('audio');
+    audio.volume = 0;
+    audio.muted = true;
     const gains = [];
     const track = {
         kind: 'audio',
@@ -364,13 +366,13 @@ test('viewer volume controls the LiveKit remote audio gain at 0, 50 and 100 perc
 
     harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 50}}));
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(audio.volume, 0.5);
-    assert.equal(audio.muted, false);
+    assert.equal(audio.volume, 0, 'SDK-owned Web Audio element volume must not be overwritten');
+    assert.equal(audio.muted, true, 'SDK-owned Web Audio element must remain muted');
     assert.equal(gains.at(-1), 0.5);
 
     harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 100}}));
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(audio.volume, 1);
+    assert.equal(audio.volume, 0);
     assert.equal(gains.at(-1), 1);
 
     harness.document.dispatchEvent(new CustomEvent('semyra:player-mute-toggle'));
@@ -380,7 +382,7 @@ test('viewer volume controls the LiveKit remote audio gain at 0, 50 and 100 perc
 
     harness.document.dispatchEvent(new CustomEvent('semyra:player-mute-toggle'));
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(audio.muted, false);
+    assert.equal(audio.muted, true);
     assert.equal(gains.at(-1), 1);
 });
 
