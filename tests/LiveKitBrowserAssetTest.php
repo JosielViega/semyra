@@ -22,4 +22,15 @@ final class LiveKitBrowserAssetTest extends TestCase
         self::assertFileExists($license);
         self::assertStringContainsString('Apache License', (string) file_get_contents($license));
     }
+
+    public function testPinnedBundleKeepsTheAudioVolumeContractUsedByTheRoomPlayer(): void
+    {
+        $bundle = (string) file_get_contents(
+            dirname(__DIR__) . '/public/assets/vendor/livekit/livekit-client.umd.js',
+        );
+
+        self::assertStringContainsString('webAudioMix:!1', $bundle);
+        self::assertStringContainsString('t.gain.setTargetAtTime(e,0,.1):n.volume=e', $bundle);
+        self::assertStringContainsString('e.volume=0,e.muted=!0', $bundle);
+    }
 }

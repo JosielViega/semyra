@@ -257,7 +257,11 @@ test('IPTV Live and VOD request revision-bound tokens and connect subscribe-only
     assert.equal(harness.requests[0].body.get('transmission_instance_id'), 'a'.repeat(32));
     assert.equal(harness.requests[0].body.get('transmission_revision'), '4');
     const room = harness.FakeRoom.instances[0];
-    assert.deepEqual(room.options, {adaptiveStream: true, disconnectOnPageLeave: true});
+    assert.deepEqual(room.options, {
+        adaptiveStream: true,
+        disconnectOnPageLeave: true,
+        webAudioMix: false,
+    });
     assert.deepEqual(room.connectArgs.options, {autoSubscribe: false});
     assert.equal(harness.mount.hidden, false);
 
@@ -382,6 +386,43 @@ test('viewer volume controls the LiveKit Web Audio gain at 0, 25, 50, 75 and 100
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(audio.muted, true);
     assert.equal(gains.at(-1), 1);
+});
+
+test('viewer volume controls the actual HTML sink when webAudioMix is disabled', async () => {
+    const harness = createHarness({debug: true});
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    assert.equal(room.options.webAudioMix, false);
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    let audio = null;
+    const sdkVolumeCalls = [];
+    const track = {
+        kind: 'audio',
+        setVolume(value) { sdkVolumeCalls.push(value); },
+        attach(elementToAttach) {
+            audio = elementToAttach;
+            return elementToAttach;
+        },
+        detach() {},
+    };
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, track, {kind: 'audio'}, expected);
+    assert.deepEqual(sdkVolumeCalls, [0], 'setVolume is used only to hard-mute before attach');
+    assert.equal(audio.volume, 0.8);
+    assert.equal(audio.muted, true);
+
+    for (const volume of [0, 25, 50, 75, 100]) {
+        harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume}}));
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(audio.volume, volume / 100);
+        assert.equal(audio.muted, volume === 0);
+    }
+    assert.deepEqual(sdkVolumeCalls, [0], 'HTML and SDK gain are not applied simultaneously');
+    const diagnostics = harness.window.SemyraLiveKitDebug.getAudioDiagnostics();
+    assert.equal(diagnostics.at(-1).path, 'html_media');
+    assert.equal(diagnostics.at(-1).volume, 100);
+    assert.equal(diagnostics.at(-1).outputs, 1);
+    assert.equal(diagnostics.at(-1).applied, true);
+    assert.equal(JSON.stringify(diagnostics).includes('smy_i_'), false);
 });
 
 test('viewer volume falls back to the HTML audio element when LiveKit has no setVolume', async () => {

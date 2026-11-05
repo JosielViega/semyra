@@ -62,7 +62,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-livekit-player-mount hidden', $html);
         self::assertStringContainsString('data-livekit-viewer-token-url="/room/7MKP3WQH/livekit/viewer-token"', $html);
         self::assertStringContainsString('data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"', $html);
-        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=14d-audio-lifecycle', $html);
+        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=14f-volume-path', $html);
         self::assertStringContainsString('/assets/js/room-desktop-host.js?v=14d-local-stop', $html);
         self::assertStringContainsString('/assets/js/room-desktop-iptv.js?v=13g-http-diagnostics', $html);
         self::assertStringContainsString('data-initial-instance-id=""', $html);

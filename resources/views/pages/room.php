@@ -293,7 +293,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
 
     <script src="/assets/js/room-media.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
-    <script src="/assets/js/room-livekit-player.js?v=14d-audio-lifecycle" defer></script>
+    <script src="/assets/js/room-livekit-player.js?v=14f-volume-path" defer></script>
     <script src="/assets/js/room-noise-suppression.js?v=12-2-rnnoise" defer></script>
     <script src="/assets/js/room-voice.js?v=12-2-rnnoise" defer></script>
     <script src="/assets/js/room-chat.js?v=12-chat-1" defer></script>

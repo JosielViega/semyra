@@ -46,6 +46,7 @@
     const trackReplacementStartedAt = {video: null, audio: null};
     const trackTimings = [];
     const viewerDiagnostics = [];
+    const audioDiagnostics = [];
 
     const debugNow = () => Number(window.performance?.now?.() ?? Date.now());
 
@@ -65,6 +66,24 @@
             elapsedMs: Math.max(0, Math.round(debugNow() - startedAt)),
         }));
         trackReplacementStartedAt[role] = null;
+    };
+
+    const recordAudioDiagnostic = (phase, detail = {}) => {
+        if (!debugEnabled) return;
+        const entry = {
+            phase,
+            path: ['html_media', 'web_audio', 'none'].includes(detail.path) ? detail.path : 'none',
+            muted: detail.muted === true,
+            volume: Number.isFinite(detail.volume)
+                ? Math.min(100, Math.max(0, Math.round(detail.volume)))
+                : null,
+            outputs: Number.isSafeInteger(detail.outputs)
+                ? Math.min(8, Math.max(0, detail.outputs))
+                : 0,
+            applied: detail.applied === true,
+        };
+        audioDiagnostics.push(Object.freeze(entry));
+        if (audioDiagnostics.length > 40) audioDiagnostics.shift();
     };
 
     const finiteNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
@@ -112,6 +131,7 @@
             getVideoStats: videoStats,
             getTrackTimings: () => trackTimings.slice(),
             getViewerDiagnostics: () => viewerDiagnostics.slice(),
+            getAudioDiagnostics: () => audioDiagnostics.slice(),
             getViewerState: () => Object.freeze({
                 connected: room !== null,
                 publisherExpected: expectedPublisherIdentity !== null,
@@ -159,6 +179,13 @@
                 element.volume = 0;
                 try { element.pause?.(); } catch { }
             }
+            recordAudioDiagnostic('cleanup', {
+                path: track?.audioContext ? 'web_audio' : element ? 'html_media' : 'none',
+                muted: true,
+                volume: 0,
+                outputs: element ? 1 : 0,
+                applied: true,
+            });
         }
         if (track && typeof track.detach === 'function') {
             try {
@@ -187,33 +214,41 @@
     const applyLocalAudioState = () => {
         const volume = Math.min(1, Math.max(0, selectedVolume / 100));
         const effectiveVolume = locallyMuted ? 0 : volume;
-        let trackControlled = false;
-        if (audioTrack && typeof audioTrack.setVolume === 'function') {
+        const webAudioControlled = Boolean(audioTrack?.audioContext
+            && typeof audioTrack.setVolume === 'function');
+        let applied = false;
+        let controlPath = 'none';
+        if (webAudioControlled) {
             try {
                 audioTrack.setVolume(effectiveVolume);
-                trackControlled = true;
+                applied = true;
+                controlPath = 'web_audio';
             } catch {
-                // The attached media element remains the compatibility fallback.
+                // The HTML sink below remains a compatibility fallback.
             }
         }
-        // LiveKit's RemoteAudioTrack.setVolume already updates attached elements when it
-        // does not use Web Audio, or its gain node when it does. Applying the same factor
-        // to the element would attenuate twice and can unmute the SDK's Web Audio sink.
         if (audioElement) {
-            if (!trackControlled) {
+            if (!webAudioControlled || !applied) {
+                // This Room uses LiveKit's default webAudioMix=false. The attached HTML
+                // element is therefore the actual sink and is the single volume authority.
                 audioElement.volume = volume;
                 audioElement.muted = locallyMuted;
-            } else if (audioTrack?.audioContext) {
+                applied = true;
+                controlPath = 'html_media';
+            } else {
                 // LiveKit routes Web Audio through its gain node and deliberately keeps
                 // the HTML sink silent to prevent a second, uncontrolled output path.
                 audioElement.volume = 0;
                 audioElement.muted = true;
-            } else {
-                // Without Web Audio setVolume owns the element volume; muted remains the
-                // independent hard gate that prevents sound before intentional unmute.
-                audioElement.muted = locallyMuted;
             }
         }
+        recordAudioDiagnostic('volume_applied', {
+            path: controlPath,
+            muted: locallyMuted,
+            volume: selectedVolume,
+            outputs: audioElement ? 1 : 0,
+            applied,
+        });
     };
 
     const disconnectRoom = async () => {
@@ -554,7 +589,11 @@
 
             expectedPublisherIdentity = payload.publisher_identity;
             recordViewerDiagnostic('viewer_token_issued');
-            const nextRoom = new sdk.Room({adaptiveStream: true, disconnectOnPageLeave: true});
+            const nextRoom = new sdk.Room({
+                adaptiveStream: true,
+                disconnectOnPageLeave: true,
+                webAudioMix: false,
+            });
             registerRoomEvents(nextRoom, sdk, capturedGeneration);
             await nextRoom.connect(payload.server_url, payload.participant_token, {autoSubscribe: false});
             if (capturedGeneration !== generation) {
