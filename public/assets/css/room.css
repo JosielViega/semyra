@@ -92,6 +92,9 @@
     background: rgb(10 16 32 / 88%); box-shadow: none;
 }
 [data-voice-listen][data-state="muted"] { border-color: rgb(248 113 113 / 38%); }
+.room-voice-listening-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: var(--color-text-muted, #9aa7bc); font-size: .76rem; }
+.room-voice-listening-heading strong { padding: .3rem .55rem; border: 1px solid rgb(248 113 113 / 32%); border-radius: var(--radius-pill); color: #fca5a5; background: rgb(127 29 29 / 16%); font-size: .7rem; letter-spacing: .02em; }
+.room-voice-listening-heading strong[data-state="listening"] { border-color: rgb(22 199 255 / 35%); color: #8ce8ff; background: rgb(14 116 144 / 16%); }
 .room-voice-volume { display: grid; gap: .4rem; margin: .15rem 0 0; color: var(--color-text-muted, #9aa7bc); font-size: .78rem; }
 .room-voice-volume input {
     width: 100%; height: 2rem; min-height: 2rem; margin: 0; padding: 0; border: 0;

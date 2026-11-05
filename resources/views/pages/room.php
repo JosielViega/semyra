@@ -191,7 +191,8 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
             <div class="room-panel-heading"><div><h2 id="voice-title">Chat de voz</h2><p class="room-panel-eyebrow" data-voice-connection>Conectando...</p></div><button type="button" class="room-close-button" data-panel-close aria-label="Fechar chat de voz"><svg class="room-icon" aria-hidden="true"><use href="#room-icon-x"></use></svg></button></div>
             <div class="room-voice-controls">
                 <button type="button" class="room-text-button room-voice-control-button" data-voice-microphone data-state="muted" aria-pressed="false" aria-label="Ativar microfone" title="Ativar ou desativar seu microfone"><svg class="room-icon" aria-hidden="true"><use data-voice-microphone-icon href="#room-icon-mic-off"></use></svg><span data-voice-microphone-label>Ativar microfone</span></button>
-                <button type="button" class="room-secondary-button room-voice-control-button" data-voice-listen data-state="listening" aria-pressed="false" aria-label="Silenciar participantes" title="Silenciar ou ouvir os outros participantes"><svg class="room-icon" aria-hidden="true"><use data-voice-listen-icon href="#room-icon-volume"></use></svg><span data-voice-listen-label>Silenciar participantes</span></button>
+                <div class="room-voice-listening-heading"><span>Áudio dos participantes</span><strong data-voice-listening-state data-state="muted">Vozes silenciadas</strong></div>
+                <button type="button" class="room-secondary-button room-voice-control-button" data-voice-listen data-state="muted" aria-pressed="false" aria-label="Ouvir participantes" title="Silenciar ou ouvir os outros participantes"><svg class="room-icon" aria-hidden="true"><use data-voice-listen-icon href="#room-icon-volume-x"></use></svg><span data-voice-listen-label>Ouvir participantes</span></button>
                 <label class="room-voice-volume" for="room-voice-volume"><span>Volume das vozes</span><input id="room-voice-volume" data-voice-volume type="range" min="0" max="100" value="100" style="--voice-volume-progress: 100%" aria-label="Volume das vozes"></label>
             </div>
             <fieldset class="room-voice-noise" data-voice-noise>
@@ -202,7 +203,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
                 </div>
                 <p data-voice-noise-help>Padrão: processamento do navegador. Aprimorado: redução inteligente executada neste dispositivo.</p>
             </fieldset>
-            <p class="room-panel-status" data-voice-status role="status" aria-live="polite">O microfone inicia desligado.</p>
+            <p class="room-panel-status" data-voice-status role="status" aria-live="polite">Microfone desligado. Vozes silenciadas.</p>
             <ul class="room-voice-participants" data-voice-participants aria-label="Participantes conectados ao chat de voz"></ul>
             <p class="room-voice-warning">Ao ouvir a sala no mesmo dispositivo que compartilha áudio do sistema, pode ocorrer realimentação. Fones reduzem o eco acústico, mas não isolam o WASAPI Loopback.</p>
             <div data-voice-audio-mount hidden></div>
@@ -295,7 +296,7 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-livekit-player.js?v=14f-volume-path" defer></script>
     <script src="/assets/js/room-noise-suppression.js?v=12-2-rnnoise" defer></script>
-    <script src="/assets/js/room-voice.js?v=12-2-rnnoise" defer></script>
+    <script src="/assets/js/room-voice.js?v=14g-voice-isolation" defer></script>
     <script src="/assets/js/room-chat.js?v=12-chat-1" defer></script>
     <?php if (is_array($currentUser)): ?><script src="/assets/js/room-screen-share.js?v=13g-http-diagnostics" defer></script><?php endif; ?>
     <script src="/assets/js/room-desktop-host.js?v=14d-local-stop" defer></script>

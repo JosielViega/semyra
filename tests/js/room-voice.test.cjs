@@ -28,6 +28,7 @@ const harness = ({enhancedSupported = false, enhancedFailure = null} = {}) => {
         ['[data-voice-microphone]', element()], ['[data-voice-microphone-label]', element()],
         ['[data-voice-microphone-icon]', element()], ['[data-voice-listen]', element()],
         ['[data-voice-listen-label]', element()], ['[data-voice-listen-icon]', element()],
+        ['[data-voice-listening-state]', element()],
         ['[data-voice-volume]', element()], ['[data-voice-connection]', element()],
         ['[data-voice-status]', element()], ['[data-voice-participants]', element()],
         ['[data-voice-audio-mount]', element()],
@@ -97,7 +98,10 @@ const harness = ({enhancedSupported = false, enhancedFailure = null} = {}) => {
         }
         on(type, listener) { this.events.set(type, listener); }
         async connect(url, token, options) { this.connectArgs = {url, token, options}; }
-        async startAudio() { this.startedAudio = true; }
+        async startAudio() {
+            if (FakeRoom.startAudioError) throw FakeRoom.startAudioError;
+            this.startedAudio = true;
+        }
         async disconnect() { this.disconnected = true; }
         emit(type, ...args) { return this.events.get(type)?.(...args); }
     }
@@ -133,7 +137,7 @@ const harness = ({enhancedSupported = false, enhancedFailure = null} = {}) => {
 };
 
 test('connects independently with a per-document identity and microphone initially disabled', async () => {
-    const {controller, requests, FakeRoom} = harness();
+    const {controller, controls, requests, FakeRoom} = harness();
     await tick(); await tick();
     const room = FakeRoom.instances[0];
     assert.equal(requests.length, 1);
@@ -141,6 +145,9 @@ test('connects independently with a per-document identity and microphone initial
     assert.equal(room.connectArgs.options.autoSubscribe, false);
     assert.equal(room.localParticipant.calls.length, 0);
     assert.equal(controller.state().microphoneEnabled, false);
+    assert.equal(controller.state().receivedMuted, true);
+    assert.equal(controls.get('[data-voice-listen]').dataset.state, 'muted');
+    assert.equal(controls.get('[data-voice-listening-state]').textContent, 'Vozes silenciadas');
 });
 
 test('subscribes only microphone publications and ignores screen or camera tracks', async () => {
@@ -280,20 +287,109 @@ test('keeps toolbar muted when microphone permission fails', async () => {
     assert.match(controls.get('[data-voice-status]').textContent, /Permissao do microfone negada/);
 });
 
-test('attaches remote microphone once and local receive mute is independent', async () => {
+test('hard-mutes a prepared element before attaching a remote microphone and enables listening explicitly', async () => {
     const {controls, FakeRoom, sdk} = harness();
     await tick(); await tick();
     const room = FakeRoom.instances[0];
     const audio = element();
-    const track = {sid: 'TR1', attach: () => audio, detach() {}};
+    const track = {sid: 'TR1', attach(prepared) {
+        assert.equal(prepared.muted, true);
+        assert.equal(prepared.defaultMuted, true);
+        this.prepared = prepared;
+        return audio;
+    }, detach() {}};
     const publication = {source: 'microphone', trackSid: 'TR1'};
     room.emit(sdk.RoomEvent.TrackSubscribed, track, publication, {identity: 'remote', name: 'Ana'});
     assert.equal(controls.get('[data-voice-audio-mount]').children.length, 1);
+    assert.equal(audio.muted, true);
+    assert.equal(audio.defaultMuted, true);
+    await controls.get('[data-voice-listen]').emit('click');
+    assert.equal(audio.muted, false);
+    assert.equal(controls.get('[data-voice-listen]').dataset.state, 'listening');
+    assert.equal(controls.get('[data-voice-listen-icon]').href, '#room-icon-volume');
+    assert.equal(controls.get('[data-voice-listen-label]').textContent, 'Silenciar participantes');
+    assert.equal(controls.get('[data-voice-listening-state]').textContent, 'Ouvindo participantes');
     await controls.get('[data-voice-listen]').emit('click');
     assert.equal(audio.muted, true);
-    assert.equal(controls.get('[data-voice-listen]').dataset.state, 'muted');
-    assert.equal(controls.get('[data-voice-listen-icon]').href, '#room-icon-volume-x');
-    assert.equal(controls.get('[data-voice-listen-label]').textContent, 'Ouvir participantes');
+    assert.equal(controls.get('[data-voice-listening-state]').textContent, 'Vozes silenciadas');
+});
+
+test('keeps voice volume independent without implicitly enabling received audio', async () => {
+    const {controller, controls, FakeRoom, sdk} = harness();
+    await tick(); await tick();
+    const audio = element();
+    const track = {sid: 'TRV', attach: () => audio, detach() {}};
+    FakeRoom.instances[0].emit(sdk.RoomEvent.TrackSubscribed, track,
+        {source: 'microphone', trackSid: 'TRV'}, {identity: 'remote'});
+    const volume = controls.get('[data-voice-volume]');
+    for (const value of [0, 25, 50, 75, 100]) {
+        volume.value = String(value);
+        await volume.emit('input');
+        assert.equal(audio.volume, value / 100);
+        assert.equal(audio.muted, true);
+        assert.equal(controller.state().receivedMuted, true);
+    }
+});
+
+test('stays hard-muted when browser audio activation is rejected', async () => {
+    const {controller, controls, FakeRoom, sdk} = harness();
+    await tick(); await tick();
+    const audio = element();
+    FakeRoom.instances[0].emit(sdk.RoomEvent.TrackSubscribed,
+        {sid: 'TRB', attach: () => audio, detach() {}},
+        {source: 'microphone', trackSid: 'TRB'}, {identity: 'remote'});
+    FakeRoom.startAudioError = new Error('blocked');
+    await controls.get('[data-voice-listen]').emit('click');
+    assert.equal(controller.state().receivedMuted, true);
+    assert.equal(audio.muted, true);
+    assert.equal(controls.get('[data-voice-listening-state]').textContent, 'Vozes silenciadas');
+    assert.match(controls.get('[data-voice-status]').textContent, /bloqueou/);
+});
+
+test('applies current receive state to new and replacement tracks without duplicate output', async () => {
+    const {controls, FakeRoom, sdk} = harness();
+    await tick(); await tick();
+    const room = FakeRoom.instances[0];
+    await controls.get('[data-voice-listen]').emit('click');
+    const firstAudio = element();
+    const secondAudio = element();
+    const first = {sid: 'TRS', attach: () => firstAudio, detached: 0, detach() { this.detached += 1; }};
+    const second = {sid: 'TRS', attach(prepared) { assert.equal(prepared.muted, false); return secondAudio; }, detach() {}};
+    const publication = {source: 'microphone', trackSid: 'TRS'};
+    const participant = {identity: 'remote'};
+    room.emit(sdk.RoomEvent.TrackSubscribed, first, publication, participant);
+    room.emit(sdk.RoomEvent.TrackSubscribed, first, publication, participant);
+    assert.equal(controls.get('[data-voice-audio-mount]').children.length, 1);
+    room.emit(sdk.RoomEvent.TrackSubscribed, second, publication, participant);
+    assert.equal(first.detached, 1);
+    assert.equal(firstAudio.removed, true);
+    assert.equal(secondAudio.muted, false);
+});
+
+test('preserves receive mute across reconnect and cleans tracks on participant and room disconnect', async () => {
+    const {controller, controls, FakeRoom, sdk} = harness();
+    await tick(); await tick();
+    const room = FakeRoom.instances[0];
+    const firstAudio = element();
+    const first = {sid: 'TRD1', attach: () => firstAudio, detached: 0, detach() { this.detached += 1; }};
+    room.emit(sdk.RoomEvent.TrackSubscribed, first,
+        {source: 'microphone', trackSid: 'TRD1'}, {identity: 'remote-a'});
+    room.emit(sdk.RoomEvent.Reconnecting);
+    room.emit(sdk.RoomEvent.Reconnected);
+    assert.equal(controller.state().receivedMuted, true);
+    assert.equal(firstAudio.muted, true);
+    room.emit(sdk.RoomEvent.ParticipantDisconnected, {identity: 'remote-a'});
+    assert.equal(first.detached, 1);
+    assert.equal(firstAudio.removed, true);
+
+    const secondAudio = element();
+    const second = {sid: 'TRD2', attach: () => secondAudio, detached: 0, detach() { this.detached += 1; }};
+    room.emit(sdk.RoomEvent.TrackSubscribed, second,
+        {source: 'microphone', trackSid: 'TRD2'}, {identity: 'remote-b'});
+    room.emit(sdk.RoomEvent.Disconnected);
+    assert.equal(second.detached, 1);
+    assert.equal(secondAudio.removed, true);
+    assert.equal(secondAudio.muted, true);
 });
 
 test('reports reconnect state, resets toolbar on disconnect and cleans microphone up on page hide', async () => {

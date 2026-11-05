@@ -26,6 +26,7 @@
     const listenButton = panel.querySelector('[data-voice-listen]');
     const listenLabel = panel.querySelector('[data-voice-listen-label]');
     const listenIcon = panel.querySelector('[data-voice-listen-icon]');
+    const listeningState = panel.querySelector('[data-voice-listening-state]');
     const volumeInput = panel.querySelector('[data-voice-volume]');
     const connection = panel.querySelector('[data-voice-connection]');
     const status = panel.querySelector('[data-voice-status]');
@@ -38,14 +39,14 @@
     const toolbarIcon = shell.querySelector('[data-voice-toolbar-icon]');
     const hudIndicator = shell.querySelector('[data-voice-button-indicator]');
     if (!tokenUrl || !sdkUrl || !csrfToken || !microphoneButton || !listenButton
-        || !volumeInput || !connection || !status || !participantsList || !audioMount
+        || !listeningState || !volumeInput || !connection || !status || !participantsList || !audioMount
         || !standardModeInput || !enhancedModeInput || !noiseHelp) return null;
 
     let sdkPromise = null;
     let room = null;
     let ownIdentity = null;
     let microphoneEnabled = false;
-    let receivedMuted = false;
+    let receivedMuted = true;
     let receivedVolume = 100;
     let connecting = null;
     let destroyed = false;
@@ -53,7 +54,7 @@
     let activeMicrophoneMode = null;
     let enhancedPipeline = null;
     let enhancedTrack = null;
-    const audioElements = new Map();
+    const audioEntries = new Map();
     const speaking = new Set();
 
     const enhancedSupported = Boolean(
@@ -122,14 +123,17 @@
         }
     };
     const updateListening = () => {
-        listenButton.setAttribute('aria-pressed', String(receivedMuted));
+        listenButton.setAttribute('aria-pressed', String(!receivedMuted));
         listenButton.dataset.state = receivedMuted ? 'muted' : 'listening';
         listenLabel.textContent = receivedMuted ? 'Ouvir participantes' : 'Silenciar participantes';
         listenButton.setAttribute('aria-label', listenLabel.textContent);
         listenIcon?.setAttribute('href', receivedMuted ? '#room-icon-volume-x' : '#room-icon-volume');
+        listeningState.textContent = receivedMuted ? 'Vozes silenciadas' : 'Ouvindo participantes';
+        listeningState.dataset.state = receivedMuted ? 'muted' : 'listening';
         volumeInput.style?.setProperty('--voice-volume-progress', `${receivedVolume}%`);
-        for (const element of audioElements.values()) {
+        for (const {element} of audioEntries.values()) {
             element.muted = receivedMuted;
+            element.defaultMuted = receivedMuted;
             element.volume = receivedVolume / 100;
         }
     };
@@ -186,22 +190,52 @@
     const attachAudio = (track, publication, participant, sdk) => {
         if (!publicationAllowed(publication, sdk) || participant?.identity === ownIdentity) return;
         const sid = publication?.trackSid ?? track?.sid ?? participant.identity;
-        if (audioElements.has(sid)) return;
-        const element = track.attach();
+        const current = audioEntries.get(sid);
+        if (current?.track === track) return;
+        if (current) detachAudio(current.track, {trackSid: sid});
+        const preparedElement = document.createElement('audio');
+        preparedElement.muted = receivedMuted;
+        preparedElement.defaultMuted = receivedMuted;
+        preparedElement.volume = receivedVolume / 100;
+        preparedElement.autoplay = true;
+        preparedElement.controls = false;
+        const element = track.attach(preparedElement) ?? preparedElement;
+        // Keep this assignment after attach as a defensive measure for SDK mocks or
+        // implementations that return a different element. The real element is
+        // already hard-muted before LiveKit receives it.
+        element.muted = receivedMuted;
+        element.defaultMuted = receivedMuted;
+        element.volume = receivedVolume / 100;
         element.autoplay = true;
         element.controls = false;
-        element.muted = receivedMuted;
-        element.volume = receivedVolume / 100;
         element.dataset.voiceTrack = sid;
-        audioElements.set(sid, element);
+        audioEntries.set(sid, {element, track, participantIdentity: participant?.identity ?? ''});
         audioMount.append(element);
     };
     const detachAudio = (track, publication) => {
         const sid = publication?.trackSid ?? track?.sid;
-        const element = sid ? audioElements.get(sid) : null;
+        const entry = sid ? audioEntries.get(sid) : null;
+        const element = entry?.element ?? null;
+        if (entry && track && entry.track !== track) return;
+        if (element) {
+            element.muted = true;
+            element.defaultMuted = true;
+            try { element.pause?.(); } catch { }
+        }
         try { track?.detach?.(element ?? undefined); } catch { }
+        if (element && 'srcObject' in element) element.srcObject = null;
         element?.remove();
-        if (sid) audioElements.delete(sid);
+        if (sid) audioEntries.delete(sid);
+    };
+    const detachParticipantAudio = (identity) => {
+        for (const [sid, entry] of Array.from(audioEntries.entries())) {
+            if (entry.participantIdentity === identity) detachAudio(entry.track, {trackSid: sid});
+        }
+    };
+    const detachAllAudio = () => {
+        for (const [sid, entry] of Array.from(audioEntries.entries())) {
+            detachAudio(entry.track, {trackSid: sid});
+        }
     };
 
     const requestToken = async () => {
@@ -307,6 +341,7 @@
                 });
                 nextRoom.on(sdk.RoomEvent.ParticipantDisconnected, (participant) => {
                     speaking.delete(participant.identity);
+                    detachParticipantAudio(participant.identity);
                     renderParticipants(sdk);
                 });
                 nextRoom.on(sdk.RoomEvent.TrackPublished, (publication) => {
@@ -329,8 +364,12 @@
                     renderParticipants(sdk);
                 });
                 nextRoom.on(sdk.RoomEvent.Reconnecting, () => setConnection('Reconectando...', 'connecting'));
-                nextRoom.on(sdk.RoomEvent.Reconnected, () => setConnection('Conectado', 'connected'));
+                nextRoom.on(sdk.RoomEvent.Reconnected, () => {
+                    updateListening();
+                    setConnection('Conectado', 'connected');
+                });
                 nextRoom.on(sdk.RoomEvent.Disconnected, () => {
+                    detachAllAudio();
                     void disableMicrophone(nextRoom.localParticipant, {disconnected: true});
                     room = null;
                     setConnection('Desconectado', 'error');
@@ -344,7 +383,7 @@
                 room = nextRoom;
                 for (const participant of remoteValues()) inspectParticipant(participant, sdk);
                 setConnection('Conectado', 'connected');
-                status.textContent = 'O microfone inicia desligado.';
+                status.textContent = 'Microfone desligado. Vozes silenciadas.';
                 renderParticipants(sdk);
                 return nextRoom;
             } catch (error) {
@@ -427,22 +466,22 @@
     listenButton.addEventListener('click', async () => {
         receivedMuted = !receivedMuted;
         if (!receivedMuted) {
-            try { await room?.startAudio?.(); } catch { status.textContent = 'O navegador bloqueou o audio. Tente novamente.'; }
+            try {
+                await room?.startAudio?.();
+            } catch {
+                receivedMuted = true;
+                status.textContent = 'O navegador bloqueou o audio. Tente novamente.';
+            }
         }
         updateListening();
     });
     volumeInput.addEventListener('input', async () => {
         receivedVolume = Math.max(0, Math.min(100, Number(volumeInput.value) || 0));
-        receivedMuted = receivedVolume === 0;
-        if (!receivedMuted) {
-            try { await room?.startAudio?.(); } catch { }
-        }
         updateListening();
     });
     window.addEventListener('pagehide', () => {
         destroyed = true;
-        for (const element of audioElements.values()) element.remove();
-        audioElements.clear();
+        detachAllAudio();
         void disableMicrophone(room?.localParticipant);
         void room?.disconnect?.();
         room = null;

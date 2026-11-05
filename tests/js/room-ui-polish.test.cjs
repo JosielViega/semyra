@@ -13,7 +13,8 @@ test('voice controls expose synchronized toolbar hooks and accessible state labe
     assert.match(view, /data-voice-toolbar-icon/);
     assert.match(view, /data-microphone-state="muted"/);
     assert.match(view, /data-voice-microphone[^>]+aria-pressed="false"[^>]+aria-label="Ativar microfone"/);
-    assert.match(view, /data-voice-listen[^>]+aria-pressed="false"[^>]+aria-label="Silenciar participantes"/);
+    assert.match(view, /data-voice-listen[^>]+data-state="muted"[^>]+aria-pressed="false"[^>]+aria-label="Ouvir participantes"/);
+    assert.match(view, /data-voice-listening-state[^>]+data-state="muted">Vozes silenciadas/);
     assert.match(view, /<legend>Redução de ruído<\/legend>/);
     assert.match(view, /data-voice-noise-mode="standard"/);
     assert.match(view, /data-voice-noise-mode="enhanced" checked/);
