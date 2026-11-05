@@ -5,6 +5,7 @@ using System.IO.Pipes;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Semyra.Desktop.Media;
 
@@ -115,7 +116,7 @@ internal sealed class MpvProcess : IMpvProcess
         }
 
         _ = DrainAsync(_process.StandardOutput);
-        _ = DrainAsync(_process.StandardError);
+        _ = InspectStandardErrorAsync(_process.StandardError);
         _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
@@ -227,6 +228,51 @@ internal sealed class MpvProcess : IMpvProcess
         }
         catch { }
     }
+
+    private async Task InspectStandardErrorAsync(StreamReader reader)
+    {
+        try
+        {
+            while (await reader.ReadLineAsync() is { } line)
+            {
+                var code = ClassifyStandardError(line);
+                if (code is null) continue;
+                MessageReceived?.Invoke(this, JsonSerializer.SerializeToElement(new
+                {
+                    @event = "semyra-stderr-diagnostic",
+                    code,
+                }));
+            }
+        }
+        catch { }
+    }
+
+    internal static string? ClassifyStandardError(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return null;
+        var safe = line.ToLowerInvariant();
+        if (HttpStatus(safe, "401") || safe.Contains("unauthorized", StringComparison.Ordinal)) return "mpv_http_401";
+        if (HttpStatus(safe, "403") || safe.Contains("forbidden", StringComparison.Ordinal)) return "mpv_http_403";
+        if (HttpStatus(safe, "404") || safe.Contains("not found", StringComparison.Ordinal)) return "mpv_http_404";
+        if (Regex.IsMatch(safe, @"(?:http|server returned)[^\r\n]{0,48}\b5[0-9]{2}\b", RegexOptions.CultureInvariant)) return "mpv_http_5xx";
+        if (safe.Contains("timed out", StringComparison.Ordinal) || safe.Contains("timeout", StringComparison.Ordinal)) return "mpv_timeout";
+        if (safe.Contains("certificate", StringComparison.Ordinal) || safe.Contains("tls", StringComparison.Ordinal)
+            || safe.Contains("ssl", StringComparison.Ordinal)) return "mpv_tls_error";
+        if (safe.Contains("redirect", StringComparison.Ordinal)) return "mpv_redirect_error";
+        if (safe.Contains("no video or audio streams", StringComparison.Ordinal)
+            || safe.Contains("no media streams", StringComparison.Ordinal)) return "mpv_no_media";
+        if (safe.Contains("decoder", StringComparison.Ordinal) || safe.Contains("codec", StringComparison.Ordinal)) return "mpv_codec_error";
+        if (safe.Contains("decode", StringComparison.Ordinal)) return "mpv_decode_error";
+        if (safe.Contains("demux", StringComparison.Ordinal) || safe.Contains("unrecognized file format", StringComparison.Ordinal)
+            || safe.Contains("unknown format", StringComparison.Ordinal)) return "mpv_demux_error";
+        if (safe.Contains("failed to open", StringComparison.Ordinal) || safe.Contains("cannot open", StringComparison.Ordinal)
+            || safe.Contains("opening failed", StringComparison.Ordinal)) return "mpv_open_failed";
+        if (safe.Contains("http", StringComparison.Ordinal)) return "mpv_http_error";
+        return null;
+    }
+
+    private static bool HttpStatus(string line, string status) =>
+        Regex.IsMatch(line, $@"(?:http|server returned)[^\r\n]{{0,48}}\b{status}\b", RegexOptions.CultureInvariant);
 
     private void OnExited(object? sender, EventArgs e)
     {

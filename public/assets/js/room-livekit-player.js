@@ -151,6 +151,15 @@
     const removeAttached = (kind) => {
         const track = kind === 'video' ? videoTrack : audioTrack;
         const element = kind === 'video' ? videoElement : audioElement;
+        if (kind === 'audio') {
+            // Silence every possible output synchronously, before detach/disconnect can await.
+            try { track?.setVolume?.(0); } catch { }
+            if (element) {
+                element.muted = true;
+                element.volume = 0;
+                try { element.pause?.(); } catch { }
+            }
+        }
         if (track && typeof track.detach === 'function') {
             try {
                 track.detach(element ?? undefined);
@@ -190,9 +199,20 @@
         // LiveKit's RemoteAudioTrack.setVolume already updates attached elements when it
         // does not use Web Audio, or its gain node when it does. Applying the same factor
         // to the element would attenuate twice and can unmute the SDK's Web Audio sink.
-        if (audioElement && !trackControlled) {
-            audioElement.volume = volume;
-            audioElement.muted = locallyMuted;
+        if (audioElement) {
+            if (!trackControlled) {
+                audioElement.volume = volume;
+                audioElement.muted = locallyMuted;
+            } else if (audioTrack?.audioContext) {
+                // LiveKit routes Web Audio through its gain node and deliberately keeps
+                // the HTML sink silent to prevent a second, uncontrolled output path.
+                audioElement.volume = 0;
+                audioElement.muted = true;
+            } else {
+                // Without Web Audio setVolume owns the element volume; muted remains the
+                // independent hard gate that prevents sound before intentional unmute.
+                audioElement.muted = locallyMuted;
+            }
         }
     };
 
@@ -365,7 +385,19 @@
         const key = attachmentKey(track, publication, participant);
         if (currentAttachmentKeys[role] === key) return;
         removeAttached(role);
-        const element = track.attach();
+        let element;
+        if (role === 'audio') {
+            // LiveKit's base attach() calls play() synchronously and clears `muted` for an
+            // audio MediaStream. Prime both its remembered gain and the supplied element
+            // before attach so no first frame can escape at the browser default volume.
+            const silentElement = document.createElement('audio');
+            silentElement.volume = 0;
+            silentElement.muted = true;
+            try { track.setVolume?.(0); } catch { }
+            element = track.attach(silentElement);
+        } else {
+            element = track.attach();
+        }
         if (role === 'video') {
             element.autoplay = true;
             element.playsInline = true;
@@ -545,6 +577,14 @@
 
     document.addEventListener('semyra:transmission-updated', (event) => {
         void applyTransmission(event.detail?.transmission ?? null);
+    });
+    document.addEventListener('semyra:transmission-ending', (event) => {
+        const detail = event.detail;
+        if (!isLiveKitTransmission(activeTransmission)
+            || detail?.instanceId !== activeTransmission.instanceId
+            || detail?.revision !== activeTransmission.revision) return;
+        // deactivate() clears tracks synchronously before awaiting the room disconnect.
+        void deactivate();
     });
     document.addEventListener('semyra:player-mute-toggle', async () => {
         if (!isLiveKitTransmission(activeTransmission)) return;

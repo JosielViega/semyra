@@ -88,6 +88,18 @@
         button.addEventListener('click', () => dialog?.close());
     });
 
+    endForm?.addEventListener('submit', () => {
+        if (currentTransmission === null) return;
+        // Do not mutate the form fields: the backend still needs the fenced instance and
+        // revision. Consumers use this signal only for immediate local media cleanup.
+        document.dispatchEvent(new CustomEvent('semyra:transmission-ending', {
+            detail: {
+                instanceId: currentTransmission.instanceId,
+                revision: currentTransmission.revision,
+            },
+        }));
+    });
+
     dialog?.addEventListener('close', revealHud);
     dialog?.addEventListener('click', (event) => {
         if (event.target === dialog) {

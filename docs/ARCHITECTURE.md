@@ -89,6 +89,10 @@ No modo Padrão, a captura usa echo cancellation, noise suppression e automatic 
 
 Tracks remotas só são assinadas quando declaradas como `microphone`; a própria track local nunca é reproduzida. Mute e volume de vozes são independentes de mute e volume da transmissão. A limitação conhecida de possível recaptura do áudio de sistema pelo Screen Publisher permanece pendente de teste entre dispositivos físicos.
 
+O áudio remoto da transmissão de mídia nasce com hard mute antes de `RemoteAudioTrack.attach()`. Quando o SDK usa Web Audio, o ganho da track é a única autoridade e o elemento HTML permanece silencioso; sem Web Audio, `setVolume()` controla o volume e `muted` funciona como gate; sem `setVolume()`, o elemento HTML é o fallback. Ao enviar o encerramento da transmissão, a página dispara cleanup local cercado por instância/revisão antes da navegação, silencia/destaca a track e limpa a autorização nativa; viewers remotos continuam convergindo pelo polling normal.
+
+No player MPV local, `stderr` é transitório e nunca é persistido ou encaminhado. Somente categorias allowlisted e sem detalhes de provider podem complementar `mpv_end_file_error`; na ausência de correspondência segura, o diagnóstico permanece genérico. Isso fornece evidência para o gate manual de séries sem alterar novamente a resolução canônica de `id`/`stream_id`.
+
 ## Planos de controle e mídia LiveKit
 
 ### Compartilhamento de tela

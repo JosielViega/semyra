@@ -95,6 +95,9 @@ const createHarness = ({existingHost = false, expiresAt = '2099-10-06T12:00:00.0
                 detail: {transmission: value},
             }));
         },
+        ending(value) {
+            document.dispatchEvent(new CustomEvent('semyra:transmission-ending', {detail: value}));
+        },
         pagehide() {
             window.dispatchEvent(new CustomEvent('pagehide'));
         },
@@ -201,6 +204,18 @@ test('owner loss and null transmission clear authorization', async () => {
         await flush();
         assert.equal(harness.events.some((event) => event.type === 'semyra:host-clear-request'), true);
     }
+});
+
+test('owner end submit clears native authorization before backend navigation completes', async () => {
+    const harness = createHarness();
+    harness.hostReady();
+    harness.presence(transmission());
+    await flush();
+
+    harness.ending({instanceId: 'c'.repeat(32), revision: 3});
+    await flush();
+
+    assert.equal(harness.events.filter((event) => event.type === 'semyra:host-clear-request').length, 1);
 });
 
 test('page leave schedules native publisher cleanup only for an eligible IPTV owner', async () => {

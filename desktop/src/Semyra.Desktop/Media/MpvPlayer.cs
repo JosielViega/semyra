@@ -41,6 +41,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
     private long? _activePlaylistEntryId;
     private double _pendingResumePosition;
     private bool _preserveFullscreenForLoad;
+    private string? _lastProcessDiagnostic;
     private bool _disposed;
 
     internal MpvPlayer(
@@ -89,6 +90,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
             _hasVideo = false;
             _buffering = false;
             _activePlaylistEntryId = null;
+            _lastProcessDiagnostic = null;
             _pendingResumePosition = double.IsFinite(resumePosition) && resumePosition >= 5 ? resumePosition : 0;
             SetVideoVisibility(false);
             if (coldStart)
@@ -263,7 +265,14 @@ internal sealed class MpvPlayer : IAsyncDisposable
             if (message.TryGetProperty("event", out var eventElement))
             {
                 var eventName = eventElement.GetString();
-                if (eventName == "start-file")
+                if (eventName == "semyra-stderr-diagnostic")
+                {
+                    if (message.TryGetProperty("code", out var diagnostic)
+                        && diagnostic.ValueKind == JsonValueKind.String
+                        && SafeDiagnosticCode(diagnostic.GetString()) is { } code)
+                        _lastProcessDiagnostic = code;
+                }
+                else if (eventName == "start-file")
                 {
                     ResetEofState();
                     _acceptProperties = true;
@@ -309,7 +318,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
                     UpdateFrom(current with
                     {
                         State = "failed",
-                        LastErrorCode = ClassifyEndFile(message),
+                        LastErrorCode = ClassifyEndFile(message, _lastProcessDiagnostic),
                     });
                 }
                 else if (eventName == "property-change")
@@ -399,7 +408,7 @@ internal sealed class MpvPlayer : IAsyncDisposable
         if (_disposed || Snapshot().State == "idle") return;
         SetVideoVisibility(false);
         var current = Snapshot();
-        UpdateFrom(current with { State = "failed", LastErrorCode = "mpv_process_error" });
+        UpdateFrom(current with { State = "failed", LastErrorCode = _lastProcessDiagnostic ?? "mpv_process_error" });
         if (sender is IMpvProcess process) _ = DisposeExitedProcessAsync(process);
     }
 
@@ -542,18 +551,22 @@ internal sealed class MpvPlayer : IAsyncDisposable
         return false;
     }
 
-    private static string ClassifyEndFile(JsonElement message)
+    private static string ClassifyEndFile(JsonElement message, string? processDiagnostic)
     {
         var error = message.TryGetProperty("file_error", out var fileError) ? fileError.GetString()
             : message.TryGetProperty("error", out var genericError) ? genericError.GetString()
             : null;
-        var safe = error?.ToLowerInvariant() ?? string.Empty;
-        if (safe.Contains("http", StringComparison.Ordinal)) return "mpv_http_error";
-        if (safe.Contains("timeout", StringComparison.Ordinal) || safe.Contains("timed out", StringComparison.Ordinal)) return "mpv_timeout";
-        if (safe.Contains("codec", StringComparison.Ordinal) || safe.Contains("decoder", StringComparison.Ordinal)) return "mpv_codec_error";
-        if (safe.Contains("demux", StringComparison.Ordinal) || safe.Contains("format", StringComparison.Ordinal)) return "mpv_demux_error";
-        return "mpv_end_file_error";
+        return MpvProcess.ClassifyStandardError(error)
+            ?? SafeDiagnosticCode(processDiagnostic)
+            ?? "mpv_end_file_error";
     }
+
+    private static string? SafeDiagnosticCode(string? value) => value is
+        "mpv_http_401" or "mpv_http_403" or "mpv_http_404" or "mpv_http_5xx" or "mpv_http_error"
+        or "mpv_timeout" or "mpv_tls_error" or "mpv_redirect_error" or "mpv_no_media"
+        or "mpv_codec_error" or "mpv_decode_error" or "mpv_demux_error" or "mpv_open_failed"
+        ? value
+        : null;
 
     private static bool FixedEquals(string? left, string? right)
     {

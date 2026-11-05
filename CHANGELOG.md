@@ -10,6 +10,8 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Fixed
 
+- O áudio de transmissões LiveKit agora é silenciado antes do `attach()` do SDK, usa uma única autoridade de ganho conforme Web Audio ou elemento HTML e é interrompido localmente assim que o owner envia o formulário de encerramento, sem aguardar redirect ou polling.
+- Falhas do MPV passam a aproveitar somente categorias allowlisted derivadas do `stderr` mantido em memória (`HTTP`, timeout, TLS, redirect, mídia, codec, decode, demux e abertura), sem registrar URL, credencial ou linha bruta. A identidade canônica de episódios permanece inalterada até o gate manual fornecer evidência nova.
 - Episódios Xtream voltam a usar `id` como identidade canônica de playback, mantendo `stream_id` apenas como fallback. O refresh reconcilia a troca de identidade por temporada/episódio para preservar IDs locais, progresso e histórico, rejeita payloads sem identidade sem apagar o cache last-good e exibe somente códigos MPV sanitizados no diagnóstico manual.
 - O volume local de transmissões LiveKit agora usa `RemoteAudioTrack.setVolume()` como autoridade quando disponível e só altera o elemento de áudio como fallback, evitando dupla atenuação e preservando o sink Web Audio gerenciado pelo SDK.
 

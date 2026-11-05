@@ -62,7 +62,8 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-livekit-player-mount hidden', $html);
         self::assertStringContainsString('data-livekit-viewer-token-url="/room/7MKP3WQH/livekit/viewer-token"', $html);
         self::assertStringContainsString('data-livekit-client-src="/assets/vendor/livekit/livekit-client.umd.js?v=2.22.3"', $html);
-        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=14c-track-volume', $html);
+        self::assertStringContainsString('/assets/js/room-livekit-player.js?v=14d-audio-lifecycle', $html);
+        self::assertStringContainsString('/assets/js/room-desktop-host.js?v=14d-local-stop', $html);
         self::assertStringContainsString('/assets/js/room-desktop-iptv.js?v=13g-http-diagnostics', $html);
         self::assertStringContainsString('data-initial-instance-id=""', $html);
         self::assertStringContainsString('data-initial-revision=""', $html);
@@ -82,7 +83,7 @@ final class RoomViewTest extends TestCase
         self::assertStringContainsString('data-voice-toolbar-icon href="#room-icon-mic-off"', $html);
         self::assertStringContainsString('aria-label="Ativar microfone"', $html);
         self::assertStringContainsString('aria-describedby="room-chat-help"', $html);
-        self::assertStringContainsString('/assets/js/room-shell.js?v=11n-screen-r3-6', $html);
+        self::assertStringContainsString('/assets/js/room-shell.js?v=14d-local-stop', $html);
         self::assertStringContainsString('/assets/js/room-wake-lock.js?v=8b-identity', $html);
         self::assertStringContainsString('class="room-logo room-logo-empty"', $html);
         self::assertStringContainsString('/assets/images/logo_semyra_symbol.png?v=8b-polish-2', $html);

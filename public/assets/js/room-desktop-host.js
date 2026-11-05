@@ -170,6 +170,13 @@
         transmission = event.detail?.transmission ?? null;
         void apply();
     });
+    document.addEventListener('semyra:transmission-ending', (event) => {
+        if (!eligible(transmission)
+            || event.detail?.instanceId !== transmission.instanceId
+            || event.detail?.revision !== transmission.revision) return;
+        transmission = null;
+        void apply();
+    });
     window.addEventListener('semyra:transmission-updated', (event) => {
         transmission = event.detail ?? null;
         void apply();

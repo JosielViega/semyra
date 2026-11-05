@@ -11,7 +11,10 @@ const source = fs.readFileSync(
 );
 const listeners = new Map();
 const dispatched = [];
-const endForm = {toggleAttribute() {}};
+const endForm = {
+    toggleAttribute() {},
+    addEventListener(type, listener) { listeners.set(`end-form:${type}`, listener); },
+};
 const endInstance = {value: ''};
 const endRevision = {value: ''};
 const shell = {
@@ -81,4 +84,11 @@ assert.equal(endInstance.value, 'b'.repeat(32), 'end form follows the current in
 assert.equal(endRevision.value, '1');
 assert.equal(transmissionEvents().at(-1).detail.requestStartedAt, 1234,
     'the shell preserves presence observation ordering metadata');
+
+listeners.get('end-form:submit')();
+const ending = dispatched.filter((event) => event.type === 'semyra:transmission-ending');
+assert.equal(ending.at(-1).detail.instanceId, 'b'.repeat(32));
+assert.equal(ending.at(-1).detail.revision, 1);
+assert.equal(endInstance.value, 'b'.repeat(32), 'local cleanup must not clear fenced form fields');
+assert.equal(endRevision.value, '1');
 console.log('room-shell instance tests passed');

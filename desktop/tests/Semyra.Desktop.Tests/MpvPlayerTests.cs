@@ -396,7 +396,7 @@ public sealed class MpvPlayerTests
     }
 
     [Theory]
-    [InlineData("HTTP 403", "mpv_http_error")]
+    [InlineData("HTTP 403", "mpv_http_403")]
     [InlineData("connection timed out", "mpv_timeout")]
     [InlineData("codec decoder unavailable", "mpv_codec_error")]
     [InlineData("demux format unsupported", "mpv_demux_error")]
@@ -417,6 +417,47 @@ public sealed class MpvPlayerTests
 
         Assert.Equal(expected, player.Snapshot().LastErrorCode);
         Assert.DoesNotContain("private", player.Snapshot().LastErrorCode, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("[ffmpeg] server returned HTTP 401 for protected provider resource credential-redacted", "mpv_http_401")]
+    [InlineData("HTTP error 403 while opening private resource", "mpv_http_403")]
+    [InlineData("server returned HTTP 404", "mpv_http_404")]
+    [InlineData("server returned HTTP 503", "mpv_http_5xx")]
+    [InlineData("TLS certificate verification failed", "mpv_tls_error")]
+    [InlineData("redirect loop detected", "mpv_redirect_error")]
+    [InlineData("no video or audio streams found", "mpv_no_media")]
+    [InlineData("decoder failed for codec", "mpv_codec_error")]
+    [InlineData("decode failed", "mpv_decode_error")]
+    [InlineData("demux: unrecognized file format", "mpv_demux_error")]
+    [InlineData("failed to open resource", "mpv_open_failed")]
+    [InlineData("unrelated warning", null)]
+    public void StderrDiagnosticsAreClassifiedWithoutReturningRawProviderDetails(string line, string? expected)
+    {
+        var result = MpvProcess.ClassifyStandardError(line);
+
+        Assert.Equal(expected, result);
+        Assert.DoesNotContain("provider", result ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secret", result ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("http://", result ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("https://", result ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SanitizedStderrDiagnosticExplainsGenericEndFileAndResetsForNextLoad()
+    {
+        var process = new FakeMpvProcess();
+        await using var player = Player(() => process);
+        await player.StartAsync(Channel(1), default);
+        process.Emit("""{"event":"start-file","playlist_entry_id":1}""");
+        process.Emit("""{"event":"semyra-stderr-diagnostic","code":"mpv_http_404"}""");
+        process.Emit("""{"event":"end-file","playlist_entry_id":1,"reason":"error","file_error":"loading failed"}""");
+        Assert.Equal("mpv_http_404", player.Snapshot().LastErrorCode);
+
+        await player.StartAsync(Channel(2), default);
+        process.Emit("""{"event":"start-file","playlist_entry_id":2}""");
+        process.Emit("""{"event":"end-file","playlist_entry_id":2,"reason":"error","file_error":"loading failed"}""");
+        Assert.Equal("mpv_end_file_error", player.Snapshot().LastErrorCode);
     }
 
     [Fact]

@@ -346,7 +346,7 @@ test('same transmission audio replacement preserves unmuted state and volume 70'
     assert.equal(harness.dispatched.filter((event) => event.type === 'semyra:player-audio-state').at(-1).detail.muted, false);
 });
 
-test('viewer volume controls the LiveKit remote audio gain at 0, 50 and 100 percent', async () => {
+test('viewer volume controls the LiveKit Web Audio gain at 0, 25, 50, 75 and 100 percent', async () => {
     const harness = createHarness();
     await harness.controller.applyTransmission(iptv());
     const room = harness.FakeRoom.instances[0];
@@ -357,6 +357,7 @@ test('viewer volume controls the LiveKit remote audio gain at 0, 50 and 100 perc
     const gains = [];
     const track = {
         kind: 'audio',
+        audioContext: {},
         attach: () => audio,
         detach() {},
         setVolume: (value) => gains.push(value),
@@ -364,16 +365,13 @@ test('viewer volume controls the LiveKit remote audio gain at 0, 50 and 100 perc
     room.emit(harness.sdk.RoomEvent.TrackSubscribed, track, {kind: 'audio'}, expected);
     assert.equal(gains.at(-1), 0, 'new transmissions start locally muted');
 
-    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 50}}));
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(audio.volume, 0, 'SDK-owned Web Audio element volume must not be overwritten');
-    assert.equal(audio.muted, true, 'SDK-owned Web Audio element must remain muted');
-    assert.equal(gains.at(-1), 0.5);
-
-    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 100}}));
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(audio.volume, 0);
-    assert.equal(gains.at(-1), 1);
+    for (const volume of [25, 50, 75, 100]) {
+        harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume}}));
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(audio.volume, 0, 'SDK-owned Web Audio element volume must not be overwritten');
+        assert.equal(audio.muted, true, 'SDK-owned Web Audio element must remain muted');
+        assert.equal(gains.at(-1), volume / 100);
+    }
 
     harness.document.dispatchEvent(new CustomEvent('semyra:player-mute-toggle'));
     await new Promise((resolve) => setImmediate(resolve));
@@ -384,6 +382,64 @@ test('viewer volume controls the LiveKit remote audio gain at 0, 50 and 100 perc
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(audio.muted, true);
     assert.equal(gains.at(-1), 1);
+});
+
+test('viewer volume falls back to the HTML audio element when LiveKit has no setVolume', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    let audio = null;
+    const track = {
+        kind: 'audio',
+        attach(elementToAttach) {
+            audio = elementToAttach;
+            return elementToAttach;
+        },
+        detach() {},
+    };
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, track, {kind: 'audio'}, expected);
+    assert.equal(audio.volume, 0.8, 'selected volume is retained while the new transmission starts muted');
+    assert.equal(audio.muted, true);
+
+    for (const volume of [25, 50, 75, 100]) {
+        harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume}}));
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(audio.volume, volume / 100);
+        assert.equal(audio.muted, false);
+    }
+
+    harness.document.dispatchEvent(new CustomEvent('semyra:player-volume-change', {detail: {volume: 0}}));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(audio.volume, 0);
+    assert.equal(audio.muted, true);
+});
+
+test('audio is hard-muted before LiveKit attach can call play', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    const calls = [];
+    let attachedElement = null;
+    const track = {
+        kind: 'audio',
+        audioContext: {},
+        setVolume(value) { calls.push(['volume', value]); },
+        attach(elementToAttach) {
+            calls.push(['attach', elementToAttach.volume, elementToAttach.muted]);
+            attachedElement = elementToAttach;
+            return elementToAttach;
+        },
+        detach() {},
+    };
+
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, track, {kind: 'audio'}, expected);
+
+    assert.deepEqual(calls.slice(0, 2), [['volume', 0], ['attach', 0, true]]);
+    assert.equal(attachedElement.volume, 0);
+    assert.equal(attachedElement.muted, true);
+    assert.equal(calls.at(-1)[1], 0);
 });
 
 test('same transmission audio replacement preserves muted state', async () => {
@@ -478,6 +534,43 @@ test('revision replacement and transmission end disconnect and clear old media',
     await harness.controller.applyTransmission(null);
     assert.equal(harness.FakeRoom.instances[1].disconnectCalls, 1);
     assert.equal(harness.mount.hidden, true);
+    assert.equal(harness.mount.children.length, 0);
+});
+
+test('local ending signal silences immediately and stale reconnect media cannot restore audio', async () => {
+    const harness = createHarness();
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const expected = {identity: `smy_i_${'a'.repeat(32)}`};
+    const audio = element('audio');
+    let paused = 0;
+    let detached = 0;
+    audio.pause = () => { ++paused; };
+    const track = {
+        kind: 'audio',
+        setVolume() {},
+        attach: () => audio,
+        detach() { ++detached; },
+    };
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed, track, {kind: 'audio'}, expected);
+
+    harness.document.dispatchEvent(new CustomEvent('semyra:transmission-ending', {
+        detail: {instanceId: 'a'.repeat(32), revision: 4},
+    }));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(audio.muted, true);
+    assert.equal(audio.volume, 0);
+    assert.equal(paused, 1);
+    assert.equal(detached, 1);
+    assert.equal(room.disconnectCalls, 1);
+    assert.equal(harness.mount.children.length, 0);
+
+    let lateUnsubscribe = null;
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'audio', attach: () => element('audio'), detach() {}},
+        {kind: 'audio', setSubscribed: (value) => { lateUnsubscribe = value; }}, expected);
+    assert.equal(lateUnsubscribe, false);
     assert.equal(harness.mount.children.length, 0);
 });
 
