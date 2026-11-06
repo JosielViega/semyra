@@ -175,7 +175,9 @@ test('replacement clears and authorizes the new context', async () => {
     await flush();
 
     assert.equal(harness.requests.length, 2);
-    assert.equal(harness.events.filter((event) => event.type === 'semyra:host-clear-request').length, 1);
+    const clear = harness.events.find((event) => event.type === 'semyra:host-clear-request');
+    assert.equal(clear.detail.transmissionInstanceId, 'c'.repeat(32));
+    assert.equal(clear.detail.transmissionRevision, 3);
     assert.equal(harness.requests[1].body.get('transmission_instance_id'), 'd'.repeat(32));
 });
 
@@ -202,7 +204,9 @@ test('owner loss and null transmission clear authorization', async () => {
         await flush();
         harness.presence(next);
         await flush();
-        assert.equal(harness.events.some((event) => event.type === 'semyra:host-clear-request'), true);
+        const clear = harness.events.find((event) => event.type === 'semyra:host-clear-request');
+        assert.equal(clear.detail.transmissionInstanceId, 'c'.repeat(32));
+        assert.equal(clear.detail.transmissionRevision, 3);
     }
 });
 
@@ -215,7 +219,9 @@ test('owner end submit clears native authorization before backend navigation com
     harness.ending({instanceId: 'c'.repeat(32), revision: 3});
     await flush();
 
-    assert.equal(harness.events.filter((event) => event.type === 'semyra:host-clear-request').length, 1);
+    const clear = harness.events.find((event) => event.type === 'semyra:host-clear-request');
+    assert.equal(clear.detail.transmissionInstanceId, 'c'.repeat(32));
+    assert.equal(clear.detail.transmissionRevision, 3);
 });
 
 test('page leave schedules native publisher cleanup only for an eligible IPTV owner', async () => {
@@ -241,7 +247,9 @@ test('forwards only the sanitized Host Session error code to the room UI', async
 
     const error = harness.events.find((event) => event.type === 'semyra:host-session-error');
     assert.equal(error.detail.errorCode, 'transmission_changed');
-    assert.equal(Object.keys(error.detail).length, 1);
+    assert.equal(error.detail.transmissionInstanceId, 'c'.repeat(32));
+    assert.equal(error.detail.transmissionRevision, 3);
+    assert.equal(Object.keys(error.detail).length, 3);
 
     const unsafe = createHarness({errorCode: 'internal detail must not cross the bridge'});
     unsafe.hostReady();

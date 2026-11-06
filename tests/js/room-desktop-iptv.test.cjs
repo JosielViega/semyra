@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 const sourceCode = fs.readFileSync('public/assets/js/room-desktop-iptv.js', 'utf8');
 
-function harness(premium = true) {
+function harness(premium = true, transmissionInstances = ['a']) {
     const windowListeners = new Map(); const requests = []; const webBodies = []; const selectors = new Map();
     let document; let youtubeSubmits = 0; let scrollResets = 0;
     const element = (extra = {}) => {
@@ -84,9 +84,10 @@ function harness(premium = true) {
     };
     const fetch = async (_url, options) => {
         webBodies.push(new URLSearchParams(options.body));
+        const instanceCharacter = transmissionInstances[Math.min(webBodies.length - 1, transmissionInstances.length - 1)];
         return {ok: true, json: async () => ({transmission: {
             source: 'iptv', media_mode: webBodies.at(-1).get('media_mode'),
-            instance_id: 'a'.repeat(32), revision: 1, owner_name: 'Owner', is_owner: true,
+            instance_id: instanceCharacter.repeat(32), revision: webBodies.length, owner_name: 'Owner', is_owner: true,
         }})};
     };
     vm.runInNewContext(sourceCode, {window, document, CustomEvent, URLSearchParams, fetch, console});
@@ -112,9 +113,22 @@ function harness(premium = true) {
                 return null;
             }}});
         },
-        hostSessionError(errorCode) { emit('semyra:host-session-error', {errorCode}); },
-        hostAuthorized() { emit('semyra:host-authorized', {}); },
+        hostSessionError(errorCode, context = {}) { emit('semyra:host-session-error', {
+            errorCode, transmissionInstanceId: context.instanceId || 'a'.repeat(32), transmissionRevision: context.revision || 1,
+        }); },
+        hostAuthorized(context = {}) { emit('semyra:host-authorized', {
+            transmissionInstanceId: context.instanceId || 'a'.repeat(32), transmissionRevision: context.revision || 1,
+        }); },
+        mediaState(detail) { emit('semyra:iptv-media-state', {mode: 'publish', ...detail}); },
     };
+}
+
+async function prepareMoviePublish(page, id = 42) {
+    page.chooseIptv(); page.listResult(); page.clickTab('movies');
+    page.result('vod-movies-search', {items: [{id, name: 'Filme seguro'}], hasMore: false});
+    const action = page.panelMap.get('[data-iptv-results-modern="movies"]').children[0].children[1].children[2];
+    page.panel.listeners.get('click')({target: {closest: (selector) => selector === '[data-publish-kind]' ? action : null}});
+    await new Promise((resolve) => setImmediate(resolve));
 }
 
 test('free account sees Premium entry and never requests catalog or publish', () => {
@@ -148,25 +162,42 @@ test('VOD remains visible with a clear unavailable state when capability is abse
 });
 
 test('movie publish sends only media mode to backend and opaque kind plus ID to native', async () => {
-    const page = harness(); page.hostReady(); page.chooseIptv(); page.listResult();
-    page.clickTab('movies');
-    page.result('vod-movies-search', {items: [{id: 42, name: 'Filme seguro'}], hasMore: false});
-    const action = page.panelMap.get('[data-iptv-results-modern="movies"]').children[0].children[1].children[2];
-    page.panel.listeners.get('click')({target: {closest(selector) {
-        if (selector === '[data-publish-kind]') return action;
-        return null;
-    }}});
-    await new Promise((resolve) => setImmediate(resolve));
+    const page = harness(); page.hostReady(); await prepareMoviePublish(page);
 
     assert.deepEqual([...page.webBodies[0].keys()], ['_token', 'media_mode']);
     assert.equal(page.webBodies[0].get('media_mode'), 'vod');
+    const beforeStale = page.requests.length;
+    page.hostAuthorized({instanceId: 'd'.repeat(32), revision: 9});
+    assert.equal(page.requests.length, beforeStale, 'stale authorization A must not start pending transmission B');
     page.hostAuthorized();
     const publish = page.requests.at(-1);
-    assert.deepEqual(Object.keys(publish), ['action', 'kind', 'mediaId']);
+    assert.deepEqual(Object.keys(publish), ['action', 'kind', 'mediaId', 'clientRequestId']);
     assert.equal(publish.action, 'publish-start');
     assert.equal(publish.kind, 'movie');
     assert.equal(publish.mediaId, 42);
     assert.equal(JSON.stringify(publish).includes('url'), false);
+    page.hostAuthorized();
+    assert.equal(page.requests.filter((item) => item?.action === 'publish-start').length, 1);
+});
+
+test('completed and failed attempts release pending state for a fenced restart', async () => {
+    const page = harness(true, ['a', 'b', 'c']); page.hostReady();
+    await prepareMoviePublish(page, 41);
+    page.hostAuthorized({instanceId: 'a'.repeat(32), revision: 1});
+    page.mediaState({state: 'streaming', mediaKind: 'vod'});
+
+    await prepareMoviePublish(page, 42);
+    page.hostAuthorized({instanceId: 'b'.repeat(32), revision: 2});
+    const second = page.requests.at(-1);
+    assert.equal(second.action, 'publish-start');
+    assert.equal(second.mediaId, 42);
+    page.result('publish-start', {ok: false, errorCode: 'publish_failed'});
+
+    await prepareMoviePublish(page, 43);
+    page.hostAuthorized({instanceId: 'c'.repeat(32), revision: 3});
+    const starts = page.requests.filter((item) => item?.action === 'publish-start');
+    assert.equal(starts.length, 3);
+    assert.equal(starts.at(-1).mediaId, 43);
 });
 
 test('late results are fenced and source change invalidates old generation', () => {
@@ -179,14 +210,15 @@ test('late results are fenced and source change invalidates old generation', () 
     assert.equal(list.children, before); assert.equal(typeof listener, 'function');
 });
 
-test('sanitized Host Session failures have understandable messages', () => {
-    const page = harness(); page.hostReady(); page.hostSessionError('transmission_changed');
+test('sanitized Host Session failures have understandable messages', async () => {
+    const page = harness(); page.hostReady(); await prepareMoviePublish(page); page.hostSessionError('transmission_changed');
     assert.equal(page.status.textContent, 'A transmissão da sala mudou. Tente novamente.');
-    page.hostSessionError('vod_codec_unsupported'); assert.match(page.status.textContent, /codecs/);
+    const codec = harness(); codec.hostReady(); await prepareMoviePublish(codec); codec.hostSessionError('vod_codec_unsupported');
+    assert.match(codec.status.textContent, /codecs/);
 });
 
-test('sanitized HTTP diagnostics expose category and code without response bodies', () => {
-    const page = harness(); page.hostReady();
+test('sanitized HTTP diagnostics expose category and code without response bodies', async () => {
+    const page = harness(); page.hostReady(); await prepareMoviePublish(page); page.hostAuthorized();
     page.result('publish-start', {ok: false, errorCode: 'ingress_http_403_html'});
     assert.match(page.status.textContent, /servidor recusou/i);
     assert.match(page.status.textContent, /ingress_http_403_html/);

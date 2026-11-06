@@ -18,6 +18,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
     private readonly MpvRuntime _mpvRuntime;
     private readonly Func<MpvRuntime, nint, MpvPlayer> _mpvFactory;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly SemaphoreSlim _authorizationGate = new(1, 1);
     private MpvPlayer? _mpvPlayer;
     private long? _recentChannelId;
     private IptvVodPlaybackTarget? _activeVod;
@@ -231,6 +232,22 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
             System.Text.Encoding.ASCII.GetBytes(contextId));
 
     public bool Authorize(HostAuthorization authorization)
+        => AuthorizeCore(authorization);
+
+    public async Task<bool> AuthorizeAsync(HostAuthorization authorization)
+    {
+        await _authorizationGate.WaitAsync();
+        try
+        {
+            return AuthorizeCore(authorization);
+        }
+        finally
+        {
+            _authorizationGate.Release();
+        }
+    }
+
+    private bool AuthorizeCore(HostAuthorization authorization)
     {
         var lifetime = authorization.ExpiresAt - DateTimeOffset.UtcNow;
         if (State != HostEngineState.Ready || lifetime <= TimeSpan.Zero)
@@ -287,8 +304,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
             if (ReferenceEquals(_authorizationClearCancellation, cancellation))
             {
                 _authorizationClearCancellation = null;
-                if (ReferenceEquals(_authorization, expected))
-                    await ClearAuthorizationAsync();
+                await ClearAuthorizationAsync(expected);
             }
         }
         catch (OperationCanceledException) { }
@@ -304,8 +320,60 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         cancellation?.Cancel();
     }
 
-    public async Task ClearAuthorizationAsync()
+    public Task ClearAuthorizationAsync() => ClearAuthorizationAsync(expected: null, requireExpected: false);
+
+    public async Task<bool> ClearAuthorizationAsync(string transmissionInstanceId, long transmissionRevision)
     {
+        await _authorizationGate.WaitAsync();
+        try
+        {
+            var expected = _authorization;
+            if (expected is null
+                || expected.TransmissionInstanceId != transmissionInstanceId
+                || expected.TransmissionRevision != transmissionRevision)
+            {
+                return false;
+            }
+            return await ClearAuthorizationCoreAsync(expected, requireExpected: true);
+        }
+        finally
+        {
+            _authorizationGate.Release();
+        }
+    }
+
+    private async Task ClearAuthorizationAsync(HostAuthorization? expected)
+    {
+        await _authorizationGate.WaitAsync();
+        try
+        {
+            await ClearAuthorizationCoreAsync(expected, requireExpected: true);
+        }
+        finally
+        {
+            _authorizationGate.Release();
+        }
+    }
+
+    private async Task ClearAuthorizationAsync(HostAuthorization? expected, bool requireExpected)
+    {
+        await _authorizationGate.WaitAsync();
+        try
+        {
+            await ClearAuthorizationCoreAsync(expected, requireExpected);
+        }
+        finally
+        {
+            _authorizationGate.Release();
+        }
+    }
+
+    private async Task<bool> ClearAuthorizationCoreAsync(HostAuthorization? expected, bool requireExpected)
+    {
+        if (requireExpected && !ReferenceEquals(_authorization, expected))
+        {
+            return false;
+        }
         CancelScheduledAuthorizationClear();
         var media = _media?.Snapshot().Mode == "publish" ? _media : null;
         _authorization = null;
@@ -315,6 +383,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
             media.InvalidatePlaybackAndCancel();
             await media.StopAsync();
         }
+        return true;
     }
 
     private static bool SameAuthorizationContext(HostAuthorization left, HostAuthorization right) =>
@@ -685,6 +754,7 @@ public sealed class HostEngine : IDisposable, IAsyncDisposable
         {
             _screenPublisher.StateChanged -= OnScreenPublisherStateChanged;
             await _screenPublisher.DisposeAsync();
+            _authorizationGate.Dispose();
             _lifecycleGate.Dispose();
         }
     }

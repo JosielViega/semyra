@@ -6,12 +6,17 @@ public sealed record DesktopRequest(
     string Type,
     string RequestId,
     HostAuthorization? Authorization = null,
+    HostClearRequest? HostClear = null,
     IptvRequest? Iptv = null,
     MediaRequest? Media = null,
     AccountRequest? Account = null,
     PlayerRequest? Player = null,
     WindowRequest? Window = null,
     ScreenRequest? Screen = null);
+
+public sealed record HostClearRequest(
+    string TransmissionInstanceId,
+    long TransmissionRevision);
 
 public sealed record ScreenRequest(
     string AccountContextId,

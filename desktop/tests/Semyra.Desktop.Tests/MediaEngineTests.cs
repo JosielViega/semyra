@@ -222,6 +222,40 @@ public sealed class MediaEngineTests
     }
 
     [Fact]
+    public async Task DelayedClearCompletesBeforeReplacementAuthorizationAndCannotStopRestart()
+    {
+        var stopGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pipelines = new FakePipelineFactory(stopGate: stopGate);
+        var media = new MediaEngine(
+            Resolve,
+            GStreamerRuntime.AvailableForTests(),
+            new FakeProvider(),
+            pipelines,
+            publishClient: new FakePublishClient());
+        await using var host = new HostEngine(media);
+        host.Start();
+        var first = Authorization("a");
+        var replacement = Authorization("b") with { TransmissionRevision = 2 };
+        Assert.True(await host.AuthorizeAsync(first));
+        await host.StartIptvPublishAsync(10, default);
+
+        var clear = host.ClearAuthorizationAsync(first.TransmissionInstanceId, first.TransmissionRevision);
+        await pipelines.Pipelines[0].StopStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var authorizeReplacement = host.AuthorizeAsync(replacement);
+        Assert.False(authorizeReplacement.IsCompleted);
+
+        stopGate.SetResult(true);
+        Assert.True(await clear);
+        Assert.True(await authorizeReplacement);
+        var restarted = await host.StartIptvPublishAsync(11, default);
+
+        Assert.Equal("streaming", restarted.State);
+        Assert.True(host.Snapshot().Authorization.Authorized);
+        Assert.Equal(replacement.TransmissionInstanceId, host.Snapshot().Authorization.TransmissionInstanceId);
+        Assert.Equal(2, pipelines.CreateCount);
+    }
+
+    [Fact]
     public async Task StartStreamsOnceForSameChannelAndStopIsIdempotent()
     {
         var provider = new FakeProvider();

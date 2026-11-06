@@ -144,7 +144,7 @@ public sealed class DesktopMessageTests
         foreach (var requestId in new[] { "clear-1", "clear-2" })
         {
             var result = await DesktopBridge.TryHandleAsync(
-                $$"""{"type":"semyra.desktop.host.clear","requestId":"{{requestId}}"}""",
+                $$"""{"type":"semyra.desktop.host.clear","requestId":"{{requestId}}","transmissionInstanceId":"{{new string('c', 32)}}","transmissionRevision":3}""",
                 hostEngine,
                 () => null);
             Assert.True(result.Handled);
@@ -209,6 +209,7 @@ public sealed class DesktopMessageTests
     [InlineData("{\"type\":\"semyra.desktop.host.status\",\"requestId\":42}")]
     [InlineData("{\"type\":\"semyra.desktop.host.status\",\"requestId\":\"ok\",\"requestId\":\"duplicate\"}")]
     [InlineData("{\"type\":\"semyra.desktop.host.clear\",\"requestId\":\"ok\",\"extra\":true}")]
+    [InlineData("{\"type\":\"semyra.desktop.host.clear\",\"requestId\":\"ok\"}")]
     [InlineData("{\"type\":\"semyra.desktop.host.authorize\",\"requestId\":\"ok\",\"hostSessionToken\":\"invalid\",\"roomCode\":\"ROOM2345\",\"transmissionInstanceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"transmissionRevision\":1,\"permission\":\"media.publish\",\"expiresAt\":\"2099-10-06T12:00:00Z\"}")]
     [InlineData("{\"type\":\"semyra.desktop.host.authorize\",\"requestId\":\"ok\",\"hostSessionToken\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"roomCode\":\"ROOM2345\",\"transmissionInstanceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"transmissionRevision\":1,\"permission\":\"admin\",\"expiresAt\":\"2099-10-06T12:00:00Z\"}")]
     [InlineData("{\"type\":\"semyra.desktop.host.authorize\",\"requestId\":\"ok\",\"hostSessionToken\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"roomCode\":\"ROOM2345\",\"transmissionInstanceId\":\"invalid\",\"transmissionRevision\":1,\"permission\":\"media.publish\",\"expiresAt\":\"2099-10-06T12:00:00Z\"}")]

@@ -42,6 +42,16 @@
         && existingHost.capabilities.includes('host.authorize');
 
     const contextKey = (value) => `${value.instanceId}:${value.revision}`;
+    const contextDetail = (key) => {
+        const separator = key?.lastIndexOf(':') ?? -1;
+        if (separator < 1) return null;
+        const transmissionInstanceId = key.slice(0, separator);
+        const transmissionRevision = Number(key.slice(separator + 1));
+        return /^[a-f0-9]{32}$/.test(transmissionInstanceId)
+            && Number.isSafeInteger(transmissionRevision) && transmissionRevision > 0
+            ? {transmissionInstanceId, transmissionRevision}
+            : null;
+    };
     const eligible = (value) => value?.source === 'iptv'
         && ['live', 'vod'].includes(value?.mediaMode)
         && value?.isOwner === true
@@ -61,10 +71,13 @@
         if (requestedContext === null && activeContext === null) {
             return;
         }
+        const clearedContext = contextDetail(activeContext ?? requestedContext);
         generation += 1;
         requestedContext = null;
         activeContext = null;
-        window.dispatchEvent(new CustomEvent('semyra:host-clear-request'));
+        if (clearedContext !== null) {
+            window.dispatchEvent(new CustomEvent('semyra:host-clear-request', {detail: clearedContext}));
+        }
     };
 
     const apply = async () => {
@@ -118,7 +131,11 @@
                 || typeof payload.expires_at !== 'string') {
                 if (safeHostSessionErrors.has(payload?.error)) {
                     window.dispatchEvent(new CustomEvent('semyra:host-session-error', {
-                        detail: {errorCode: payload.error},
+                        detail: {
+                            errorCode: payload.error,
+                            transmissionInstanceId: transmission.instanceId,
+                            transmissionRevision: transmission.revision,
+                        },
                     }));
                 }
                 throw new Error('Invalid Host Session response.');

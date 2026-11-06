@@ -537,19 +537,66 @@ assert.deepEqual(dispatched.at(-1).detail, {
 assert.equal(JSON.stringify(dispatched.at(-1)).includes(hostToken), false);
 assert.equal(JSON.stringify(webviewBridge.getHostSnapshot()).includes(hostToken), false);
 
-windowListeners.get('semyra:host-clear-request')({});
+windowListeners.get('semyra:host-clear-request')({detail: {
+    transmissionInstanceId: 'c'.repeat(32), transmissionRevision: 3,
+}});
 assert.deepEqual(posted.at(-1), {
     type: 'semyra.desktop.host.clear',
     requestId: 'request-11a',
+    transmissionInstanceId: 'c'.repeat(32),
+    transmissionRevision: 3,
 });
 messageListener({data: {
     type: 'semyra.desktop.host.clear-result',
     requestId: 'request-11a',
     protocolVersion: 1,
     cleared: true,
+    transmissionInstanceId: 'c'.repeat(32),
+    transmissionRevision: 3,
 }});
 assert.equal(dispatched.at(-1).type, 'semyra:host-cleared');
+assert.equal(dispatched.at(-1).detail.cleared, true);
 assert.equal(webviewBridge.getHostSnapshot().authorization.authorized, false);
+
+// A delayed clear for transmission A must never erase a newer authorization B.
+webviewWindow.crypto.randomUUID = () => 'authorize-b';
+windowListeners.get('semyra:host-authorization-request')({detail: {
+    hostSessionToken: hostToken,
+    roomCode: 'ROOM2345',
+    transmissionInstanceId: 'd'.repeat(32),
+    transmissionRevision: 4,
+    permission: 'media.publish',
+    expiresAt: '2099-10-06T12:00:00.000Z',
+}});
+messageListener({data: {
+    type: 'semyra.desktop.host.authorize-result', requestId: 'authorize-b', protocolVersion: 1,
+    authorized: true, permission: 'media.publish',
+    transmissionInstanceId: 'd'.repeat(32), transmissionRevision: 4,
+}});
+const snapshotB = webviewBridge.getHostSnapshot();
+messageListener({data: {
+    type: 'semyra.desktop.host.clear-result', requestId: 'request-11a', protocolVersion: 1,
+    cleared: true, transmissionInstanceId: 'c'.repeat(32), transmissionRevision: 3,
+}});
+assert.equal(webviewBridge.getHostSnapshot(), snapshotB);
+assert.equal(webviewBridge.getHostSnapshot().authorization.transmissionInstanceId, 'd'.repeat(32));
+
+webviewWindow.crypto.randomUUID = () => 'authorize-rejected';
+windowListeners.get('semyra:host-authorization-request')({detail: {
+    hostSessionToken: hostToken, roomCode: 'ROOM2345',
+    transmissionInstanceId: 'e'.repeat(32), transmissionRevision: 5,
+    permission: 'media.publish', expiresAt: '2099-10-06T12:00:00.000Z',
+}});
+messageListener({data: {
+    type: 'semyra.desktop.host.authorize-result', requestId: 'authorize-rejected', protocolVersion: 1,
+    authorized: false, permission: 'media.publish',
+    transmissionInstanceId: 'e'.repeat(32), transmissionRevision: 5,
+}});
+assert.equal(dispatched.at(-1).type, 'semyra:host-authorization-error');
+assert.deepEqual(dispatched.at(-1).detail, {
+    errorCode: 'host_authorization_rejected',
+    transmissionInstanceId: 'e'.repeat(32), transmissionRevision: 5,
+});
 
 webviewWindow.crypto.randomUUID = () => 'iptv-add';
 windowListeners.get('semyra:iptv-request')({detail: {action: 'add-url', name: 'Fonte', location: 'https://private.example/list.m3u'}});

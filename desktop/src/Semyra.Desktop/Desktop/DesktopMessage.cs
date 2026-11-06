@@ -173,7 +173,7 @@ public static partial class DesktopMessage
                 return false;
             }
 
-            if (type is PingType or HostStatusType or HostClearType or AccountClearType
+            if (type is PingType or HostStatusType or AccountClearType
                 or HostLeaveType or WindowFullscreenStatusType)
             {
                 if (properties.Count != 2)
@@ -182,6 +182,22 @@ public static partial class DesktopMessage
                 }
 
                 request = new DesktopRequest(type, requestId);
+                return true;
+            }
+
+            if (type == HostClearType)
+            {
+                if (properties.Count != 4
+                    || !TryString(properties, "transmissionInstanceId", out var clearInstanceId)
+                    || !InstanceIdPattern().IsMatch(clearInstanceId)
+                    || !TryPositiveInt64(properties, "transmissionRevision", out var clearRevision))
+                {
+                    return false;
+                }
+                request = new DesktopRequest(
+                    type,
+                    requestId,
+                    HostClear: new HostClearRequest(clearInstanceId, clearRevision));
                 return true;
             }
 

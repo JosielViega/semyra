@@ -123,6 +123,7 @@
         let authorizationRequestId = null;
         let authorizationContext = null;
         let clearRequestId = null;
+        let clearContext = null;
         let accountRequestId = null;
         let accountAction = null;
         let accountContextId = null;
@@ -404,14 +405,33 @@
             });
         }
 
-        function requestClear() {
+        function requestClear(event) {
             if (!hostSnapshot) {
                 return;
             }
-            authorizationRequestId = null;
-            authorizationContext = null;
+            const detail = event?.detail;
+            if (!detail || typeof detail.transmissionInstanceId !== 'string'
+                || !/^[a-f0-9]{32}$/.test(detail.transmissionInstanceId)
+                || !Number.isSafeInteger(detail.transmissionRevision)
+                || detail.transmissionRevision < 1) {
+                return;
+            }
+            if (authorizationContext?.transmissionInstanceId === detail.transmissionInstanceId
+                && authorizationContext?.transmissionRevision === detail.transmissionRevision) {
+                authorizationRequestId = null;
+                authorizationContext = null;
+            }
             clearRequestId = createRequestId(target);
-            webview.postMessage({type: HOST_CLEAR_TYPE, requestId: clearRequestId});
+            clearContext = Object.freeze({
+                transmissionInstanceId: detail.transmissionInstanceId,
+                transmissionRevision: detail.transmissionRevision,
+            });
+            webview.postMessage({
+                type: HOST_CLEAR_TYPE,
+                requestId: clearRequestId,
+                transmissionInstanceId: clearContext.transmissionInstanceId,
+                transmissionRevision: clearContext.transmissionRevision,
+            });
         }
 
         function requestHostLeave() {
@@ -450,11 +470,22 @@
         function receiveHostAuthorize(message) {
             if (message.requestId !== authorizationRequestId
                 || message.protocolVersion !== PROTOCOL_VERSION
-                || message.authorized !== true
                 || !authorizationContext
                 || message.permission !== authorizationContext.permission
                 || message.transmissionInstanceId !== authorizationContext.transmissionInstanceId
                 || message.transmissionRevision !== authorizationContext.transmissionRevision) {
+                return;
+            }
+
+            if (message.authorized !== true) {
+                const detail = Object.freeze({
+                    errorCode: 'host_authorization_rejected',
+                    transmissionInstanceId: authorizationContext.transmissionInstanceId,
+                    transmissionRevision: authorizationContext.transmissionRevision,
+                });
+                authorizationRequestId = null;
+                authorizationContext = null;
+                target.dispatchEvent(new target.CustomEvent('semyra:host-authorization-error', {detail}));
                 return;
             }
 
@@ -477,17 +508,31 @@
         function receiveHostClear(message) {
             if (message.requestId !== clearRequestId
                 || message.protocolVersion !== PROTOCOL_VERSION
-                || message.cleared !== true) {
+                || typeof message.cleared !== 'boolean'
+                || !clearContext
+                || message.transmissionInstanceId !== clearContext.transmissionInstanceId
+                || message.transmissionRevision !== clearContext.transmissionRevision) {
                 return;
             }
 
-            const detail = safeAuthorization({authorized: false});
-            hostSnapshot = Object.freeze({
-                state: hostSnapshot.state,
-                capabilities: hostSnapshot.capabilities,
-                authorization: detail,
+            const detail = Object.freeze({
+                cleared: message.cleared,
+                transmissionInstanceId: clearContext.transmissionInstanceId,
+                transmissionRevision: clearContext.transmissionRevision,
             });
+            const active = hostSnapshot.authorization;
+            if (message.cleared === true
+                && active?.authorized === true
+                && active.transmissionInstanceId === clearContext.transmissionInstanceId
+                && active.transmissionRevision === clearContext.transmissionRevision) {
+                hostSnapshot = Object.freeze({
+                    state: hostSnapshot.state,
+                    capabilities: hostSnapshot.capabilities,
+                    authorization: safeAuthorization({authorized: false}),
+                });
+            }
             clearRequestId = null;
+            clearContext = null;
             target.dispatchEvent(new target.CustomEvent('semyra:host-cleared', {detail}));
         }
 

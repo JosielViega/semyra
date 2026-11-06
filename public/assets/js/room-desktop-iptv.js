@@ -53,6 +53,7 @@
         livekit_unavailable: 'O serviço de transmissão está temporariamente indisponível.',
         host_session_expired: 'A autorização expirou. Tente iniciar novamente.',
         host_authorization_expired: 'A autorização expirou. Tente iniciar novamente.',
+        host_authorization_rejected: 'O Desktop recusou a nova autorização. Tente iniciar novamente.',
         transmission_changed: 'A transmissão da sala mudou. Tente novamente.',
         ingress_create_failed: 'Não foi possível preparar a transmissão.',
         ingress_list_failed: 'Não foi possível consultar as transmissões existentes no LiveKit.',
@@ -268,7 +269,15 @@
             const payload = await response.json();
             const transmission = normalizeStartedTransmission(payload?.transmission);
             if (!response.ok || publishGeneration !== state.generation || transmission === null) throw new Error(payload?.error || 'publish_failed');
-            state.pending = {kind, mediaId}; state.eofHandled = false;
+            state.pending = {
+                kind,
+                mediaId,
+                transmissionInstanceId: transmission.instanceId,
+                transmissionRevision: transmission.revision,
+                requestSent: false,
+                clientRequestId: `publish-${transmission.instanceId}-${transmission.revision}`,
+            };
+            state.eofHandled = false;
             document.dispatchEvent(new CustomEvent('semyra:presence-updated', {detail: {transmission}}));
             window.dispatchEvent(new CustomEvent('semyra:transmission-updated', {detail: transmission}));
             status.textContent = 'Autorizando…';
@@ -365,16 +374,35 @@
     });
 
     window.addEventListener('semyra:host-ready', (event) => applyCapabilities(event.detail?.state === 'ready' ? event.detail.capabilities : []));
-    window.addEventListener('semyra:host-authorized', () => {
-        if (!state.pending) return;
+    window.addEventListener('semyra:host-authorized', (event) => {
+        if (!state.pending || state.pending.requestSent
+            || event.detail?.transmissionInstanceId !== state.pending.transmissionInstanceId
+            || event.detail?.transmissionRevision !== state.pending.transmissionRevision) return;
+        state.pending.requestSent = true;
         status.textContent = 'Publicando…';
-        request(state.pending.kind === 'live' ? {action: 'publish-start', channelId: state.pending.mediaId}
-            : {action: 'publish-start', kind: state.pending.kind, mediaId: state.pending.mediaId});
+        request(state.pending.kind === 'live'
+            ? {action: 'publish-start', channelId: state.pending.mediaId, clientRequestId: state.pending.clientRequestId}
+            : {action: 'publish-start', kind: state.pending.kind, mediaId: state.pending.mediaId, clientRequestId: state.pending.clientRequestId});
     });
-    window.addEventListener('semyra:host-session-error', (event) => { status.textContent = errorMessage(event.detail?.errorCode); });
+    const hostFailure = (event) => {
+        if (!state.pending
+            || event.detail?.transmissionInstanceId !== state.pending.transmissionInstanceId
+            || event.detail?.transmissionRevision !== state.pending.transmissionRevision) return;
+        state.pending = null;
+        status.textContent = errorMessage(event.detail?.errorCode);
+    };
+    window.addEventListener('semyra:host-session-error', hostFailure);
+    window.addEventListener('semyra:host-authorization-error', hostFailure);
     window.addEventListener('semyra:iptv-result', (event) => {
         const detail = event.detail; if (!detail) return;
-        if (!detail.ok) { status.textContent = errorMessage(detail.error || detail.errorCode); return; }
+        if (!detail.ok) {
+            if (detail.action === 'publish-start') {
+                if (state.pending?.clientRequestId !== detail.clientRequestId) return;
+                state.pending = null;
+            }
+            status.textContent = errorMessage(detail.error || detail.errorCode);
+            return;
+        }
         if (detail.action === 'list' && sourceSelect) {
             state.sources = detail.sources || []; sourceSelect.replaceChildren(...state.sources.map((item) => Object.assign(make('option'), {value: item.id, textContent: item.name})));
             state.sourceId = state.sources[0]?.id || null; if (state.sourceId) resetSource(); else empty('live', 'Nenhuma fonte IPTV disponível.');
@@ -388,11 +416,17 @@
         else if (detail.action === 'vod-movies-search' && current('search-movies', detail.clientRequestId)) renderPage('movies', detail.items || [], detail.hasMore === true);
         else if (detail.action === 'vod-series-search' && current('search-series', detail.clientRequestId)) renderPage('series', detail.items || [], detail.hasMore === true);
         else if (detail.action === 'vod-series-details' && current('series-detail', detail.clientRequestId)) renderSeriesDetail(detail.episodes || []);
-        else if (detail.action === 'publish-start') status.textContent = publishStatus(detail);
+        else if (detail.action === 'publish-start'
+            && state.pending?.clientRequestId === detail.clientRequestId) {
+            status.textContent = publishStatus(detail);
+        }
     });
     window.addEventListener('semyra:iptv-media-state', (event) => {
         const detail = event.detail; if (detail?.mode !== 'publish') return;
         status.textContent = publishStatus({...detail, ok: true});
+        if (detail.state === 'streaming' || detail.state === 'failed' || detail.state === 'idle') {
+            state.pending = null;
+        }
         if (detail.mediaKind === 'vod' && detail.state === 'ended' && !state.eofHandled) {
             state.eofHandled = true; window.setTimeout(() => document.querySelector('[data-end-transmission]')?.requestSubmit(), 400);
         }

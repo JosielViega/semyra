@@ -118,6 +118,24 @@ public sealed class HostEngineTests
     }
 
     [Fact]
+    public async Task StaleScopedClearCannotRemoveReplacementAuthorization()
+    {
+        var engine = new HostEngine();
+        engine.Start();
+        var first = Authorization("a", 1);
+        var replacement = Authorization("b", 2);
+        Assert.True(await engine.AuthorizeAsync(first));
+        Assert.True(await engine.AuthorizeAsync(replacement));
+
+        Assert.False(await engine.ClearAuthorizationAsync(first.TransmissionInstanceId, first.TransmissionRevision));
+
+        var snapshot = engine.Snapshot();
+        Assert.True(snapshot.Authorization.Authorized);
+        Assert.Equal(replacement.TransmissionInstanceId, snapshot.Authorization.TransmissionInstanceId);
+        Assert.Equal(replacement.TransmissionRevision, snapshot.Authorization.TransmissionRevision);
+    }
+
+    [Fact]
     public async Task StopClearsAuthorization()
     {
         var engine = new HostEngine();

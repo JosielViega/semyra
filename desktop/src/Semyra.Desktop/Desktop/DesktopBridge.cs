@@ -49,7 +49,14 @@ public static class DesktopBridge
 
         if (request.Type == DesktopMessage.HostClearType)
         {
-            return (true, await CreateHostClearResultAsync(request.RequestId, hostEngine));
+            return (true, await CreateHostClearResultAsync(request.RequestId, request.HostClear!, hostEngine));
+        }
+        if (request.Type == DesktopMessage.HostAuthorizeType)
+        {
+            return (true, CreateHostAuthorizeResult(
+                request.RequestId,
+                request.Authorization!,
+                await hostEngine.AuthorizeAsync(request.Authorization!)));
         }
         if (request.Type == DesktopMessage.HostLeaveType)
         {
@@ -520,15 +527,22 @@ public static class DesktopBridge
         }, JsonOptions);
     }
 
-    private static async Task<string> CreateHostClearResultAsync(string requestId, HostEngine hostEngine)
+    private static async Task<string> CreateHostClearResultAsync(
+        string requestId,
+        HostClearRequest request,
+        HostEngine hostEngine)
     {
-        await hostEngine.ClearAuthorizationAsync();
+        var cleared = await hostEngine.ClearAuthorizationAsync(
+            request.TransmissionInstanceId,
+            request.TransmissionRevision);
         return JsonSerializer.Serialize(new
         {
             type = DesktopMessage.HostClearResultType,
             requestId,
             protocolVersion = DesktopMessage.ProtocolVersion,
-            cleared = true,
+            cleared,
+            transmissionInstanceId = request.TransmissionInstanceId,
+            transmissionRevision = request.TransmissionRevision,
         }, JsonOptions);
     }
 
