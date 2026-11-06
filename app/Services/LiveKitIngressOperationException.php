@@ -73,6 +73,12 @@ final class LiveKitIngressOperationException extends \RuntimeException
 
     private static function containsHttpStatus(string $text, int $status): bool
     {
-        return preg_match('/(?:http|status(?: code)?)[^0-9]{0,12}' . $status . '\b/i', $text) === 1;
+        $matched = preg_match_all(
+            '/(?:\bhttp\b|\bstatus(?:\s+code)?\b)\D{0,12}([0-9]{3})(?![0-9])/i',
+            $text,
+            $matches,
+        );
+
+        return $matched !== false && in_array((string) $status, $matches[1], true);
     }
 }

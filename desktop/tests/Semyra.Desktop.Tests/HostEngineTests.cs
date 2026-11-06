@@ -153,10 +153,10 @@ public sealed class HostEngineTests
     {
         var engine = new HostEngine();
         engine.Start();
-        engine.Authorize(Authorization("a", 1));
+        Assert.True(await engine.AuthorizeAsync(Authorization("a", 1)));
 
         engine.ScheduleAuthorizationClear(TimeSpan.FromMilliseconds(20));
-        await Task.Delay(80);
+        await WaitForAuthorizationAsync(engine, authorized: false);
 
         Assert.False(engine.Snapshot().Authorization.Authorized);
     }
@@ -183,8 +183,8 @@ public sealed class HostEngineTests
         engine.Start();
         var authorization = Authorization("a", 1) with { ExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(25) };
 
-        Assert.True(engine.Authorize(authorization));
-        await Task.Delay(100);
+        Assert.True(await engine.AuthorizeAsync(authorization));
+        await WaitForAuthorizationAsync(engine, authorized: false);
 
         Assert.False(engine.Snapshot().Authorization.Authorized);
     }
@@ -215,6 +215,15 @@ public sealed class HostEngineTests
         Assert.False(engine.Authorize(delayed));
         Assert.True(engine.Authorize(renewed));
         Assert.True(engine.Snapshot().Authorization.Authorized);
+    }
+
+    private static async Task WaitForAuthorizationAsync(HostEngine engine, bool authorized)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (engine.Snapshot().Authorization.Authorized != authorized)
+        {
+            await Task.Delay(10, timeout.Token);
+        }
     }
 
     private static HostAuthorization Authorization(string instanceCharacter, long revision)

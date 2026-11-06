@@ -67,6 +67,25 @@ final class LiveKitIngressOperationExceptionTest extends TestCase
         ];
     }
 
+    #[DataProvider('nonHttpStatusFailures')]
+    public function testDoesNotClassifyUnrelatedNumbersAsHttpStatuses(string $message): void
+    {
+        $failure = LiveKitIngressOperationException::from('create', new RuntimeException($message));
+
+        self::assertSame('ingress_create_failed', $failure->publicCode);
+        self::assertSame('livekit_ingress_create_failed', $failure->diagnosticCode);
+    }
+
+    public static function nonHttpStatusFailures(): array
+    {
+        return [
+            'bare code' => ['request failed with code 401'],
+            'longer number' => ['HTTP status code 4010'],
+            'different status' => ['HTTP status code 500'],
+            'code too far from marker' => ['HTTP response contained an error: 401'],
+        ];
+    }
+
     #[DataProvider('operationFailures')]
     public function testKeepsOperationPhaseForUnstructuredFailures(string $operation, string $publicCode): void
     {
