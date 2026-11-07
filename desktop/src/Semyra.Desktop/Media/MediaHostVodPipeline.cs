@@ -70,12 +70,17 @@ internal sealed class MediaHostVodPipeline : IVodMediaPipeline
         if (process is null) return;
         try
         {
-            if (!process.HasExited) _ = await SendAsync(new MediaHostCommand("stop", _sessionId), CancellationToken.None);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            if (!process.HasExited) _ = await SendAsync(new MediaHostCommand("stop", _sessionId), timeout.Token);
             process.StandardInput.Close();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             if (!process.HasExited) await process.WaitForExitAsync(timeout.Token);
         }
-        catch { if (!process.HasExited) process.Kill(true); }
+        catch
+        {
+            if (!process.HasExited) process.Kill(true);
+            using var killTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            try { if (!process.HasExited) await process.WaitForExitAsync(killTimeout.Token); } catch { }
+        }
     }
 
     private async Task<VodPublisherSnapshot> ControlAsync(string command, long? positionMs, CancellationToken cancellationToken)

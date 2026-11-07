@@ -16,9 +16,9 @@
     const PAGE = {live: 30, movies: 24, series: 24};
     const state = {
         canPublish: shell.dataset.canPublishIptv === '1', catalog: false, livePublish: false, vodPublish: false,
-        sourceMode: 'youtube', tab: 'live', sources: [], sourceId: null, pending: null, eofHandled: false,
+        sourceMode: 'youtube', tab: 'live', sources: [], sourceId: null, pending: null, activeContext: null, eofHandled: false,
         offset: {live: 0, movies: 0, series: 0}, hasMore: {live: false, movies: false, series: false},
-        generation: 0, requestTokens: new Map(), selectedSeries: null,
+        generation: 0, publishGeneration: 0, requestTokens: new Map(), selectedSeries: null,
     };
 
     const el = (selector) => panel.querySelector(selector);
@@ -49,13 +49,23 @@
         vod_publish_unavailable: 'Este Desktop ainda não pode publicar conteúdo sob demanda.',
         vod_container_unsupported: 'O formato deste conteúdo ainda não pode ser transmitido.',
         vod_codec_unsupported: 'Os codecs deste conteúdo ainda não podem ser transmitidos.',
+        vod_source_failed: 'Não foi possível preparar o acesso seguro ao conteúdo.',
+        vod_probe_failed: 'Não foi possível analisar o conteúdo antes da transmissão.',
+        pipeline_start_failed: 'Não foi possível iniciar o pipeline de publicação.',
         provider_connect_failed: 'Não foi possível acessar o conteúdo no provider.',
+        provider_stream_invalid: 'O provider respondeu, mas o fluxo recebido não pôde ser validado.',
         livekit_unavailable: 'O serviço de transmissão está temporariamente indisponível.',
         host_session_expired: 'A autorização expirou. Tente iniciar novamente.',
         host_authorization_expired: 'A autorização expirou. Tente iniciar novamente.',
         host_authorization_rejected: 'O Desktop recusou a nova autorização. Tente iniciar novamente.',
+        host_session_request_failed: 'Não foi possível solicitar a autorização do Desktop. Tente novamente.',
+        host_session_invalid_response: 'A resposta de autorização do servidor é inválida. Tente novamente.',
         transmission_changed: 'A transmissão da sala mudou. Tente novamente.',
         ingress_create_failed: 'Não foi possível preparar a transmissão.',
+        ingress_publish_error: 'O LiveKit recusou a publicação antes de receber vídeo.',
+        ingress_publish_confirmation_failed: 'Não foi possível confirmar a publicação no LiveKit.',
+        ingress_publish_confirmation_timeout: 'O LiveKit não confirmou a publicação a tempo.',
+        ingress_status_request_failed: 'Não foi possível confirmar o estado da publicação no LiveKit.',
         ingress_list_failed: 'Não foi possível consultar as transmissões existentes no LiveKit.',
         ingress_cleanup_failed: 'Não foi possível limpar a transmissão anterior com segurança.',
         ingress_quota_exceeded: 'O limite de transmissões simultâneas do LiveKit foi atingido.',
@@ -80,12 +90,18 @@
 
     const publishStatus = (detail) => {
         if (!detail?.ok) return errorMessage(detail?.errorCode || detail?.error);
-        if (detail.state === 'streaming') return 'Transmitindo…';
+        if (detail.state === 'streaming') return 'Publicação ativa; aguardando vídeo no player…';
         if (detail.state === 'reconnecting') return 'Reconectando…';
         if (detail.state === 'preparing') return 'Preparando…';
         if (detail.state === 'ended') return 'Conteúdo finalizado.';
         if (detail.state === 'idle') return 'Parado.';
-        if (detail.state === 'failed') return errorMessage(detail.errorCode);
+        if (detail.state === 'failed') {
+            const stage = typeof detail.diagnosticCode === 'string'
+                && /^vod_(?:authorization|ingress|source|probe|pipeline|ingress_confirmation)_failed$/.test(detail.diagnosticCode)
+                ? ` Diagnóstico: ${detail.diagnosticCode}.`
+                : '';
+            return errorMessage(detail.errorCode) + stage;
+        }
         return 'Publicando…';
     };
 
@@ -258,8 +274,20 @@
     }
 
     async function beginPublish(kind, mediaId) {
-        if (!state.canPublish || !state.livePublish || (kind !== 'live' && !state.vodPublish)) return;
-        const publishGeneration = ++state.generation;
+        if (!state.canPublish || !state.livePublish || (kind !== 'live' && !state.vodPublish) || state.pending !== null) return;
+        const publishGeneration = ++state.publishGeneration;
+        state.activeContext = null;
+        state.pending = {
+            kind,
+            mediaId,
+            publishGeneration,
+            transmissionInstanceId: null,
+            transmissionRevision: null,
+            requestSent: false,
+            clientRequestId: null,
+        };
+        status.dataset.attemptId = String(publishGeneration);
+        status.dataset.diagnosticStage = 'start_http_sent';
         status.textContent = 'Preparando…';
         try {
             const response = await fetch(shell.dataset.iptvTransmissionUrl, {
@@ -268,20 +296,31 @@
             });
             const payload = await response.json();
             const transmission = normalizeStartedTransmission(payload?.transmission);
-            if (!response.ok || publishGeneration !== state.generation || transmission === null) throw new Error(payload?.error || 'publish_failed');
-            state.pending = {
-                kind,
-                mediaId,
+            if (!response.ok || state.pending?.publishGeneration !== publishGeneration || transmission === null) {
+                throw new Error(payload?.error || 'publish_failed');
+            }
+            Object.assign(state.pending, {
                 transmissionInstanceId: transmission.instanceId,
                 transmissionRevision: transmission.revision,
-                requestSent: false,
                 clientRequestId: `publish-${transmission.instanceId}-${transmission.revision}`,
+            });
+            state.activeContext = {
+                transmissionInstanceId: transmission.instanceId,
+                transmissionRevision: transmission.revision,
             };
             state.eofHandled = false;
-            document.dispatchEvent(new CustomEvent('semyra:presence-updated', {detail: {transmission}}));
-            window.dispatchEvent(new CustomEvent('semyra:transmission-updated', {detail: transmission}));
+            document.dispatchEvent(new CustomEvent('semyra:transmission-accepted', {
+                detail: {transmission, acceptedAt: Date.now()},
+            }));
+            document.dispatchEvent(new CustomEvent('semyra:presence-refresh-request'));
+            status.dataset.diagnosticStage = 'transmission_accepted';
             status.textContent = 'Autorizando…';
-        } catch (error) { status.textContent = errorMessage(error?.message); }
+        } catch (error) {
+            if (state.pending?.publishGeneration !== publishGeneration) return;
+            state.pending = null;
+            status.dataset.diagnosticStage = 'start_failed';
+            status.textContent = errorMessage(error?.message);
+        }
     }
 
     function openSeries(item) {
@@ -379,6 +418,7 @@
             || event.detail?.transmissionInstanceId !== state.pending.transmissionInstanceId
             || event.detail?.transmissionRevision !== state.pending.transmissionRevision) return;
         state.pending.requestSent = true;
+        status.dataset.diagnosticStage = 'publish_start_sent';
         status.textContent = 'Publicando…';
         request(state.pending.kind === 'live'
             ? {action: 'publish-start', channelId: state.pending.mediaId, clientRequestId: state.pending.clientRequestId}
@@ -389,16 +429,33 @@
             || event.detail?.transmissionInstanceId !== state.pending.transmissionInstanceId
             || event.detail?.transmissionRevision !== state.pending.transmissionRevision) return;
         state.pending = null;
+        state.activeContext = null;
+        status.dataset.diagnosticStage = 'authorization_failed';
         status.textContent = errorMessage(event.detail?.errorCode);
     };
     window.addEventListener('semyra:host-session-error', hostFailure);
     window.addEventListener('semyra:host-authorization-error', hostFailure);
+    window.addEventListener('semyra:host-session-stage', (event) => {
+        if (!state.pending
+            || event.detail?.transmissionInstanceId !== state.pending.transmissionInstanceId
+            || event.detail?.transmissionRevision !== state.pending.transmissionRevision) return;
+        status.dataset.diagnosticStage = event.detail?.stage || 'host_session_progress';
+    });
+    window.addEventListener('semyra:host-session-retry', (event) => {
+        if (!state.pending
+            || event.detail?.transmissionInstanceId !== state.pending.transmissionInstanceId
+            || event.detail?.transmissionRevision !== state.pending.transmissionRevision) return;
+        status.dataset.diagnosticStage = `host_session_retry_${event.detail?.retryAttempt || 0}`;
+        status.textContent = `Autorização temporariamente indisponível. Nova tentativa em ${Math.ceil((event.detail?.retryDelayMs || 0) / 1000)} s.`;
+    });
     window.addEventListener('semyra:iptv-result', (event) => {
         const detail = event.detail; if (!detail) return;
         if (!detail.ok) {
             if (detail.action === 'publish-start') {
                 if (state.pending?.clientRequestId !== detail.clientRequestId) return;
                 state.pending = null;
+                state.activeContext = null;
+                status.dataset.diagnosticStage = 'publish_start_failed';
             }
             status.textContent = errorMessage(detail.error || detail.errorCode);
             return;
@@ -426,10 +483,19 @@
         status.textContent = publishStatus({...detail, ok: true});
         if (detail.state === 'streaming' || detail.state === 'failed' || detail.state === 'idle') {
             state.pending = null;
+            status.dataset.diagnosticStage = detail.diagnosticCode || detail.state;
         }
+        if (detail.state === 'failed' || detail.state === 'idle') state.activeContext = null;
         if (detail.mediaKind === 'vod' && detail.state === 'ended' && !state.eofHandled) {
             state.eofHandled = true; window.setTimeout(() => document.querySelector('[data-end-transmission]')?.requestSubmit(), 400);
         }
+    });
+    document.addEventListener('semyra:viewer-video-state', (event) => {
+        if (event.detail?.stage !== 'first_video_frame_observed'
+            || event.detail?.transmissionInstanceId !== state.activeContext?.transmissionInstanceId
+            || event.detail?.transmissionRevision !== state.activeContext?.transmissionRevision) return;
+        status.dataset.diagnosticStage = 'first_video_frame_observed';
+        status.textContent = 'Transmitindo…';
     });
 
     const existing = window.SemyraDesktopBridge?.getHostSnapshot?.();

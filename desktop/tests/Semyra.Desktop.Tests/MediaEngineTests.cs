@@ -150,6 +150,92 @@ public sealed class MediaEngineTests
     }
 
     [Fact]
+    public async Task PublishDoesNotReportStreamingBeforeLiveKitIngressIsPublishing()
+    {
+        var publish = new FakePublishClient("inactive", "buffering", "publishing");
+        await using var engine = new MediaEngine(
+            Resolve,
+            GStreamerRuntime.AvailableForTests(),
+            new FakeProvider(),
+            new FakePipelineFactory(),
+            delay: async (_, cancellationToken) =>
+            {
+                await Task.Yield();
+                cancellationToken.ThrowIfCancellationRequested();
+            },
+            publishClient: publish);
+
+        var snapshot = await engine.StartPublishAsync(10, () => Authorization("a"));
+        await engine.StopAsync();
+
+        Assert.Equal("streaming", snapshot.State);
+        Assert.Equal(3, publish.StatusCount);
+    }
+
+    [Fact]
+    public async Task FailedIngressConfirmationCleansAttemptAndDoesNotBlockNextPublish()
+    {
+        var publish = new FakePublishClient("error");
+        await using var engine = new MediaEngine(
+            Resolve,
+            GStreamerRuntime.AvailableForTests(),
+            new FakeProvider(),
+            new FakePipelineFactory(),
+            delay: async (_, cancellationToken) =>
+            {
+                await Task.Yield();
+                cancellationToken.ThrowIfCancellationRequested();
+            },
+            publishClient: publish);
+
+        var failed = await engine.StartPublishAsync(10, () => Authorization("a"));
+        if (failed.State != "failed") await engine.StopAsync();
+        Assert.Equal("failed", failed.State);
+        Assert.Equal("ingress_publish_error", failed.LastErrorCode);
+
+        publish.SetStatuses("publishing");
+        var restarted = await engine.StartPublishAsync(11, () => Authorization("b"));
+
+        Assert.Equal("streaming", restarted.State);
+        Assert.Equal(11, restarted.ChannelId);
+        Assert.True(publish.Stops.Count >= 1);
+        await engine.StopAsync();
+    }
+
+    [Fact]
+    public async Task FiveConsecutivePublishesStopCleanlyAndReuseTheSameEngine()
+    {
+        var publish = new FakePublishClient();
+        var pipelines = new FakePipelineFactory();
+        await using var engine = new MediaEngine(
+            Resolve,
+            GStreamerRuntime.AvailableForTests(),
+            new FakeProvider(),
+            pipelines,
+            publishClient: publish);
+
+        for (var index = 0; index < 5; index++)
+        {
+            var authorization = Authorization(((char)('a' + index)).ToString()) with
+            {
+                TransmissionInstanceId = new string((char)('a' + index), 32),
+                TransmissionRevision = index + 1,
+            };
+
+            var started = await engine.StartPublishAsync(10 + index, () => authorization);
+
+            Assert.Equal("streaming", started.State);
+            Assert.Equal(10 + index, started.ChannelId);
+            await engine.StopAsync();
+            Assert.Equal("idle", engine.Snapshot().State);
+        }
+
+        Assert.Equal(5, publish.Starts.Count);
+        Assert.Equal(5, publish.Stops.Count);
+        Assert.Equal(5, pipelines.CreateCount);
+    }
+
+    [Fact]
     public async Task HostClearStopsPublishBeforeDroppingAuthorization()
     {
         var publish = new FakePublishClient();
@@ -168,7 +254,7 @@ public sealed class MediaEngineTests
     }
 
     [Fact]
-    public async Task ScheduledRoomLeaveStopsNativePublisherAfterGrace()
+    public async Task ScheduledRoomLeaveStopsNativePublisherAfterGraceAndAllowsNextPublish()
     {
         var publish = new FakePublishClient();
         var media = new MediaEngine(
@@ -193,6 +279,14 @@ public sealed class MediaEngineTests
         Assert.Equal("idle", host.IptvMediaSnapshot().State);
         Assert.False(host.Snapshot().Authorization.Authorized);
         Assert.Single(publish.Stops);
+
+        var replacement = Authorization("b") with { TransmissionRevision = 2 };
+        Assert.True(await host.AuthorizeAsync(replacement));
+        var restarted = await host.StartIptvPublishAsync(11, default);
+
+        Assert.Equal("streaming", restarted.State);
+        Assert.Equal(11, restarted.ChannelId);
+        Assert.Equal(2, publish.Starts.Count);
     }
 
     [Fact]
@@ -253,6 +347,64 @@ public sealed class MediaEngineTests
         Assert.True(host.Snapshot().Authorization.Authorized);
         Assert.Equal(replacement.TransmissionInstanceId, host.Snapshot().Authorization.TransmissionInstanceId);
         Assert.Equal(2, pipelines.CreateCount);
+    }
+
+    [Fact]
+    public async Task StalledIngressCleanupIsBoundedAndCannotBlockReplacementAuthorizationOrRestart()
+    {
+        var publish = new StalledStopPublishClient();
+        var pipelines = new FakePipelineFactory();
+        var media = new MediaEngine(
+            Resolve,
+            GStreamerRuntime.AvailableForTests(),
+            new FakeProvider(),
+            pipelines,
+            publishClient: publish,
+            ingressCleanupTimeout: TimeSpan.FromMilliseconds(50));
+        await using var host = new HostEngine(media: media);
+        host.Start();
+        var first = Authorization("a");
+        var replacement = Authorization("b") with { TransmissionRevision = 2 };
+        Assert.True(await host.AuthorizeAsync(first));
+        Assert.Equal("streaming", (await host.StartIptvPublishAsync(10, default)).State);
+
+        var clear = host.ClearAuthorizationAsync(first.TransmissionInstanceId, first.TransmissionRevision);
+        var authorize = host.AuthorizeAsync(replacement);
+        Assert.True(await clear.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.True(await authorize.WaitAsync(TimeSpan.FromSeconds(2)));
+        var restarted = await host.StartIptvPublishAsync(11, default);
+
+        Assert.Equal("streaming", restarted.State);
+        Assert.Equal(2, publish.Starts.Count);
+        Assert.True(publish.CleanupCancellationObserved);
+        Assert.Equal(2, pipelines.CreateCount);
+    }
+
+    [Theory]
+    [InlineData("vod_ingress", "ingress_create_failed")]
+    [InlineData("vod_source", "vod_source_failed")]
+    [InlineData("vod_probe", "vod_probe_failed")]
+    [InlineData("vod_pipeline", "pipeline_start_failed")]
+    [InlineData("vod_ingress_confirmation", "ingress_publish_confirmation_failed")]
+    [InlineData("vod_authorization", "media_publish_failed")]
+    public void UnexpectedVodFailuresAreClassifiedByPreparationStage(string stage, string expected)
+    {
+        Assert.Equal(expected, MediaEngine.ClassifyVodFailure(new InvalidOperationException("sensitive detail"), stage));
+        Assert.Equal("vod_codec_unsupported", MediaEngine.ClassifyVodFailure(
+            new MediaEngineException("vod_codec_unsupported"), stage));
+    }
+
+    [Theory]
+    [InlineData("live_ingress", "ingress_create_failed")]
+    [InlineData("live_provider", "provider_connect_failed")]
+    [InlineData("live_validation", "provider_stream_invalid")]
+    [InlineData("live_pipeline", "pipeline_start_failed")]
+    [InlineData("live_ingress_confirmation", "ingress_publish_confirmation_failed")]
+    [InlineData("live_authorization", "media_publish_failed")]
+    public void UnexpectedLiveFailuresAreClassifiedByPreparationStage(string stage, string expected)
+    {
+        Assert.Equal(expected, MediaEngine.ClassifyLiveFailure(new InvalidOperationException("sensitive detail"), stage));
+        Assert.Equal("whip_timeout", MediaEngine.ClassifyLiveFailure(new MediaEngineException("whip_timeout"), stage));
     }
 
     [Fact]
@@ -343,15 +495,12 @@ public sealed class MediaEngineTests
         var states = new List<string>();
         engine.StateChanged += (_, snapshot) => states.Add(snapshot.State);
 
-        Assert.Equal("streaming", (await engine.StartPublishAsync(10, () => Authorization("a"))).State);
-        for (var index = 0; index < 50 && engine.Snapshot().State != "failed"; index++)
-        {
-            await Task.Delay(10);
-        }
+        var result = await engine.StartPublishAsync(10, () => Authorization("a"));
 
-        Assert.Equal("failed", engine.Snapshot().State);
-        Assert.Equal("pipeline_exited", engine.Snapshot().LastErrorCode);
+        Assert.Equal("failed", result.State);
+        Assert.Equal("pipeline_exited", result.LastErrorCode);
         Assert.Contains("reconnecting", states);
+        Assert.DoesNotContain("streaming", states);
         Assert.Equal(4, pipelines.CreateCount);
     }
 
@@ -459,10 +608,23 @@ public sealed class MediaEngineTests
         }
     }
 
-    private sealed class FakePublishClient : IDesktopPublishClient
+    private sealed class FakePublishClient(params string[] statuses) : IDesktopPublishClient
     {
-        public Task<DesktopPublishStatus> StatusAsync(HostAuthorization authorization, string ingressId, CancellationToken cancellationToken) =>
-            Task.FromResult(new DesktopPublishStatus("publishing"));
+        private readonly Queue<string> _statuses = new(statuses.Length == 0 ? ["publishing"] : statuses);
+        private string _lastStatus = statuses.Length == 0 ? "publishing" : statuses[^1];
+        public int StatusCount { get; private set; }
+        public Task<DesktopPublishStatus> StatusAsync(HostAuthorization authorization, string ingressId, CancellationToken cancellationToken)
+        {
+            StatusCount++;
+            if (_statuses.Count > 0) _lastStatus = _statuses.Dequeue();
+            return Task.FromResult(new DesktopPublishStatus(_lastStatus));
+        }
+        public void SetStatuses(params string[] values)
+        {
+            _statuses.Clear();
+            foreach (var value in values) _statuses.Enqueue(value);
+            _lastStatus = values.Length == 0 ? "publishing" : values[^1];
+        }
         public List<HostAuthorization> Starts { get; } = [];
         public List<HostAuthorization> Stops { get; } = [];
         public Task<DesktopPublishLease> StartAsync(HostAuthorization authorization, CancellationToken cancellationToken)
@@ -474,6 +636,31 @@ public sealed class MediaEngineTests
         {
             Stops.Add(authorization);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class StalledStopPublishClient : IDesktopPublishClient
+    {
+        public List<HostAuthorization> Starts { get; } = [];
+        public bool CleanupCancellationObserved { get; private set; }
+
+        public Task<DesktopPublishLease> StartAsync(HostAuthorization authorization, CancellationToken cancellationToken)
+        {
+            Starts.Add(authorization);
+            return Task.FromResult(new DesktopPublishLease($"INGRESS_{Starts.Count}", new Uri("https://whip.example/test")));
+        }
+
+        public Task<DesktopPublishStatus> StatusAsync(HostAuthorization authorization, string ingressId, CancellationToken cancellationToken) =>
+            Task.FromResult(new DesktopPublishStatus("publishing"));
+
+        public async Task StopAsync(HostAuthorization authorization, string ingressId, CancellationToken cancellationToken)
+        {
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                CleanupCancellationObserved = true;
+                throw;
+            }
         }
     }
 

@@ -147,6 +147,7 @@ $roomTransmissions = new RoomTransmissionController(
     $app['session'],
     $app['csrf'],
     $roomRepository,
+    $participantRepository,
     $transmissionRepository,
     $participantSession,
     new YouTubeUrlParser(),

@@ -23,7 +23,8 @@ public sealed record MediaSnapshot(
     bool Buffering = false,
     string? VodContentKind = null,
     bool CanPreviousEpisode = false,
-    bool CanNextEpisode = false)
+    bool CanNextEpisode = false,
+    string? DiagnosticCode = null)
 {
     public static MediaSnapshot Idle { get; } = new("idle", null, null, 0, null, "local");
 }

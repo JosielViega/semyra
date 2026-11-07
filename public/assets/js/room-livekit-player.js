@@ -58,6 +58,30 @@
         if (viewerDiagnostics.length > 40) viewerDiagnostics.shift();
     };
 
+    const emitFirstVideoFrame = (element, capturedGeneration, transmission) => {
+        if (typeof element?.requestVideoFrameCallback !== 'function') {
+            recordViewerDiagnostic('viewer_first_frame_observation_unavailable');
+            return;
+        }
+        element.requestVideoFrameCallback(() => {
+            if (capturedGeneration !== generation
+                || element !== videoElement
+                || activeTransmission?.instanceId !== transmission?.instanceId
+                || activeTransmission?.revision !== transmission?.revision) return;
+            recordViewerDiagnostic('viewer_first_video_frame_observed');
+            updateStatus(transmission.source === 'screen'
+                ? 'Tela compartilhada.'
+                : transmission.mediaMode === 'live' ? 'AO VIVO' : 'Transmissão conectada.');
+            document.dispatchEvent(new CustomEvent('semyra:viewer-video-state', {
+                detail: {
+                    stage: 'first_video_frame_observed',
+                    transmissionInstanceId: transmission.instanceId,
+                    transmissionRevision: transmission.revision,
+                },
+            }));
+        });
+    };
+
     const recordTrackTiming = (role) => {
         const startedAt = trackReplacementStartedAt[role];
         if (!debugEnabled || startedAt === null) return;
@@ -456,8 +480,9 @@
         mount.append(element);
         recordViewerDiagnostic(role === 'video'
             ? 'viewer_video_element_attached' : 'viewer_audio_element_attached');
+        if (role === 'video') emitFirstVideoFrame(element, capturedGeneration, activeTransmission);
         updateStatus(role === 'video'
-            ? (activeTransmission?.source === 'screen' ? 'Tela compartilhada.' : activeTransmission?.mediaMode === 'live' ? 'AO VIVO' : 'Transmissão conectada.')
+            ? 'Vídeo conectado; aguardando primeiro quadro…'
             : (locallyMuted ? 'Áudio conectado. Ative o som quando quiser.' : 'Áudio conectado.'));
     };
 

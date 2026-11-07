@@ -9,6 +9,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Core\Session;
 use App\Core\View;
+use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
@@ -29,6 +30,7 @@ final class RoomTransmissionController
         private readonly Session $session,
         private readonly Csrf $csrf,
         private readonly RoomRepository $rooms,
+        private readonly RoomParticipantRepository $participants,
         private readonly RoomTransmissionRepository $transmissions,
         private readonly RoomParticipantSession $participantSession,
         private readonly YouTubeUrlParser $youtubeUrlParser,
@@ -119,6 +121,13 @@ final class RoomTransmissionController
             return Response::json(['error' => 'invalid_request'], 422, ['Cache-Control' => 'no-store']);
         }
         $participantKeyHash = hash('sha256', $identity['participant_key']);
+        $this->participants->touch(
+            (int) $room['id'],
+            $participantKeyHash,
+            $identity['display_name'],
+            null,
+            $currentUser['id'] ?? null,
+        );
         $this->transmissions->startOrReplace(
             (int) $room['id'],
             $participantKeyHash,

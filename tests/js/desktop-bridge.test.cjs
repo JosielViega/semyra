@@ -446,13 +446,15 @@ assert.equal(posted.at(-1).type, 'semyra.desktop.player.geometry');
 
 messageListener({data: {
     type: 'semyra.desktop.iptv.media.state', protocolVersion: 1,
-    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null, mode: 'local',
+    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null,
+    diagnosticCode: 'vod_pipeline_streaming', mode: 'local',
     accountContextId: 'b'.repeat(32),
     streamUrl: 'https://must-not-cross.example/live.ts',
 }});
 assert.equal(dispatched.at(-1).type, 'semyra:iptv-media-state');
 assert.deepEqual(dispatched.at(-1).detail, {
-    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null, mode: 'local',
+    state: 'streaming', channelId: 7, channelName: 'Canal', attempt: 1, errorCode: null,
+    diagnosticCode: 'vod_pipeline_streaming', mode: 'local',
     playbackKind: null, sessionId: null, position: 0, duration: 0, seekable: false,
     muted: false, volume: 100, container: null, videoCodec: null, audioCodec: null, mediaKind: null, fullscreen: false, paused: false, buffering: false,
     vodContentKind: null, canPreviousEpisode: false, canNextEpisode: false,

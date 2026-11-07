@@ -11,6 +11,7 @@ use App\Core\Request;
 use App\Core\Session;
 use App\Core\View;
 use App\Repositories\RoomRepository;
+use App\Repositories\RoomParticipantRepository;
 use App\Repositories\RoomTransmissionRepository;
 use App\Repositories\UserRepository;
 use App\Services\AuthSession;
@@ -146,6 +147,7 @@ final class RoomTransmissionControllerTest extends TestCase
         self::assertSame('iptv', $pdo->transmission['source_type']);
         self::assertSame('live', $pdo->transmission['media_mode']);
         self::assertSame(9, $pdo->transmission['owner_user_id']);
+        self::assertSame(['participant_touch', 'transmission_start'], $pdo->startOperations);
     }
 
     public function testPremiumMovieStartsIptvVodTransmission(): void
@@ -242,6 +244,7 @@ final class RoomTransmissionControllerTest extends TestCase
             $session,
             $csrf,
             new RoomRepository($database),
+            new RoomParticipantRepository($database),
             new RoomTransmissionRepository($database),
             $participants,
             new YouTubeUrlParser(),
@@ -273,6 +276,9 @@ final class RoomTransmissionControllerTest extends TestCase
 
 final class TransmissionControllerPdo extends PDO
 {
+    /** @var list<string> */
+    public array $startOperations = [];
+
     public function __construct(public ?array $transmission, public bool $premium = true)
     {
     }
@@ -302,7 +308,11 @@ final class TransmissionControllerStatement extends PDOStatement
                 $this->pdo->transmission = null;
                 $this->affectedRows = 1;
             }
+        } elseif (str_starts_with($this->query, 'INSERT INTO room_participants')) {
+            $this->pdo->startOperations[] = 'participant_touch';
+            $this->affectedRows = 1;
         } elseif (str_starts_with($this->query, 'INSERT INTO room_transmissions')) {
+            $this->pdo->startOperations[] = 'transmission_start';
             $this->pdo->transmission = array_replace($this->pdo->transmission ?? [], [
                 'room_id' => (int) $this->params['room_id'],
                 'instance_id' => $this->params['instance_id'],

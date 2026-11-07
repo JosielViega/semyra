@@ -7,9 +7,10 @@ const vm = require('node:vm');
 
 const sourceCode = fs.readFileSync('public/assets/js/room-desktop-iptv.js', 'utf8');
 
-function harness(premium = true, transmissionInstances = ['a']) {
-    const windowListeners = new Map(); const requests = []; const webBodies = []; const selectors = new Map();
-    let document; let youtubeSubmits = 0; let scrollResets = 0;
+function harness(premium = true, transmissionInstances = ['a'], deferTransmissions = false) {
+    const windowListeners = new Map(); const documentListeners = new Map(); const requests = []; const webBodies = []; const selectors = new Map();
+    const transmissionResolvers = [];
+    let document; let youtubeSubmits = 0; let scrollResets = 0; let presenceRefreshes = 0;
     const element = (extra = {}) => {
         const listeners = new Map(); const attributes = new Map(); const classes = new Set();
         return Object.assign({hidden: false, disabled: false, value: '', textContent: '', dataset: {}, children: [], listeners,
@@ -80,10 +81,17 @@ function harness(premium = true, transmissionInstances = ['a']) {
     };
     document = {
         querySelector: (selector) => selectors.get(selector) || null,
-        createElement: (tagName) => element({tagName}), dispatchEvent() {}, activeElement: null,
+        createElement: (tagName) => element({tagName}), dispatchEvent(event) {
+            if (event.type === 'semyra:presence-refresh-request') presenceRefreshes += 1;
+            documentListeners.get(event.type)?.(event);
+        },
+        addEventListener(type, listener) { documentListeners.set(type, listener); }, activeElement: null,
     };
     const fetch = async (_url, options) => {
         webBodies.push(new URLSearchParams(options.body));
+        if (deferTransmissions) {
+            await new Promise((resolve) => transmissionResolvers.push(resolve));
+        }
         const instanceCharacter = transmissionInstances[Math.min(webBodies.length - 1, transmissionInstances.length - 1)];
         return {ok: true, json: async () => ({transmission: {
             source: 'iptv', media_mode: webBodies.at(-1).get('media_mode'),
@@ -96,6 +104,7 @@ function harness(premium = true, transmissionInstances = ['a']) {
     return {
         sourceTabs, controls, unavailable, vodUnavailable, status, requests, webBodies, panel, sourceSelect, panelMap,
         get youtubeSubmits() { return youtubeSubmits; }, get scrollResets() { return scrollResets; },
+        get presenceRefreshes() { return presenceRefreshes; },
         hostReady(capabilities) { emit('semyra:host-ready', {state: 'ready', capabilities: capabilities || ['iptv.catalog', 'livekit.publish', 'livekit.publish-vod']}); },
         chooseIptv() { sourceTabs.listeners.get('click')({target: {closest: () => mainButtons[1]}}); },
         listResult(sources = [{id: 7, name: 'Source', type: 'xtream'}]) { emit('semyra:iptv-result', {action: 'list', ok: true, sources}); },
@@ -117,17 +126,32 @@ function harness(premium = true, transmissionInstances = ['a']) {
             errorCode, transmissionInstanceId: context.instanceId || 'a'.repeat(32), transmissionRevision: context.revision || 1,
         }); },
         hostAuthorized(context = {}) { emit('semyra:host-authorized', {
-            transmissionInstanceId: context.instanceId || 'a'.repeat(32), transmissionRevision: context.revision || 1,
+                transmissionInstanceId: context.instanceId || 'a'.repeat(32),
+                transmissionRevision: context.revision || 1,
+            }); },
+        hostRetry(retryAttempt = 1, retryDelayMs = 5000) { emit('semyra:host-session-retry', {
+            transmissionInstanceId: 'a'.repeat(32), transmissionRevision: 1,
+            errorCode: 'host_session_request_failed', retryAttempt, retryDelayMs,
         }); },
         mediaState(detail) { emit('semyra:iptv-media-state', {mode: 'publish', ...detail}); },
+        viewerVideoState(detail) { document.dispatchEvent(new CustomEvent('semyra:viewer-video-state', {detail})); },
+        resolveTransmission(index = 0) { transmissionResolvers[index]?.(); },
     };
 }
 
-async function prepareMoviePublish(page, id = 42) {
+function prepareMovieCard(page, id = 42) {
     page.chooseIptv(); page.listResult(); page.clickTab('movies');
     page.result('vod-movies-search', {items: [{id, name: 'Filme seguro'}], hasMore: false});
-    const action = page.panelMap.get('[data-iptv-results-modern="movies"]').children[0].children[1].children[2];
+    return page.panelMap.get('[data-iptv-results-modern="movies"]').children[0].children[1].children[2];
+}
+
+function clickPublish(page, action) {
     page.panel.listeners.get('click')({target: {closest: (selector) => selector === '[data-publish-kind]' ? action : null}});
+}
+
+async function prepareMoviePublish(page, id = 42) {
+    const action = prepareMovieCard(page, id);
+    clickPublish(page, action);
     await new Promise((resolve) => setImmediate(resolve));
 }
 
@@ -178,6 +202,32 @@ test('movie publish sends only media mode to backend and opaque kind plus ID to 
     assert.equal(JSON.stringify(publish).includes('url'), false);
     page.hostAuthorized();
     assert.equal(page.requests.filter((item) => item?.action === 'publish-start').length, 1);
+    assert.equal(page.presenceRefreshes, 1, 'accepted transmission requests an immediate owner heartbeat');
+});
+
+test('rapid duplicate clicks create only one backend transmission attempt', async () => {
+    const page = harness(true, ['a'], true); page.hostReady();
+    const action = prepareMovieCard(page);
+
+    clickPublish(page, action);
+    clickPublish(page, action);
+
+    assert.equal(page.webBodies.length, 1, 'a pending HTTP start must fence duplicate clicks');
+    page.resolveTransmission();
+    await new Promise((resolve) => setImmediate(resolve));
+});
+
+test('catalog activity cannot invalidate an accepted publish attempt', async () => {
+    const page = harness(true, ['a'], true); page.hostReady();
+    const action = prepareMovieCard(page);
+    clickPublish(page, action);
+
+    page.clickTab('live');
+    page.resolveTransmission();
+    await new Promise((resolve) => setImmediate(resolve));
+    page.hostAuthorized();
+
+    assert.equal(page.requests.filter((item) => item?.action === 'publish-start').length, 1);
 });
 
 test('completed and failed attempts release pending state for a fenced restart', async () => {
@@ -200,6 +250,30 @@ test('completed and failed attempts release pending state for a fenced restart',
     assert.equal(starts.at(-1).mediaId, 43);
 });
 
+test('publishing state is not audiovisual success until the matching viewer observes a frame', async () => {
+    const page = harness(); page.hostReady(); await prepareMoviePublish(page, 41);
+    page.hostAuthorized({instanceId: 'a'.repeat(32), revision: 1});
+    page.mediaState({state: 'streaming', mediaKind: 'vod'});
+
+    assert.match(page.status.textContent, /aguardando vídeo no player/i);
+    assert.doesNotMatch(page.status.textContent, /^Transmitindo/);
+
+    page.viewerVideoState({
+        stage: 'first_video_frame_observed',
+        transmissionInstanceId: 'b'.repeat(32),
+        transmissionRevision: 2,
+    });
+    assert.match(page.status.textContent, /aguardando vídeo no player/i);
+
+    page.viewerVideoState({
+        stage: 'first_video_frame_observed',
+        transmissionInstanceId: 'a'.repeat(32),
+        transmissionRevision: 1,
+    });
+    assert.equal(page.status.textContent, 'Transmitindo…');
+    assert.equal(page.status.dataset.diagnosticStage, 'first_video_frame_observed');
+});
+
 test('late results are fenced and source change invalidates old generation', () => {
     const page = harness(); page.hostReady(); page.chooseIptv(); page.listResult([{id: 7, name: 'A', type: 'xtream'}, {id: 8, name: 'B', type: 'xtream'}]);
     const old = [...page.requests].reverse().find((item) => item.action === 'search');
@@ -217,12 +291,32 @@ test('sanitized Host Session failures have understandable messages', async () =>
     assert.match(codec.status.textContent, /codecs/);
 });
 
+test('Host Session retry remains observable without releasing the active attempt', async () => {
+    const page = harness(); page.hostReady(); await prepareMoviePublish(page);
+    page.hostRetry(1, 5000);
+    assert.equal(page.status.dataset.diagnosticStage, 'host_session_retry_1');
+    assert.match(page.status.textContent, /5 s/);
+    page.hostAuthorized();
+    assert.equal(page.requests.filter((item) => item?.action === 'publish-start').length, 1);
+});
+
 test('sanitized HTTP diagnostics expose category and code without response bodies', async () => {
     const page = harness(); page.hostReady(); await prepareMoviePublish(page); page.hostAuthorized();
     page.result('publish-start', {ok: false, errorCode: 'ingress_http_403_html'});
     assert.match(page.status.textContent, /servidor recusou/i);
     assert.match(page.status.textContent, /ingress_http_403_html/);
     assert.doesNotMatch(page.status.textContent, /<html|response body|authorization/i);
+});
+
+test('VOD failures expose only a sanitized preparation stage', async () => {
+    const page = harness(); page.hostReady(); await prepareMoviePublish(page); page.hostAuthorized();
+    page.mediaState({
+        state: 'failed', mediaKind: 'vod', errorCode: 'vod_probe_failed',
+        diagnosticCode: 'vod_probe_failed',
+    });
+    assert.match(page.status.textContent, /vod_probe_failed/);
+    assert.equal(page.status.dataset.diagnosticStage, 'vod_probe_failed');
+    assert.doesNotMatch(page.status.textContent, /https?:|provider|password|token/i);
 });
 
 test('IPTV searches never submit the sibling YouTube form', () => {

@@ -85,10 +85,24 @@ assert.equal(endRevision.value, '1');
 assert.equal(transmissionEvents().at(-1).detail.requestStartedAt, 1234,
     'the shell preserves presence observation ordering metadata');
 
+const accepted = {...replacement, instanceId: 'c'.repeat(32), revision: 2};
+listeners.get('semyra:transmission-accepted')({detail: {transmission: accepted, acceptedAt: 2000}});
+const acceptedEventCount = transmissionEvents().length;
+listeners.get('semyra:presence-updated')({detail: {transmission: null, requestStartedAt: 1500}});
+assert.equal(transmissionEvents().length, acceptedEventCount,
+    'presence requested before local acceptance cannot clear the accepted transmission');
+assert.equal(endInstance.value, 'c'.repeat(32));
+
 listeners.get('end-form:submit')();
 const ending = dispatched.filter((event) => event.type === 'semyra:transmission-ending');
-assert.equal(ending.at(-1).detail.instanceId, 'b'.repeat(32));
-assert.equal(ending.at(-1).detail.revision, 1);
-assert.equal(endInstance.value, 'b'.repeat(32), 'local cleanup must not clear fenced form fields');
-assert.equal(endRevision.value, '1');
+assert.equal(ending.at(-1).detail.instanceId, 'c'.repeat(32));
+assert.equal(ending.at(-1).detail.revision, 2);
+assert.equal(endInstance.value, 'c'.repeat(32), 'local cleanup must not clear fenced form fields');
+assert.equal(endRevision.value, '2');
+
+listeners.get('semyra:presence-updated')({detail: {transmission: null, requestStartedAt: 2100}});
+assert.equal(transmissionEvents().length, acceptedEventCount + 1,
+    'a newer presence observation remains authoritative');
+assert.equal(endInstance.value, '', 'newer authoritative presence clears fenced form fields');
+assert.equal(endRevision.value, '');
 console.log('room-shell instance tests passed');

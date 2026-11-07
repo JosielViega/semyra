@@ -12,13 +12,18 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         TimeSpan.FromSeconds(2),
         TimeSpan.FromSeconds(5),
     ];
-
+    private const int MaximumTransientStatusFailures = 8;
+    private static readonly TimeSpan PublishingConfirmationTimeout = TimeSpan.FromSeconds(18);
+    private static readonly TimeSpan StatusRequestTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan StatusPollInterval = TimeSpan.FromMilliseconds(400);
     private readonly Func<long, IptvPlaybackChannel> _resolveChannel;
     private readonly Func<string, long, IptvVodPlaybackTarget>? _resolveVod;
     private readonly IProviderStreamClient _provider;
     private readonly IMediaPipelineFactory _pipelines;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private readonly IDesktopPublishClient? _publishClient;
+    private readonly TimeSpan _ingressCleanupTimeout;
+    private readonly int _publishConfirmationMaximumPolls;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _snapshotLock = new();
     private CancellationTokenSource? _sessionCancellation;
@@ -38,7 +43,9 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         IMediaPipelineFactory pipelines,
         Func<TimeSpan, CancellationToken, Task>? delay = null,
         IDesktopPublishClient? publishClient = null,
-        Func<string, long, IptvVodPlaybackTarget>? resolveVod = null)
+        Func<string, long, IptvVodPlaybackTarget>? resolveVod = null,
+        TimeSpan? ingressCleanupTimeout = null,
+        int publishConfirmationMaximumPolls = 45)
     {
         _resolveChannel = resolveChannel;
         _resolveVod = resolveVod;
@@ -47,6 +54,8 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         _pipelines = pipelines;
         _delay = delay ?? Task.Delay;
         _publishClient = publishClient;
+        _ingressCleanupTimeout = ingressCleanupTimeout ?? TimeSpan.FromSeconds(5);
+        _publishConfirmationMaximumPolls = Math.Max(1, publishConfirmationMaximumPolls);
     }
 
     public GStreamerRuntime Runtime { get; }
@@ -114,14 +123,32 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
     {
         DesktopPublishLease? lease = null;
         HostAuthorization? attemptAuthorization = null;
+        var diagnosticStage = "vod_authorization";
         try
         {
             attemptAuthorization = ValidAuthorization(authorizationProvider);
+            Update(MediaState.Preparing, target.Id, target.Name, 1, null, "vod", target.Kind,
+                diagnosticCode: "vod_authorization_validated");
+            diagnosticStage = "vod_ingress";
             lease = await _publishClient!.StartAsync(attemptAuthorization, cancellationToken);
+            Update(MediaState.Preparing, target.Id, target.Name, 1, null, "vod", target.Kind,
+                diagnosticCode: "vod_ingress_created");
+            diagnosticStage = "vod_source";
             await using var source = await VodPublishSource.StartAsync(target.StreamUri, cancellationToken);
+            Update(MediaState.Preparing, target.Id, target.Name, 1, null, "vod", target.Kind,
+                diagnosticCode: "vod_source_ready");
+            diagnosticStage = "vod_probe";
             _ = await VodMediaProbe.InspectAsync(Runtime, source.LocalUri, cancellationToken);
+            Update(MediaState.Preparing, target.Id, target.Name, 1, null, "vod", target.Kind,
+                diagnosticCode: "vod_probe_ready");
+            diagnosticStage = "vod_pipeline";
             await using var pipeline = _pipelines.CreateVodPublish(source.LocalUri, lease.WhipEndpoint);
             await pipeline.StartAsync(cancellationToken);
+            Update(MediaState.Preparing, target.Id, target.Name, 1, null, "vod", target.Kind,
+                diagnosticCode: "vod_pipeline_started");
+            var completion = pipeline.WaitForExitAsync(cancellationToken);
+            diagnosticStage = "vod_ingress_confirmation";
+            await WaitForPublishingAsync(attemptAuthorization, lease.IngressId, completion, cancellationToken);
             var native = await pipeline.SnapshotAsync(cancellationToken);
             lock (_snapshotLock)
             {
@@ -129,9 +156,9 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
                 _activeVodAuthorization = attemptAuthorization;
             }
             var streaming = Update(MediaState.Streaming, target.Id, target.Name, 1, null, "vod", target.Kind,
-                native.SessionId, native.PositionMs / 1000d, native.DurationMs / 1000d, native.Seekable, native.State == "paused");
+                native.SessionId, native.PositionMs / 1000d, native.DurationMs / 1000d, native.Seekable, native.State == "paused",
+                "vod_ingress_publishing");
             ready.TrySetResult(streaming);
-            var completion = pipeline.WaitForExitAsync(cancellationToken);
             while (!completion.IsCompleted)
             {
                 await _delay(TimeSpan.FromSeconds(1), cancellationToken);
@@ -144,8 +171,9 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { ready.TrySetResult(Snapshot()); }
         catch (Exception exception)
         {
-            var code = exception is MediaEngineException media ? media.Code : "provider_connect_failed";
-            var failed = Update(MediaState.Failed, target.Id, target.Name, 1, code, "vod", target.Kind);
+            var code = ClassifyVodFailure(exception, diagnosticStage);
+            var failed = Update(MediaState.Failed, target.Id, target.Name, 1, code, "vod", target.Kind,
+                diagnosticCode: diagnosticStage + "_failed");
             ready.TrySetResult(failed);
         }
         finally
@@ -160,7 +188,9 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
                 try
                 {
                     var latest = authorizationProvider();
-                    await _publishClient!.StopAsync(latest is not null && SameContext(latest, attemptAuthorization) ? latest : attemptAuthorization, lease.IngressId, CancellationToken.None);
+                    await StopIngressAsync(
+                        latest is not null && SameContext(latest, attemptAuthorization) ? latest : attemptAuthorization,
+                        lease.IngressId);
                 }
                 catch { }
             }
@@ -276,6 +306,7 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
     {
         for (var attempt = 1; attempt <= ReconnectDelays.Length + 1; attempt++)
         {
+            var diagnosticStage = "live_authorization";
             try
             {
                 DesktopPublishLease? publishLease = null;
@@ -291,15 +322,22 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
                     if (mode == "publish")
                     {
                         attemptAuthorization = ValidAuthorization(authorizationProvider);
+                        diagnosticStage = "live_ingress";
                         publishLease = await _publishClient!.StartAsync(attemptAuthorization, attemptToken);
                     }
+                    diagnosticStage = "live_provider";
                     await using var providerStream = await _provider.OpenAsync(channel.StreamUri, attemptToken);
+                    diagnosticStage = "live_validation";
                     var initialBuffer = await MpegTsValidator.ReadAndValidateAsync(providerStream, attemptToken);
+                    diagnosticStage = "live_pipeline";
                     await using var pipeline = _pipelines.CreatePublish(publishLease!.WhipEndpoint);
                     await pipeline.StartAsync(initialBuffer, attemptToken);
-                    var streaming = Update(MediaState.Streaming, channel.Id, channel.Name, attempt, null);
-                    ready.TrySetResult(streaming);
                     var pump = pipeline.PumpAsync(providerStream, attemptToken);
+                    diagnosticStage = "live_ingress_confirmation";
+                    await WaitForPublishingAsync(attemptAuthorization!, publishLease.IngressId, pump, attemptToken);
+                    var streaming = Update(MediaState.Streaming, channel.Id, channel.Name, attempt, null,
+                        diagnosticCode: "live_ingress_publishing");
+                    ready.TrySetResult(streaming);
                     if (mode == "publish")
                     {
                         while (!pump.IsCompleted)
@@ -323,7 +361,9 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
                         try
                         {
                             var latest = authorizationProvider?.Invoke();
-                            await _publishClient!.StopAsync(latest is not null && SameContext(latest, attemptAuthorization) ? latest : attemptAuthorization, publishLease.IngressId, CancellationToken.None);
+                            await StopIngressAsync(
+                                latest is not null && SameContext(latest, attemptAuthorization) ? latest : attemptAuthorization,
+                                publishLease.IngressId);
                         }
                         catch { }
                     }
@@ -336,9 +376,7 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
             }
             catch (Exception exception)
             {
-                var code = exception is MediaEngineException mediaException
-                    ? mediaException.Code
-                    : "provider_connect_failed";
+                var code = ClassifyLiveFailure(exception, diagnosticStage);
                 if (code is "host_authorization_required" or "host_authorization_expired" or "transmission_changed"
                     || attempt > ReconnectDelays.Length)
                 {
@@ -358,6 +396,94 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
                 }
             }
         }
+    }
+
+    private async Task StopIngressAsync(HostAuthorization authorization, string ingressId)
+    {
+        using var timeout = new CancellationTokenSource(_ingressCleanupTimeout);
+        await _publishClient!.StopAsync(authorization, ingressId, timeout.Token);
+    }
+
+    private async Task WaitForPublishingAsync(
+        HostAuthorization authorization,
+        string ingressId,
+        Task pipelineLifetime,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(PublishingConfirmationTimeout);
+        var transientFailures = 0;
+        try
+        {
+            for (var poll = 0; poll < _publishConfirmationMaximumPolls; poll++)
+            {
+                if (pipelineLifetime.IsCompleted)
+                {
+                    await pipelineLifetime;
+                    throw new MediaEngineException("pipeline_exited");
+                }
+                DesktopPublishStatus status;
+                using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+                requestTimeout.CancelAfter(StatusRequestTimeout);
+                try
+                {
+                    status = await _publishClient!.StatusAsync(authorization, ingressId, requestTimeout.Token);
+                    transientFailures = 0;
+                }
+                catch (OperationCanceledException) when (!timeout.IsCancellationRequested)
+                {
+                    if (++transientFailures >= MaximumTransientStatusFailures)
+                        throw new MediaEngineException("ingress_status_request_failed");
+                    await _delay(StatusPollInterval, timeout.Token);
+                    continue;
+                }
+                catch (MediaEngineException exception) when (
+                    (exception.Code is "ingress_not_found" or "ingress_status_request_failed")
+                    && ++transientFailures < MaximumTransientStatusFailures)
+                {
+                    await _delay(StatusPollInterval, timeout.Token);
+                    continue;
+                }
+
+                if (status.State == "publishing") return;
+                if (status.State == "error") throw new MediaEngineException("ingress_publish_error");
+                if (status.State == "complete") throw new MediaEngineException("whip_publish_failed");
+                await _delay(StatusPollInterval, timeout.Token);
+            }
+            throw new MediaEngineException("ingress_publish_confirmation_timeout");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new MediaEngineException("ingress_publish_confirmation_timeout");
+        }
+    }
+
+    internal static string ClassifyVodFailure(Exception exception, string stage)
+    {
+        if (exception is MediaEngineException media) return media.Code;
+        return stage switch
+        {
+            "vod_ingress" => "ingress_create_failed",
+            "vod_source" => "vod_source_failed",
+            "vod_probe" => "vod_probe_failed",
+            "vod_pipeline" => "pipeline_start_failed",
+            "vod_ingress_confirmation" => "ingress_publish_confirmation_failed",
+            _ => "media_publish_failed",
+        };
+    }
+
+    internal static string ClassifyLiveFailure(Exception exception, string stage)
+    {
+        if (exception is MediaEngineException media) return media.Code;
+        return stage switch
+        {
+            "live_ingress" => "ingress_create_failed",
+            "live_provider" => "provider_connect_failed",
+            "live_validation" => "provider_stream_invalid",
+            "live_pipeline" => "pipeline_start_failed",
+            "live_ingress_confirmation" => "ingress_publish_confirmation_failed",
+            _ => "media_publish_failed",
+        };
     }
 
     private async Task StopSessionLockedAsync()
@@ -400,11 +526,12 @@ public sealed class MediaEngine : IDisposable, IAsyncDisposable
 
     private MediaSnapshot Update(MediaState state, long? channelId, string? channelName, int attempt, string? errorCode,
         string? mediaKind = null, string? vodContentKind = null, string? sessionId = null,
-        double position = 0, double duration = 0, bool seekable = false, bool paused = false)
+        double position = 0, double duration = 0, bool seekable = false, bool paused = false,
+        string? diagnosticCode = null)
     {
         var snapshot = new MediaSnapshot(state.ToString().ToLowerInvariant(), channelId, channelName, attempt, errorCode, _activeMode,
             SessionId: sessionId, Position: position, Duration: duration, Seekable: seekable,
-            MediaKind: mediaKind, Paused: paused, VodContentKind: vodContentKind);
+            MediaKind: mediaKind, Paused: paused, VodContentKind: vodContentKind, DiagnosticCode: diagnosticCode);
         lock (_snapshotLock)
         {
             _snapshot = snapshot;

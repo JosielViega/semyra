@@ -181,10 +181,40 @@ test('screen viewer exposes only sanitized reception milestones for manual diagn
         'viewer_livekit_transmission_detected', 'viewer_token_requested',
         'viewer_token_issued', 'viewer_livekit_connected',
         'viewer_video_track_discovered', 'viewer_video_element_attached',
+        'viewer_first_frame_observation_unavailable',
     ]);
     const serialized = JSON.stringify(harness.window.SemyraLiveKitDebug.getViewerDiagnostics());
     assert.equal(serialized.includes('secret-jwt'), false);
     assert.equal(serialized.includes('wss://'), false);
+});
+
+test('viewer reports audiovisual success only after a real video frame callback', async () => {
+    const harness = createHarness({debug: true});
+    await harness.controller.applyTransmission(iptv());
+    const room = harness.FakeRoom.instances[0];
+    const publisher = {identity: `smy_i_${'a'.repeat(32)}`};
+    const publication = {kind: 'video', source: 'camera', trackSid: 'TR_video'};
+    const video = element('video');
+    let firstFrameCallback = null;
+    video.requestVideoFrameCallback = (callback) => { firstFrameCallback = callback; };
+
+    room.emit(harness.sdk.RoomEvent.TrackSubscribed,
+        {kind: 'video', sid: 'TR_video', attach: () => video, detach() {}},
+        publication, publisher);
+
+    assert.match(harness.statusElement.textContent, /aguardando primeiro quadro/i);
+    assert.equal(harness.dispatched.some((event) => event.type === 'semyra:viewer-video-state'), false);
+    firstFrameCallback();
+
+    assert.equal(harness.statusElement.textContent, 'AO VIVO');
+    const frameEvent = harness.dispatched.find((event) => event.type === 'semyra:viewer-video-state');
+    assert.deepEqual(frameEvent.detail, {
+        stage: 'first_video_frame_observed',
+        transmissionInstanceId: 'a'.repeat(32),
+        transmissionRevision: 4,
+    });
+    assert.equal(harness.window.SemyraLiveKitDebug.getViewerDiagnostics().at(-1).phase,
+        'viewer_first_video_frame_observed');
 });
 
 test('screen audio attaches exactly once per publisher and track SID across duplicate and reconnect events', async () => {
@@ -302,7 +332,7 @@ test('filters exact publisher and attaches one video and one muted audio track',
     const video = element('video');
     const videoTrack = {kind: 'video', attach: () => video, detach() {}};
     room.emit(harness.sdk.RoomEvent.TrackSubscribed, videoTrack, {kind: 'video'}, expected);
-    assert.equal(harness.statusElement.textContent, 'AO VIVO');
+    assert.equal(harness.statusElement.textContent, 'Vídeo conectado; aguardando primeiro quadro…');
     const audio = element('audio');
     const audioTrack = {kind: 'audio', attach: () => audio, detach() {}};
     room.emit(harness.sdk.RoomEvent.TrackSubscribed, audioTrack, {kind: 'audio'}, expected);

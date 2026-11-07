@@ -294,17 +294,17 @@ $initialPlaying = ($transmission['playback']['state'] ?? 'playing') === 'playing
 
     <script src="/assets/js/room-media.js?v=10b21-instance" defer></script>
     <script src="/assets/js/room-player.js?v=10b21-instance" defer></script>
-    <script src="/assets/js/room-livekit-player.js?v=14f-volume-path" defer></script>
+    <script src="/assets/js/room-livekit-player.js?v=14k-publish-confirmation" defer></script>
     <script src="/assets/js/room-noise-suppression.js?v=12-2-rnnoise" defer></script>
     <script src="/assets/js/room-voice.js?v=14g-voice-isolation" defer></script>
     <script src="/assets/js/room-chat.js?v=12-chat-1" defer></script>
     <?php if (is_array($currentUser)): ?><script src="/assets/js/room-screen-share.js?v=13g-http-diagnostics" defer></script><?php endif; ?>
-    <script src="/assets/js/room-desktop-host.js?v=14d-local-stop" defer></script>
-    <script src="/assets/js/room-desktop-iptv.js?v=13g-http-diagnostics" defer></script>
+    <script src="/assets/js/room-desktop-host.js?v=14l-room-lifecycle" defer></script>
+    <script src="/assets/js/room-desktop-iptv.js?v=14m-owner-presence" defer></script>
     <script src="/assets/js/room-share.js?v=8b-identity" defer></script>
     <?php if ($debug): ?><script src="/assets/js/room-telemetry.js?v=8b-identity" defer></script><?php endif; ?>
     <script src="/assets/js/room-playback.js?v=11m-c-vod-controls-r7" defer></script>
-    <script src="/assets/js/room-shell.js?v=14d-local-stop" defer></script>
+    <script src="/assets/js/room-shell.js?v=14k-publish-confirmation" defer></script>
     <script src="/assets/js/room-wake-lock.js?v=8b-identity" defer></script>
     <script src="/assets/js/room-presence.js?v=11n-screen-r3-6" defer></script>
 <?php endif; ?>

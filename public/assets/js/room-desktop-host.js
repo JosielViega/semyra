@@ -23,6 +23,7 @@
     let renewalTimer = null;
     let retryCount = 0;
     let retryContext = null;
+    let endCleanupContext = null;
     const safeHostSessionErrors = new Set([
         'premium_required', 'livekit_unavailable', 'host_session_expired',
         'transmission_changed', 'ingress_create_failed', 'publish_failed',
@@ -33,6 +34,17 @@
     const cancelScheduled = typeof window.clearTimeout === 'function'
         ? (timer) => window.clearTimeout(timer)
         : () => {};
+    const nativeAuthorizationContext = (snapshot) => {
+        const authorization = snapshot?.authorization;
+        return authorization?.authorized === true
+            && authorization.permission === 'media.publish'
+            && typeof authorization.transmissionInstanceId === 'string'
+            && /^[a-f0-9]{32}$/.test(authorization.transmissionInstanceId)
+            && Number.isSafeInteger(authorization.transmissionRevision)
+            && authorization.transmissionRevision > 0
+            ? `${authorization.transmissionInstanceId}:${authorization.transmissionRevision}`
+            : null;
+    };
 
     const existingHost = typeof window.SemyraDesktopBridge?.getHostSnapshot === 'function'
         ? window.SemyraDesktopBridge.getHostSnapshot()
@@ -40,6 +52,8 @@
     hostReady = existingHost?.state === 'ready'
         && Array.isArray(existingHost?.capabilities)
         && existingHost.capabilities.includes('host.authorize');
+
+    if (hostReady) activeContext = nativeAuthorizationContext(existingHost);
 
     const contextKey = (value) => `${value.instanceId}:${value.revision}`;
     const contextDetail = (key) => {
@@ -51,6 +65,12 @@
             && Number.isSafeInteger(transmissionRevision) && transmissionRevision > 0
             ? {transmissionInstanceId, transmissionRevision}
             : null;
+    };
+    const emitContextEvent = (type, key, detail = {}) => {
+        const context = contextDetail(key);
+        if (context !== null) {
+            window.dispatchEvent(new CustomEvent(type, {detail: {...context, ...detail}}));
+        }
     };
     const eligible = (value) => value?.source === 'iptv'
         && ['live', 'vod'].includes(value?.mediaMode)
@@ -105,12 +125,15 @@
 
         const requestGeneration = ++generation;
         requestedContext = key;
+        emitContextEvent('semyra:host-session-stage', key, {stage: 'host_session_requested'});
         const body = new URLSearchParams({
             _token: csrfToken,
             transmission_instance_id: transmission.instanceId,
             transmission_revision: String(transmission.revision),
         });
 
+        let terminalErrorReported = false;
+        let retryable = true;
         try {
             const response = await fetch(endpoint, {
                 method: 'POST',
@@ -130,14 +153,10 @@
                 || payload.transmission_revision !== transmission.revision
                 || typeof payload.expires_at !== 'string') {
                 if (safeHostSessionErrors.has(payload?.error)) {
-                    window.dispatchEvent(new CustomEvent('semyra:host-session-error', {
-                        detail: {
-                            errorCode: payload.error,
-                            transmissionInstanceId: transmission.instanceId,
-                            transmissionRevision: transmission.revision,
-                        },
-                    }));
+                    emitContextEvent('semyra:host-session-error', key, {errorCode: payload.error});
+                    terminalErrorReported = true;
                 }
+                retryable = false;
                 throw new Error('Invalid Host Session response.');
             }
 
@@ -145,6 +164,7 @@
             requestedContext = null;
             retryCount = 0;
             retryContext = null;
+            emitContextEvent('semyra:host-session-stage', key, {stage: 'host_session_received'});
             window.dispatchEvent(new CustomEvent('semyra:host-authorization-request', {
                 detail: {
                     hostSessionToken: payload.host_session_token,
@@ -155,6 +175,7 @@
                     expiresAt: payload.expires_at,
                 },
             }));
+            emitContextEvent('semyra:host-session-stage', key, {stage: 'desktop_authorization_requested'});
             const renewIn = Math.max(1000, Date.parse(payload.expires_at) - Date.now() - 60000);
             renewalTimer = schedule(() => {
                 if (activeContext === key) {
@@ -165,12 +186,31 @@
         } catch {
             if (requestGeneration === generation) {
                 requestedContext = null;
+                if (!retryable) {
+                    retryAfter = 0;
+                    retryCount = 0;
+                    retryContext = null;
+                    if (!terminalErrorReported) {
+                        emitContextEvent('semyra:host-session-error', key, {errorCode: 'host_session_invalid_response'});
+                    }
+                    return;
+                }
                 retryCount += 1;
                 retryContext = key;
                 const delay = [5000, 15000, 30000][Math.min(retryCount - 1, 2)];
                 retryAfter = Date.now() + delay;
                 if (retryCount <= 3) {
+                    emitContextEvent('semyra:host-session-retry', key, {
+                        errorCode: 'host_session_request_failed',
+                        retryAttempt: retryCount,
+                        retryDelayMs: delay,
+                    });
                     renewalTimer = schedule(() => { void apply(); }, delay);
+                } else {
+                    retryAfter = 0;
+                    retryCount = 0;
+                    retryContext = null;
+                    emitContextEvent('semyra:host-session-error', key, {errorCode: 'host_session_request_failed'});
                 }
             }
         }
@@ -180,10 +220,13 @@
         hostReady = event.detail?.state === 'ready'
             && Array.isArray(event.detail?.capabilities)
             && event.detail.capabilities.includes('host.authorize');
+        if (hostReady && requestedContext === null && activeContext === null) {
+            activeContext = nativeAuthorizationContext(event.detail);
+        }
         void apply();
     });
 
-    document.addEventListener('semyra:presence-updated', (event) => {
+    document.addEventListener('semyra:transmission-updated', (event) => {
         transmission = event.detail?.transmission ?? null;
         void apply();
     });
@@ -191,15 +234,17 @@
         if (!eligible(transmission)
             || event.detail?.instanceId !== transmission.instanceId
             || event.detail?.revision !== transmission.revision) return;
+        endCleanupContext = contextKey(transmission);
         transmission = null;
         void apply();
     });
-    window.addEventListener('semyra:transmission-updated', (event) => {
-        transmission = event.detail ?? null;
-        void apply();
+    window.addEventListener('semyra:host-cleared', (event) => {
+        if (event.detail?.cleared !== true || endCleanupContext === null) return;
+        const clearedContext = `${event.detail?.transmissionInstanceId}:${event.detail?.transmissionRevision}`;
+        if (clearedContext === endCleanupContext) endCleanupContext = null;
     });
     window.addEventListener('pagehide', () => {
-        if (eligible(transmission)) {
+        if (eligible(transmission) || endCleanupContext !== null) {
             window.dispatchEvent(new CustomEvent('semyra:host-leave-request'));
         }
     });

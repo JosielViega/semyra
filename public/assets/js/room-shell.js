@@ -36,6 +36,7 @@
     let hideTimer = null;
     let currentTransmission = null;
     let hasAppliedTransmission = false;
+    let latestLocalAcceptanceAt = null;
     let playbackInteraction = false;
     let localControlInteraction = false;
     let desktopDetected = false;
@@ -338,7 +339,20 @@
     };
 
     document.addEventListener('semyra:presence-updated', (event) => {
+        const requestStartedAt = event.detail?.requestStartedAt;
+        if (latestLocalAcceptanceAt !== null
+            && Number.isFinite(requestStartedAt)
+            && requestStartedAt <= latestLocalAcceptanceAt) return;
+        if (latestLocalAcceptanceAt !== null && Number.isFinite(requestStartedAt)) {
+            latestLocalAcceptanceAt = null;
+        }
         applyTransmission(event.detail?.transmission ?? null, event.detail?.requestStartedAt ?? null);
+    });
+    document.addEventListener('semyra:transmission-accepted', (event) => {
+        const acceptedAt = Number(event.detail?.acceptedAt);
+        if (!Number.isFinite(acceptedAt)) return;
+        latestLocalAcceptanceAt = acceptedAt;
+        applyTransmission(event.detail?.transmission ?? null, acceptedAt);
     });
 
     const initialRevision = Number(shell.dataset.initialRevision);

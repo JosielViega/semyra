@@ -892,6 +892,7 @@
                 channelName: typeof message.channelName === 'string' ? message.channelName.slice(0, 240) : null,
                 attempt: Number.isSafeInteger(message.attempt) && message.attempt >= 0 ? message.attempt : 0,
                 errorCode: typeof message.errorCode === 'string' ? message.errorCode.slice(0, 64) : null,
+                diagnosticCode: typeof message.diagnosticCode === 'string' ? message.diagnosticCode.slice(0, 64) : null,
                 mode: ['publish', 'view'].includes(message.mode) ? message.mode : 'local',
                 playbackKind: message.playbackKind === 'native-mpv' ? 'native-mpv' : null,
                 sessionId: typeof message.sessionId === 'string' && /^[a-f0-9]{32}$/.test(message.sessionId) ? message.sessionId : null,
