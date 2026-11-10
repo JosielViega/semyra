@@ -4,25 +4,38 @@ namespace Semyra.Desktop.Desktop;
 
 public sealed record SemyraWebConfiguration(Uri BaseUri, string UserDataFolder)
 {
+    public const string OfficialReleaseUrl = "https://semyra.jzlcode.com.br/";
+    internal const string LocalDevelopmentUrl = "http://localhost:8010/";
+
     public static SemyraWebConfiguration Load()
     {
         var configuredUrl = Environment.GetEnvironmentVariable("SEMYRA_DESKTOP_URL");
 
 #if DEBUG
-        const string defaultUrl = "http://localhost:8010/";
-        const bool allowLocalHttp = true;
-#else
-        const string? defaultUrl = null;
-        const bool allowLocalHttp = false;
-#endif
-
-        return Create(
+        return CreateForBuild(
+            developmentBuild: true,
             configuredUrl,
             Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER"),
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            allowLocalHttp,
-            defaultUrl);
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+#else
+        return CreateForBuild(
+            developmentBuild: false,
+            configuredUrl,
+            Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER"),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+#endif
     }
+
+    internal static SemyraWebConfiguration CreateForBuild(
+        bool developmentBuild,
+        string? configuredUrl,
+        string? configuredFolder,
+        string localApplicationData) => Create(
+            developmentBuild ? configuredUrl : null,
+            configuredFolder,
+            localApplicationData,
+            allowLocalHttp: developmentBuild,
+            defaultUrl: developmentBuild ? LocalDevelopmentUrl : OfficialReleaseUrl);
 
     internal static SemyraWebConfiguration Create(
         string? configuredUrl,
@@ -35,7 +48,7 @@ public sealed record SemyraWebConfiguration(Uri BaseUri, string UserDataFolder)
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new InvalidOperationException(
-                "Configure SEMYRA_DESKTOP_URL com a URL HTTPS do Semyra antes de iniciar a aplicação.");
+                "A origem web do Semyra Desktop não está configurada.");
         }
 
         if (!NavigationPolicy.TryCreateBaseUri(value, allowLocalHttp, out var baseUri) || baseUri is null)

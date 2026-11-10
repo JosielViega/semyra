@@ -21,7 +21,7 @@ Fundação Windows do Semyra: uma janela WPF hospeda o aplicativo web existente 
 - GStreamer nativo Windows MSVC x64 com `whipsink` e os plugins exigidos para publicação WHIP/LiveKit;
 - uma instância acessível do Semyra web.
 
-O projeto usa `net10.0-windows`, WPF, `Microsoft.Web.WebView2` 1.0.4258.31 e `Microsoft.Data.Sqlite` 10.0.12. Não é self-contained e não produz instalador nesta etapa.
+O projeto usa `net10.0-windows`, WPF, `Microsoft.Web.WebView2` 1.0.4258.31 e `Microsoft.Data.Sqlite` 10.0.12. A publicação oficial é self-contained para `win-x64`, multi-file, sem trimming, Native AOT ou ReadyToRun. O WebView2 Evergreen continua sendo pré-requisito externo. Esta fundação ainda não produz instalador.
 
 ## Build e execução
 
@@ -38,11 +38,23 @@ $env:SEMYRA_DESKTOP_URL = 'https://semyra.example/'
 dotnet run --project desktop\src\Semyra.Desktop\Semyra.Desktop.csproj
 ```
 
-Release não possui URL implícita e exige `SEMYRA_DESKTOP_URL` HTTPS. HTTP é aceito somente para `localhost` e `127.0.0.1` em Debug. Navegações externas abrem no navegador padrão.
+Release usa de forma fixa `https://semyra.jzlcode.com.br/` e ignora `SEMYRA_DESKTOP_URL`, impedindo que uma origem arbitrária obtenha o DesktopBridge. Em Debug, a ausência da variável usa `http://localhost:8010/`; HTTP continua aceito somente para `localhost` e `127.0.0.1`. Navegações externas abrem no navegador padrão e mensagens de outras origens são ignoradas.
+
+## Publicação Windows
+
+O perfil `WindowsX64` e o script `desktop/scripts/Publish-WindowsRelease.ps1` geram o Release oficial isolado em `storage/cache/releases/`. A saída contém `Semyra.Desktop.exe`, `Semyra.MediaHost.exe` e o runtime .NET 10 x64 compatível, sem misturar builds anteriores:
+
+```powershell
+desktop\scripts\Publish-WindowsRelease.ps1
+```
+
+O script recusa uma pasta de saída não vazia, dados locais e runtimes de mídia, e exige `WinRT.Runtime.dll`, dependência gerenciada do `WebView2CompositionControl` que precisa ser incluída explicitamente no publish self-contained. `desktop/scripts/Test-WindowsRelease.ps1` diferencia Desktop, WebView2, MPV, GStreamer, `whipsink`, MediaHost, configuração online e runtime .NET self-contained sem instalar componentes, alterar `PATH`, Registro ou firewall.
+
+MPV e GStreamer permanecem deliberadamente ausentes da distribuição 15B enquanto origem, licenças e obrigações de redistribuição não forem decididas. Para validação local, um launcher ignorado pode apontar para os runtimes já aprovados no ambiente de desenvolvimento; eles não são copiados para o Release.
 
 ### Ambiente online HostGator
 
-A origem oficial é configurada explicitamente por processo, sem alterar variáveis globais do Windows:
+A origem oficial já é incorporada ao build Release. Launchers antigos ainda podem definir a variável para builds de diagnóstico anteriores, mas o Release oficial não depende dela:
 
 ```powershell
 $env:SEMYRA_DESKTOP_URL = 'https://semyra.jzlcode.com.br/'

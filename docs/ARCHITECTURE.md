@@ -1,5 +1,11 @@
 # Arquitetura
 
+## Distribuição Windows
+
+O Release oficial do Semyra Desktop é `win-x64`, .NET 10 self-contained e multi-file, sem trimming, Native AOT ou ReadyToRun. `Semyra.Desktop.exe` e `Semyra.MediaHost.exe` são publicados juntos e compartilham a mesma entrega atômica. A origem Release é fixa em `https://semyra.jzlcode.com.br/`; apenas builds Debug aceitam `SEMYRA_DESKTOP_URL`, com HTTP limitado a loopback. A política WebView2 permite somente o mesmo scheme, host e port e rejeita mensagens DesktopBridge de outras origens.
+
+WebView2 Evergreen permanece um pré-requisito externo. Dados, SQLite, perfis IPTV, credenciais DPAPI e o perfil WebView2 continuam em `%LOCALAPPDATA%\Semyra` e nunca integram o diretório publicado. Runtimes nativos futuros seguem `runtime/mpv` e `runtime/gstreamer`, mas a fundação 15B não os redistribui enquanto as decisões de licença do MPV e de `x264enc` estiverem pendentes. Nenhum fluxo requer regra Inbound, mudança global de `PATH` ou alteração no Registro.
+
 ## Publicação IPTV pelo Desktop
 
 A publicação IPTV em sala exige `users.is_premium = 1`. `PremiumAccess` centraliza a decisão e o backend a aplica antes de criar/substituir a transmissão, antes de emitir a Host Session e novamente no `DesktopMediaPublishService` antes de tocar o LiveKit. Essa última verificação bloqueia uma sessão emitida antes de downgrade. O stop não exige Premium, portanto uma publicação existente sempre pode ser encerrada. YouTube, viewers e `provider → MPV` local não passam por esse gate.

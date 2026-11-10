@@ -6,6 +6,7 @@ Todas as mudanças relevantes do Semyra serão documentadas aqui.
 
 ### Added
 
+- Fundação de Release Windows `win-x64` com .NET 10 self-contained multi-file, origem oficial fixa e protegida, MediaHost publicado em conjunto, metadados `0.15.0-preview.1`, perfil/script reprodutível e diagnóstico somente leitura. MPV e GStreamer permanecem fora do artefato até a decisão de licenciamento.
 - O Desktop agora possui preparação explícita e isolada para a origem HTTPS oficial: perfis WebView2 Local/Online independentes, launcher ONLINE com `--check-only` e descoberta configurada de GStreamer também em Release, sem alterar o SQLite/DPAPI da IPTV.
 
 ### Fixed

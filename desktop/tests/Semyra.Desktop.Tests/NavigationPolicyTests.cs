@@ -25,6 +25,17 @@ public sealed class NavigationPolicyTests
         Assert.False(policy.IsAllowed(new Uri("http://semyra.jzlcode.com.br/")));
     }
 
+    [Fact]
+    public void DesktopBridgeSourcePolicyRejectsEveryDifferentOrigin()
+    {
+        var policy = new NavigationPolicy(new Uri(SemyraWebConfiguration.OfficialReleaseUrl));
+
+        Assert.True(policy.IsAllowed(new Uri("https://semyra.jzlcode.com.br/room/ABC")));
+        Assert.False(policy.IsAllowed(new Uri("https://semyra.jzlcode.com.br.evil.example/room/ABC")));
+        Assert.False(policy.IsAllowed(new Uri("https://semyra.jzlcode.com.br:8443/room/ABC")));
+        Assert.False(policy.IsAllowed(new Uri("http://semyra.jzlcode.com.br/room/ABC")));
+    }
+
     [Theory]
     [InlineData("http://localhost:8010/")]
     [InlineData("http://127.0.0.1:8010/room/ABC")]

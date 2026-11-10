@@ -18,6 +18,42 @@ public sealed class SemyraWebConfigurationTests
     }
 
     [Fact]
+    public void OfficialReleaseUsesPinnedProductionOriginWithoutEnvironmentConfiguration()
+    {
+        var result = SemyraWebConfiguration.CreateForBuild(
+            developmentBuild: false,
+            configuredUrl: null,
+            configuredFolder: "C:\\profiles\\release",
+            localApplicationData: "C:\\local");
+
+        Assert.Equal(SemyraWebConfiguration.OfficialReleaseUrl, result.BaseUri.AbsoluteUri);
+    }
+
+    [Fact]
+    public void OfficialReleaseIgnoresArbitraryEnvironmentOrigin()
+    {
+        var result = SemyraWebConfiguration.CreateForBuild(
+            developmentBuild: false,
+            configuredUrl: "https://attacker.example/",
+            configuredFolder: "C:\\profiles\\release",
+            localApplicationData: "C:\\local");
+
+        Assert.Equal(SemyraWebConfiguration.OfficialReleaseUrl, result.BaseUri.AbsoluteUri);
+    }
+
+    [Fact]
+    public void DevelopmentBuildDefaultsToLocalhost()
+    {
+        var result = SemyraWebConfiguration.CreateForBuild(
+            developmentBuild: true,
+            configuredUrl: null,
+            configuredFolder: "C:\\profiles\\local",
+            localApplicationData: "C:\\local");
+
+        Assert.Equal(SemyraWebConfiguration.LocalDevelopmentUrl, result.BaseUri.AbsoluteUri);
+    }
+
+    [Fact]
     public void AcceptsExplicitProductionHttpsOrigin()
     {
         var result = SemyraWebConfiguration.Create(
@@ -31,7 +67,7 @@ public sealed class SemyraWebConfigurationTests
     }
 
     [Fact]
-    public void ReleaseConfigurationRequiresExplicitUrl()
+    public void MissingOriginIsRejectedByLowLevelConfiguration()
     {
         Assert.Throws<InvalidOperationException>(() => SemyraWebConfiguration.Create(
             configuredUrl: null,
