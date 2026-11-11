@@ -438,27 +438,96 @@ public sealed class ScreenPipelineTests
     public async Task PreviewTimeoutIsSanitizedAndDoesNotPersistContent()
     {
         var target = ScreenCaptureTargetRegistry.Create("monitor", "Sensitive title", 1920, 1080, (nint)123);
+        using var captureStarted = new ManualResetEventSlim();
+        using var releaseCapture = new ManualResetEventSlim();
+        using var captureFinished = new ManualResetEventSlim();
+        var captureCount = 0;
+        var stale = new ScreenPreviewResult("data:image/jpeg;base64,c3RhbGU=", 400, 225);
+        var fresh = new ScreenPreviewResult("data:image/jpeg;base64,ZnJlc2g=", 400, 225);
         var preview = new ScreenPreviewCapture(
-            _ => { Thread.Sleep(100); return new ScreenPreviewResult("data:image/jpeg;base64,ZmFrZQ==", 400, 225); },
-            TimeSpan.FromMilliseconds(10));
+            _ =>
+            {
+                if (Interlocked.Increment(ref captureCount) > 1) return fresh;
+                captureStarted.Set();
+                try
+                {
+                    if (!releaseCapture.Wait(TimeSpan.FromSeconds(10)))
+                        throw new InvalidOperationException("Timed out waiting for the test capture release.");
+                    return stale;
+                }
+                finally
+                {
+                    captureFinished.Set();
+                }
+            },
+            TimeSpan.FromMilliseconds(250));
 
-        var error = await Assert.ThrowsAsync<ScreenPublisherException>(() =>
-            preview.CaptureAsync(target, CancellationToken.None));
+        var captureTask = preview.CaptureAsync(target, CancellationToken.None);
+        try
+        {
+            Assert.True(captureStarted.Wait(TimeSpan.FromSeconds(10)), "The test capture did not start.");
+            var error = await Assert.ThrowsAsync<ScreenPublisherException>(() => captureTask);
 
-        Assert.Equal("screen_preview_timeout", error.Code);
-        Assert.DoesNotContain("Sensitive", error.ToString(), StringComparison.Ordinal);
+            Assert.Equal("screen_preview_timeout", error.Code);
+            Assert.DoesNotContain("Sensitive", error.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            releaseCapture.Set();
+            Assert.True(captureFinished.Wait(TimeSpan.FromSeconds(10)), "The timed-out test capture did not finish.");
+        }
+
+        using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var next = await preview.CaptureAsync(target, cleanupTimeout.Token);
+        Assert.Equal(fresh, next);
+        Assert.Equal(2, captureCount);
     }
 
     [Fact]
     public async Task PreviewHonorsCancellationWithoutReturningStaleImage()
     {
         var target = ScreenCaptureTargetRegistry.Create("window", "Window", 1280, 720, (nint)456);
+        using var captureStarted = new ManualResetEventSlim();
+        using var releaseCapture = new ManualResetEventSlim();
+        using var captureFinished = new ManualResetEventSlim();
+        var captureCount = 0;
+        var stale = new ScreenPreviewResult("data:image/jpeg;base64,c3RhbGU=", 400, 225);
+        var fresh = new ScreenPreviewResult("data:image/jpeg;base64,ZnJlc2g=", 400, 225);
         var preview = new ScreenPreviewCapture(
-            _ => { Thread.Sleep(100); return new ScreenPreviewResult("data:image/jpeg;base64,ZmFrZQ==", 400, 225); });
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(10));
+            _ =>
+            {
+                if (Interlocked.Increment(ref captureCount) > 1) return fresh;
+                captureStarted.Set();
+                try
+                {
+                    if (!releaseCapture.Wait(TimeSpan.FromSeconds(10)))
+                        throw new InvalidOperationException("Timed out waiting for the test capture release.");
+                    return stale;
+                }
+                finally
+                {
+                    captureFinished.Set();
+                }
+            });
+        using var cancellation = new CancellationTokenSource();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            preview.CaptureAsync(target, cancellation.Token));
+        var captureTask = preview.CaptureAsync(target, cancellation.Token);
+        try
+        {
+            Assert.True(captureStarted.Wait(TimeSpan.FromSeconds(10)), "The test capture did not start.");
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => captureTask);
+        }
+        finally
+        {
+            releaseCapture.Set();
+            Assert.True(captureFinished.Wait(TimeSpan.FromSeconds(10)), "The canceled test capture did not finish.");
+        }
+
+        using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var next = await preview.CaptureAsync(target, cleanupTimeout.Token);
+        Assert.Equal(fresh, next);
+        Assert.Equal(2, captureCount);
     }
 
     private static HostAuthorization Authorization() => new(
